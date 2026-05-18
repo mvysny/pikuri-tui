@@ -17,3 +17,14 @@ gem "zeitwerk", "~> 2.7"
 # checkout for now; swap to the released gem (or git source) once a
 # compatible version is published.
 gem "pikuri", path: "../pikuri"
+
+group :test do
+  # Test runner. We use the rspec-core describe/it harness but write
+  # assertions in minitest style — see CLAUDE.md. Matches pikuri's
+  # convention so the two codebases read side-by-side.
+  gem "rspec-core", "~> 3.13"
+
+  # Provides the minitest-style assertion methods (assert_equal,
+  # assert_includes, refute, …) used throughout spec/.
+  gem "minitest", "~> 6.0"
+end

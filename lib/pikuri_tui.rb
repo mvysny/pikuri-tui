@@ -10,6 +10,13 @@ require 'zeitwerk'
 # the event loop).
 module PikuriTui
   loader = Zeitwerk::Loader.for_gem
+  # +CountingLogIO+ pairs with +Tuile::Component::LogWindow::IO+; the
+  # default camelizer would resolve +counting_log_io.rb+ to +CountingLogIo+
+  # and the all-caps reads naturally next to Tuile's own +IO+. Zeitwerk's
+  # inflector matches the *whole* basename rather than per-segment, so
+  # the mapping has to spell the full word — segment-only rules like
+  # +'io' => 'IO'+ aren't consulted.
+  loader.inflector.inflect('counting_log_io' => 'CountingLogIO')
   loader.setup
   loader.eager_load
 end

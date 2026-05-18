@@ -25,6 +25,7 @@ GEM
     dentaku (3.5.7)
       bigdecimal
       concurrent-ruby
+    drb (2.2.3)
     event_stream_parser (1.0.0)
     faraday (2.14.2)
       faraday-net_http (>= 2.0, < 3.5)
@@ -43,6 +44,9 @@ GEM
       rexml (>= 3.4.4)
     logger (1.7.0)
     marcel (1.1.0)
+    minitest (6.0.6)
+      drb (~> 2.0)
+      prism (~> 1.5)
     multipart-post (2.4.1)
     net-http (0.9.1)
       uri (>= 0.11.1)
@@ -70,12 +74,16 @@ GEM
       hashery (~> 2.0)
       ruby-rc4
       ttfunk
+    prism (1.9.0)
     racc (1.8.1)
     rainbow (3.1.1)
     reverse_markdown (3.0.2)
       nokogiri
     rexml (3.4.4)
     rouge (4.7.0)
+    rspec-core (3.13.6)
+      rspec-support (~> 3.13.0)
+    rspec-support (3.13.7)
     ruby-rc4 (0.1.5)
     ruby-readability (0.7.3)
       guess_html_encoding (>= 0.0.4)
@@ -133,7 +141,9 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
+  minitest (~> 6.0)
   pikuri!
+  rspec-core (~> 3.13)
   tuile
   zeitwerk (~> 2.7)
 
@@ -144,6 +154,7 @@ CHECKSUMS
   bigdecimal (3.3.1) sha256=eaa01e228be54c4f9f53bf3cc34fe3d5e845c31963e7fcc5bedb05a4e7d52218
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
   dentaku (3.5.7) sha256=8d15a4a801ac8e1491dd2842bb76e38dd2794e9c8aa0f6e06f59d7ec62727db0
+  drb (2.2.3) sha256=0b00d6fdb50995fe4a45dea13663493c841112e4068656854646f418fda13373
   event_stream_parser (1.0.0) sha256=a2683bab70126286f8184dc88f7968ffc4028f813161fb073ec90d171f7de3c8
   faraday (2.14.2) sha256=73ccb9994a9e8648f010e32eca2ae82e41c57860aa10932cda29418b9e0223ad
   faraday-multipart (1.2.0) sha256=7d89a949693714176f612323ca13746a2ded204031a6ba528adee788694ef757
@@ -155,6 +166,7 @@ CHECKSUMS
   kramdown (2.5.2) sha256=1ba542204c66b6f9111ff00dcc26075b95b220b07f2905d8261740c82f7f02fa
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   marcel (1.1.0) sha256=fdcfcfa33cc52e93c4308d40e4090a5d4ea279e160a7f6af988260fa970e0bee
+  minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
   multipart-post (2.4.1) sha256=9872d03a8e552020ca096adadbf5e3cb1cd1cdd6acd3c161136b8a5737cdb4a8
   net-http (0.9.1) sha256=25ba0b67c63e89df626ed8fac771d0ad24ad151a858af2cc8e6a716ca4336996
   nokogiri (1.19.3-aarch64-linux-gnu) sha256=46b89e5d7b9e844c2ee360794240c6ea2a4e6fa0c5892a4ed487db621224b639
@@ -168,11 +180,14 @@ CHECKSUMS
   pastel (0.8.0) sha256=481da9fb7d2f6e6b1a08faf11fa10363172dc40fd47848f096ae21209f805a75
   pdf-reader (2.15.1) sha256=18c6a986a84a3117fa49f4279fc2de51f5d2399b71833df5d2bccd595c7068ce
   pikuri (0.0.2)
+  prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
   racc (1.8.1) sha256=4a7f6929691dbec8b5209a0b373bc2614882b55fc5d2e447a21aaa691303d62f
   rainbow (3.1.1) sha256=039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a
   reverse_markdown (3.0.2) sha256=818ebb92ce39dbb1a291690dd1ec9a6d62530d4725296b17e9c8f668f9a5b8af
   rexml (3.4.4) sha256=19e0a2c3425dfbf2d4fc1189747bdb2f849b6c5e74180401b15734bc97b5d142
   rouge (4.7.0) sha256=dba5896715c0325c362e895460a6d350803dbf6427454f49a47500f3193ea739
+  rspec-core (3.13.6) sha256=a8823c6411667b60a8bca135364351dda34cd55e44ff94c4be4633b37d828b2d
+  rspec-support (3.13.7) sha256=0640e5570872aafefd79867901deeeeb40b0c9875a36b983d85f54fb7381c47c
   ruby-rc4 (0.1.5) sha256=00cc40a39d20b53f5459e7ea006a92cf584e9bc275e2a6f7aa1515510e896c03
   ruby-readability (0.7.3) sha256=bd213fab037118cc15d999e167a8ea2cc6b689dc78c033e78fb36a2a37efc241
   ruby_llm (1.15.0) sha256=ca207465bca1cca007010a79fce500d4012b1fbe188b025040cd37b884fb98af
