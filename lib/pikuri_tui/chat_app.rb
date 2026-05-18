@@ -87,6 +87,7 @@ module PikuriTui
       @screen.on_error = method(:on_screen_error)
       @screen.content = @layout
       @screen.focused = @input
+      register_shortcuts
     end
 
     # Runs the Tuile event loop, blocking the calling thread until the
@@ -132,10 +133,26 @@ module PikuriTui
 
       @layout = ChatLayout.new(
         conversation: @conversation_window,
-        input: @input_window,
-        on_log: method(:open_log_popup),
-        on_cancel: method(:cancel_turn)
+        input: @input_window
       )
+    end
+
+    # Wire app-level keyboard shortcuts on the screen. Both bypass the
+    # cursor-owner suppression that would otherwise let the focused
+    # {ChatInput} swallow them.
+    #
+    # - +Ctrl+L+ opens the log popup. +over_popups: false+ so the binding
+    #   is suppressed while the popup is already open (the popup gets
+    #   the key normally; {LogWindow} ignores it).
+    # - +Ctrl+C+ cancels the in-flight agent turn. +over_popups: true+
+    #   so "stop what you're doing" works even with the log popup open
+    #   — the user's expectation that Ctrl+C interrupts a running turn
+    #   shouldn't depend on which window happens to be on top.
+    #
+    # @return [void]
+    def register_shortcuts
+      @screen.register_global_shortcut(Tuile::Keys::CTRL_L) { open_log_popup }
+      @screen.register_global_shortcut(Tuile::Keys::CTRL_C, over_popups: true) { cancel_turn }
     end
 
     # Routes every pikuri / Tuile log line — and any exception trapped
