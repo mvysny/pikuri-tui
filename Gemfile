@@ -4,8 +4,11 @@ source "https://rubygems.org"
 
 ruby ">= 3.4"
 
-# Component-oriented terminal UI framework.
-gem "tuile"
+# Component-oriented terminal UI framework. Pinned to a local checkout
+# alongside this project (and pikuri) so changes in the UI framework can be
+# co-developed without a release dance; swap to the released gem once the
+# shared API has stabilized.
+gem "tuile", path: "../tuile"
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/pikuri_tui/ declares exactly the constant matching

@@ -46,9 +46,9 @@ RSpec.describe PikuriTui::ChatApp do
     assert_kind_of PikuriTui::TuileListener, @listener
   end
 
-  it 'starts with no errors logged and a discoverable "logs (l)" status hint' do
+  it 'starts with no errors logged and a discoverable "logs (^L)" status hint' do
     app
-    assert_equal 'logs (l)', conversation_footer_text
+    assert_equal 'logs (^L)', conversation_footer_text
   end
 
   it 'shows "⚠ logs (N)" when an error is logged through Tuile.logger' do
@@ -71,11 +71,11 @@ RSpec.describe PikuriTui::ChatApp do
     Tuile.logger.error('boom')
     assert_equal '⚠ logs (1)', conversation_footer_text
 
-    # Open the popup directly — same dispatch path as pressing 'l'.
+    # Open the popup directly — same dispatch path as pressing Ctrl+L.
     log_popup = app.instance_variable_get(:@log_popup)
     log_popup.open
     log_popup.close
-    assert_equal 'logs (l)', conversation_footer_text
+    assert_equal 'logs (^L)', conversation_footer_text
   end
 
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do

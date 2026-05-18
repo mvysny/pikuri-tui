@@ -7,12 +7,20 @@ module PikuriTui
   # occupies the top, the input Window occupies a fixed-height strip at
   # the bottom. Doubles as the host of two global keybindings:
   #
-  # - +l+ — opens the log popup. Guarded by +screen.cursor_position.nil?+
-  #   so it only fires when focus is *not* on a text input (the cursor is
-  #   owned by the focused {Tuile::Component::TextArea} only while the
-  #   user is editing); typing +l+ into the message draft is unaffected.
-  #   The same trick Tuile uses for global +q+ quit (see
-  #   +Tuile::Screen#event_loop+).
+  # - +Ctrl+L+ — opens the log popup. Bound to the control sequence
+  #   (ASCII +0x0c+, form-feed) rather than plain +l+ so the binding
+  #   survives focus being on a text input. Plain +l+ is a printable
+  #   character that the focused {Tuile::Component::TextArea} consumes
+  #   via {Tuile::Component::TextArea#insert_char}; Tuile's only
+  #   "global" mechanism, {Tuile::Component#key_shortcut}, is
+  #   intentionally suppressed while the focused component owns the
+  #   hardware cursor (see {Tuile::Component#handle_key}), so a
+  #   plain-letter binding wouldn't reach the layout either.
+  #   +Ctrl+L+ sidesteps both: it isn't printable
+  #   (+TextArea#printable?+ requires +0x20 ≤ ord < 0x7f+) so the
+  #   focused input doesn't consume it, and ChatLayout intercepts it
+  #   *before* +super+ (which would otherwise dispatch to the active
+  #   child).
   # - +Ctrl+C+ — flips the agent's +Cancellable+ flag. Unguarded by
   #   cursor position, by design: Ctrl+C is universally "stop what you're
   #   doing," and the user's expectation that it interrupts a running
@@ -35,14 +43,20 @@ module PikuriTui
     # @return [String]
     CTRL_C = "\x03"
 
+    # Raw key code for Ctrl+L in terminal raw mode (ASCII form-feed,
+    # 0x0c). Same rationale as {CTRL_C}: Tuile doesn't surface a
+    # constant for it.
+    #
+    # @return [String]
+    CTRL_L = "\x0c"
+
     # @param conversation [Tuile::Component::Window] the framed conversation
     #   pane (top). Added as a child during construction; its rect is
     #   managed by {#rect=}.
     # @param input [Tuile::Component::Window] the framed input pane
     #   (bottom). Same lifecycle as +conversation+.
-    # @param on_log [Proc, Method] zero-arg callable fired when +l+ is
-    #   pressed outside a text-editing context. Runs on the event-loop
-    #   thread.
+    # @param on_log [Proc, Method] zero-arg callable fired on Ctrl+L.
+    #   Runs on the event-loop thread.
     # @param on_cancel [Proc, Method] zero-arg callable fired on Ctrl+C.
     #   Runs on the event-loop thread.
     def initialize(conversation:, input:, on_log:, on_cancel:)
@@ -85,7 +99,7 @@ module PikuriTui
     #   or by an active child; false otherwise (lets the screen fall
     #   through to its +q+/ESC quit handler).
     def handle_key(key)
-      if key == 'l' && screen.cursor_position.nil?
+      if key == CTRL_L
         @on_log.call
         return true
       end

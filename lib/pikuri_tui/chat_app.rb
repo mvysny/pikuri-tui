@@ -118,6 +118,7 @@ module PikuriTui
 
       @conversation_window = Tuile::Component::Window.new('Conversation')
       @conversation_window.content = @conversation_view
+      @conversation_window.scrollbar = true
 
       @status_label = Tuile::Component::Label.new
       @status_label.text = status_text
@@ -226,7 +227,7 @@ module PikuriTui
     #
     # @return [String]
     def status_text
-      @error_count.zero? ? 'logs (l)' : "⚠ logs (#{@error_count})"
+      @error_count.zero? ? 'logs (^L)' : "⚠ logs (#{@error_count})"
     end
 
     # @param exception [StandardError]
