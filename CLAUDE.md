@@ -77,25 +77,45 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 - `lib/pikuri_tui.rb` — Zeitwerk loader + eager-load over
   `lib/pikuri_tui/`; one require for callers.
 - `lib/pikuri_tui/version.rb` — `PikuriTui::VERSION`.
-
-Planned, not yet present:
-
 - `lib/pikuri_tui/tuile_listener.rb` — `PikuriTui::TuileListener`,
   a `Pikuri::Agent::Listener::Base` subclass that renders the
   event stream into a `Tuile::Component::TextView` (the
   conversation pane). The equivalent of pikuri's
   `Pikuri::Agent::Listener::Terminal`, retargeted at the TUI.
-- `lib/pikuri_tui/chat_app.rb` — `PikuriTui::ChatApp`, the shared
-  Tuile layout (conversation `TextView` + diagnostic `LogWindow`
-  + input field + status bar). Both bin scripts instantiate it
-  with their respective `Pikuri::Agent`.
+  Shared by `Chat::App` and the planned `Code::App`.
+- `lib/pikuri_tui/counting_log_io.rb` — `PikuriTui::CountingLogIO`,
+  the `IO`-shaped sink that forwards every line to the diagnostic
+  `LogWindow` and counts error-class writes so the `Ctrl+L`
+  status-bar hint can flag "something broke." Shared by both
+  shells.
+- `lib/pikuri_tui/log_popup.rb` — `PikuriTui::LogPopup`, the
+  `Popup` wrapper around the eager `LogWindow` that resets the
+  unread-error counter on dismiss. Shared by both shells.
+- `lib/pikuri_tui/chat.rb` — `PikuriTui::Chat` namespace shell
+  for the chat front-end.
+- `lib/pikuri_tui/chat/app.rb` — `PikuriTui::Chat::App`, the
+  Tuile shell for `bin/pikuri-chat` (conversation `TextView` +
+  diagnostic `LogWindow` + input field + status bar).
+- `lib/pikuri_tui/chat/layout.rb` — `PikuriTui::Chat::Layout`,
+  the vertical-split root layout (conversation top, input bottom).
+- `lib/pikuri_tui/chat/input.rb` — `PikuriTui::Chat::Input`, the
+  `TextArea` subclass that rebinds Enter to submit-and-clear.
 - `bin/pikuri-chat` — boot script for the chat agent: configures
   `RubyLLM` for the local llama.cpp server, builds a
   `Pikuri::Agent` wired with the web/calc tools and a
-  `PikuriTui::TuileListener`, hands it to `PikuriTui::ChatApp`.
-- `bin/pikuri-code` — same shape, with the six coding tools, a
-  `Pikuri::Tool::Workspace::Cwd` rooted at `Dir.pwd`, and a
-  Tuile-based confirmer instead of `Pikuri::Tool::Confirmer::TERMINAL`.
+  `PikuriTui::TuileListener`, hands it to `PikuriTui::Chat::App`.
+
+Planned, not yet present:
+
+- `lib/pikuri_tui/code/…` — sibling `PikuriTui::Code` namespace
+  for the `bin/pikuri-code` shell. Will reuse the shared pieces
+  (`TuileListener`, `CountingLogIO`, `LogPopup`) and add the
+  code-agent-specific composition (Tuile-based confirmer,
+  coding-tool wiring).
+- `bin/pikuri-code` — same shape as `bin/pikuri-chat`, with the
+  six coding tools, a `Pikuri::Tool::Workspace::Cwd` rooted at
+  `Dir.pwd`, and a Tuile-based confirmer instead of
+  `Pikuri::Tool::Confirmer::TERMINAL`.
 
 ## Conventions
 
@@ -177,8 +197,8 @@ Planned, not yet present:
   complicating the layout.** New UI surface should land as a new
   Tuile component composition or a new
   `Pikuri::Agent::Listener::Base` subclass with its own specs;
-  neither `PikuriTui::ChatApp` nor the bin scripts should need to
-  grow.
+  neither `PikuriTui::Chat::App` nor the bin scripts should need
+  to grow.
 - **Readable, not obfuscated.** Prefer the simplest
   implementation that does the job. The audit-it-in-an-evening
   ceiling that pikuri sets for itself applies here too: this

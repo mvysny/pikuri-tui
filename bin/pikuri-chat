@@ -61,7 +61,7 @@ cancel_flag = Pikuri::Agent::Control::Cancellable.new
 
 Tuile::Screen.new
 
-app = PikuriTui::ChatApp.new do |listener|
+app = PikuriTui::Chat::App.new do |listener|
   Pikuri::Agent.new(
     transport: Pikuri::Agent::ChatTransport.new(
       model: model,

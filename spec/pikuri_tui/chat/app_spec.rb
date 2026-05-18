@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::ChatApp do
-  # Minimal +Pikuri::Agent+ stand-in: ChatApp only reaches for +run_loop+
+RSpec.describe PikuriTui::Chat::App do
+  # Minimal +Pikuri::Agent+ stand-in: App only reaches for +run_loop+
   # (from the worker thread, which we never trigger here) and +cancellable+
-  # (from {ChatApp#cancel_turn}). Anything else stays untouched, so we
+  # (from {Chat::App#cancel_turn}). Anything else stays untouched, so we
   # don't pay the network / RubyLLM cost in a unit spec.
   class StubAgent
     attr_reader :cancellable, :listener
@@ -26,15 +26,15 @@ RSpec.describe PikuriTui::ChatApp do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  it 'mounts a ChatLayout as the screen content with conversation + input panes' do
+  it 'mounts a Chat::Layout as the screen content with conversation + input panes' do
     layout = app.screen.pane.content
-    assert_kind_of PikuriTui::ChatLayout, layout
+    assert_kind_of PikuriTui::Chat::Layout, layout
     assert_kind_of Tuile::Component::Window, layout.conversation
     assert_kind_of Tuile::Component::Window, layout.input
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
-    assert_kind_of PikuriTui::ChatInput, app.screen.focused
+    assert_kind_of PikuriTui::Chat::Input, app.screen.focused
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
