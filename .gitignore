@@ -1,0 +1,5 @@
+/.bundle/
+/vendor/bundle/
+/tmp/
+/.ruby-lsp/
+*.gem
