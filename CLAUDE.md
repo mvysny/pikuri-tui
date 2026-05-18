@@ -1,36 +1,186 @@
-# pikuri-tui
+# CLAUDE.md
 
-TUI front-ends for [pikuri](https://codeberg.org/mvysny/pikuri), built on
-[tuile](https://github.com/mvysny/tuile).
+## What this project is
 
-The upstream `pikuri` gem ships `Pikuri::Agent`, `Pikuri::Tool::*`, and
-prompts as a library. Its repository also includes `bin/pikuri-chat` and
-`bin/pikuri-code`, but those are plain stdin/stdout REPL demos. This
-project will reimplement both as Tuile TUI apps (log pane + input field
-+ status bar), reusing pikuri's Agent / Tool / Listener interfaces.
+A pair of Tuile-based TUI front-ends on a shared core, wrapping the
+[pikuri](https://codeberg.org/mvysny/pikuri) library:
+`bin/pikuri-chat` (general-purpose chat) and `bin/pikuri-code`
+(in-repo coding agent). Both bind the same `Pikuri::Agent` and the
+same `Pikuri::Tool` set as pikuri's own demo scripts; they differ
+only in their system prompt and which tools they register.
+
+Pikuri ships those wirings as plain stdin/stdout REPL demos in its
+own `bin/`. This project replaces the REPL with a Tuile component
+tree — a conversation pane (the LLM-stream transcript), a log pane
+(internal diagnostics), an input field, a status bar — and reuses
+pikuri unchanged otherwise. All LLM transport, tool execution,
+agent loop control, prompts: that's all pikuri. We own the UI
+shell only.
 
 ## Status
 
-Scaffold only. Just `Gemfile` so far — no `bin/`, no `lib/`, no specs.
+Scaffold. `Gemfile` and the Zeitwerk-wired `lib/pikuri_tui.rb` boot
+file are in; no bin scripts yet, no Tuile listener yet.
 
-## Layout (planned)
+## Scope decisions
 
-- `bin/pikuri-chat` — Tuile TUI chat app.
-- `bin/pikuri-code` — Tuile TUI coding agent.
-- `lib/pikuri_tui/` — shared TUI shell (Tuile listener, layout, input
-  handling) consumed by both bin scripts.
+- **Reuse pikuri as runtime; this project owns the TUI shell.**
+  `Pikuri::Agent` is the loop; `Pikuri::Tool::*` are the tools;
+  `Pikuri::Agent::Event` is the stream we render. We add a Tuile
+  listener (renders the event stream into a `TextView`), a Tuile
+  confirmer (prompts via a `Popup` instead of stdin), and the
+  layout / focus / input wiring around them. Anything beyond that
+  is a bug or scope creep.
 
-## Dependencies
+- **Two panes, two purposes.** The `TextView` shows the LLM
+  conversation transcript — assistant Markdown, reasoning,
+  tool-call lines, tool observations — driven by our pikuri
+  listener. The `LogWindow` shows internal diagnostics —
+  pikuri's per-subsystem loggers via `Pikuri.log_io=`,
+  pikuri-tui's own loggers, anything we route through
+  `Tuile.logger`. Never cross the streams: the conversation
+  pane is what the user reads; the log pane is what we read
+  when something's wrong.
 
-- `tuile` — terminal UI framework (Ruby 3.4+). Requires single-threaded
-  UI mutation; agent work runs on a background thread and marshals
-  results back via `screen.event_queue.submit { … }`.
-- `pikuri` — pulled in from a local checkout at `../pikuri` for now;
-  switch to a published version (or git source) once one is available.
+- **The seam.** All `Pikuri::*` references stay inside the bin
+  scripts (boot/wiring) and the small adapter set under
+  `lib/pikuri_tui/` (the listener, the confirmer, anything else
+  that needs to know what an event or a prompt is). Tuile-only
+  components — layout containers, widgets, custom panels — must
+  not reach into `Pikuri::*`. Same fork-or-swap rationale as
+  pikuri's own seam: if pikuri's surface shifts under us, the cost
+  is rewriting a small handful of files, not chasing references
+  through every widget.
 
-## Running
+- **The threading rule.** Tuile is single-threaded: every UI
+  mutation (`rect=`, `content=`, `add_line`, `invalidate`,
+  `screen.focused=`) must run on the thread that owns
+  `Screen#run_event_loop`. The agent loop blocks on the LLM and
+  must NOT run on that thread, so it goes on a worker. The worker
+  marshals every render back via
+  `screen.event_queue.submit { … }`. This is non-negotiable: most
+  Tuile UI methods raise `"UI lock not held"` if you violate it,
+  and the ones that don't will silently corrupt the repaint set.
 
-```
-bundle install
-# bin scripts not implemented yet
-```
+- **Streaming, mid-loop input, multi-window layouts beyond log +
+  input — out of scope until there's a concrete need.** Pikuri
+  exposes `Control::Interloper` for mid-loop user injection;
+  wiring it through is a real feature, not a 5-minute add, so it
+  waits.
+
+## Layout
+
+Per-file rationale lives in each source file's YARD header — this
+is the package map. Everything we ship lives under the `PikuriTui::`
+namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
+
+- `lib/pikuri_tui.rb` — Zeitwerk loader + eager-load over
+  `lib/pikuri_tui/`; one require for callers.
+- `lib/pikuri_tui/version.rb` — `PikuriTui::VERSION`.
+
+Planned, not yet present:
+
+- `lib/pikuri_tui/tuile_listener.rb` — `PikuriTui::TuileListener`,
+  a `Pikuri::Agent::Listener::Base` subclass that renders the
+  event stream into a `Tuile::Component::TextView` (the
+  conversation pane). The equivalent of pikuri's
+  `Pikuri::Agent::Listener::Terminal`, retargeted at the TUI.
+- `lib/pikuri_tui/chat_app.rb` — `PikuriTui::ChatApp`, the shared
+  Tuile layout (conversation `TextView` + diagnostic `LogWindow`
+  + input field + status bar). Both bin scripts instantiate it
+  with their respective `Pikuri::Agent`.
+- `bin/pikuri-chat` — boot script for the chat agent: configures
+  `RubyLLM` for the local llama.cpp server, builds a
+  `Pikuri::Agent` wired with the web/calc tools and a
+  `PikuriTui::TuileListener`, hands it to `PikuriTui::ChatApp`.
+- `bin/pikuri-code` — same shape, with the six coding tools, a
+  `Pikuri::Tool::Workspace::Cwd` rooted at `Dir.pwd`, and a
+  Tuile-based confirmer instead of `Pikuri::Tool::Confirmer::TERMINAL`.
+
+## Conventions
+
+- **Ruby, no Rails.** Plain classes, `Data.define` for value
+  objects, Tuile for terminal UI, pikuri for the agent runtime.
+  Don't add a parallel LLM SDK — pikuri owns that.
+- **`# frozen_string_literal: true`** at the top of every Ruby
+  file (`lib/`, `spec/`, `bin/*`). Add it to any new file you
+  create.
+- **YARD docs on every public module, class, and method in
+  `lib/`.** Use concrete types in `@param` and `@return`
+  (`String`, `Integer`, `Tuile::Component::LogWindow`,
+  `Pikuri::Agent::Event::ToolCall`) — never bare `Object` or
+  `Any`. Document expected exceptions with `@raise`. One-line
+  summary first, then blank line, then tags. `bin/` and `spec/`
+  files don't need it.
+- **Bundler.** Entry-point scripts in `bin/` self-bootstrap via
+  `require 'bundler/setup'` so callers don't need the
+  `bundle exec` ceremony. Pin the `BUNDLE_GEMFILE` to this
+  project's Gemfile via `__dir__` so the scripts work when
+  symlinked into `~/.local/bin/`.
+- **Internal logging goes to Tuile's `LogWindow`, not stderr.**
+  Wire `Tuile.logger` and `Pikuri.log_io=` to a
+  `Tuile::Component::LogWindow::IO` early in boot so pikuri-tui's
+  own loggers, pikuri's per-subsystem loggers, and any
+  third-party log noise we route here all land in the visible
+  diagnostic pane. The conversation pane (`TextView`, driven by
+  `PikuriTui::TuileListener`) is for the LLM stream — assistant
+  Markdown, reasoning, tool calls, observations — and is not a
+  log sink; never write log lines into it.
+- **Our bugs raise; library exceptions are logged.** Two buckets:
+  unexpected internal state in *this project's* code raises with
+  the offending data included — silent fallbacks hide what
+  actually happened. Exceptions thrown by libraries we depend on
+  (pikuri, ruby_llm, Tuile, Faraday, tty-markdown, everything we
+  didn't write) are caught at the call site, logged as `error`
+  through the internal logger (so they surface in the `LogWindow`
+  diagnostic pane), and the surrounding code returns to a safe
+  state — degraded rendering, dropped event, abandoned turn.
+  Rationale: the TUI's event loop owns the whole screen and an
+  uncaught raise tears it down, losing the user's session. The
+  diagnostic pane is the right place to surface upstream
+  breakage — it's visible without being destructive. This is a
+  deliberate departure from pikuri's "errors stay loud on the
+  chat path" rule: pikuri is a CLI that can afford to crash,
+  pikuri-tui is a long-running TUI that cannot.
+- **Zeitwerk autoloads everything under `lib/`.** Don't add
+  `require_relative` chains inside `lib/`; let the loader resolve
+  internal references. The boot file (`lib/pikuri_tui.rb`)
+  eager-loads at startup so any filename ↔ constant mismatch
+  fails fast at boot, not at first reference inside the event
+  loop. New files must define exactly the camelcased constant
+  matching their path; if you want an acronym, add an entry to
+  the `inflector.inflect` block in `lib/pikuri_tui.rb`.
+- **Namespacing direction.** Everything we ship lives under the
+  `PikuriTui::` namespace at the path Zeitwerk expects
+  (`lib/pikuri_tui/foo/bar.rb` → `PikuriTui::Foo::Bar`). Don't
+  introduce top-level constants.
+- **Tests: rspec-core with minitest-style asserts.** Use the
+  `rspec-core` runner (`describe`/`it`) but write assertions in
+  the minitest style (`assert_equal`, `assert`, `refute`, …)
+  rather than RSpec matchers. Same convention as pikuri — keeps
+  the two codebases readable side-by-side.
+
+## Working on this codebase
+
+- **Pikuri owns the loop and the tools; we own the UI shell.**
+  When changing pikuri-tui, the question is "what does the user
+  see, and where is focus?" — the agent loop is somebody else's
+  problem. Don't reimplement event dispatch, tool routing, or
+  rescue paths in pikuri-tui; reach for a pikuri-side primitive
+  (new listener, existing `Control`, new tool back in pikuri) if
+  the answer isn't already a UI concern.
+- **Tuile owns the event loop and repaint; we own the
+  components.** Same shape one level down. Don't install your own
+  `SIGWINCH` handler, don't `puts` directly to the terminal once
+  the screen is up, don't repaint on a side thread.
+- **Grow by adding components and listener variants, not by
+  complicating the layout.** New UI surface should land as a new
+  Tuile component composition or a new
+  `Pikuri::Agent::Listener::Base` subclass with its own specs;
+  neither `PikuriTui::ChatApp` nor the bin scripts should need to
+  grow.
+- **Readable, not obfuscated.** Prefer the simplest
+  implementation that does the job. The audit-it-in-an-evening
+  ceiling that pikuri sets for itself applies here too: this
+  project is a thin shell, and every abstraction layer added "in
+  case" loses every argument against concrete code.
