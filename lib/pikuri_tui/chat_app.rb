@@ -2,14 +2,15 @@
 
 require 'logger'
 require 'pikuri'
+require 'rainbow'
 require 'tuile'
 
 module PikuriTui
   # The Tuile shell shared by +bin/pikuri-chat+ and +bin/pikuri-code+:
   # builds the framed conversation pane, the framed input pane, the eager
-  # diagnostic +LogWindow+ (popup-visible on +l+), the conversation
-  # Window's footer status cell, and wires the agent's loop onto a worker
-  # thread so the UI thread stays free for repaints.
+  # diagnostic +LogWindow+ (popup-visible on Ctrl+L), the +Ctrl+L+ / +Ctrl+C+
+  # global-shortcut hints in the screen-wide status bar, and wires the agent's
+  # loop onto a worker thread so the UI thread stays free for repaints.
   #
   # == Construction order
   #
@@ -121,10 +122,6 @@ module PikuriTui
       @conversation_window.content = @conversation_view
       @conversation_window.scrollbar = true
 
-      @status_label = Tuile::Component::Label.new
-      @status_label.text = status_text
-      @conversation_window.footer = @status_label
-
       @input = ChatInput.new(on_submit: method(:submit_message))
       @input_window = Tuile::Component::Window.new('You')
       @input_window.content = @input
@@ -139,11 +136,13 @@ module PikuriTui
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
     # cursor-owner suppression that would otherwise let the focused
-    # {ChatInput} swallow them.
+    # {ChatInput} swallow them, and both surface a hint in the screen's
+    # status bar (which is why Ctrl+L is registered via
+    # {#install_log_shortcut} — its hint mutates as errors accrue).
     #
-    # - +Ctrl+L+ opens the log popup. +over_popups: false+ so the binding
-    #   is suppressed while the popup is already open (the popup gets
-    #   the key normally; {LogWindow} ignores it).
+    # - +Ctrl+L+ opens the log popup. +over_popups: false+ (the default)
+    #   so the binding is suppressed while the popup is already open
+    #   (the popup gets the key normally; {LogWindow} ignores it).
     # - +Ctrl+C+ cancels the in-flight agent turn. +over_popups: true+
     #   so "stop what you're doing" works even with the log popup open
     #   — the user's expectation that Ctrl+C interrupts a running turn
@@ -151,16 +150,31 @@ module PikuriTui
     #
     # @return [void]
     def register_shortcuts
-      @screen.register_global_shortcut(Tuile::Keys::CTRL_L) { open_log_popup }
-      @screen.register_global_shortcut(Tuile::Keys::CTRL_C, over_popups: true) { cancel_turn }
+      install_log_shortcut
+      @screen.register_global_shortcut(
+        Tuile::Keys::CTRL_C,
+        over_popups: true,
+        hint: "^C #{Rainbow('cancel').red}"
+      ) { cancel_turn }
+    end
+
+    # (Re-)registers the +Ctrl+L+ global shortcut with a status-bar hint that
+    # reflects the current {@error_count}. {Tuile::Screen} replaces the
+    # binding in place on re-register, so this is also how the hint stays in
+    # sync with the error counter — {#on_error_logged} and
+    # {#reset_error_count} both call back here after touching the count.
+    #
+    # @return [void]
+    def install_log_shortcut
+      @screen.register_global_shortcut(Tuile::Keys::CTRL_L, hint: log_hint) { open_log_popup }
     end
 
     # Routes every pikuri / Tuile log line — and any exception trapped
     # by {Tuile::Screen#on_error} — through a single {CountingLogIO}
     # that both renders into {@log_window} and bumps the error counter
-    # for the status cell. Must run after {@log_window} exists and
-    # before the agent is built (the agent's construction can already
-    # log).
+    # backing the +Ctrl+L+ status-bar hint. Must run after {@log_window}
+    # exists and before the agent is built (the agent's construction
+    # can already log).
     #
     # @return [void]
     def wire_logging
@@ -216,7 +230,7 @@ module PikuriTui
 
     # Called by {CountingLogIO} on every error-class log write. The
     # callback fires on the *logging* thread (any thread), so the
-    # actual counter mutation and label update are marshaled to the
+    # actual counter mutation and hint refresh are marshaled to the
     # event-loop thread via +submit+.
     #
     # @param _line [String] the offending log line (ignored — we only
@@ -225,7 +239,7 @@ module PikuriTui
     def on_error_logged(_line)
       @screen.event_queue.submit do
         @error_count += 1
-        @status_label.text = status_text
+        install_log_shortcut
       end
     end
 
@@ -235,16 +249,25 @@ module PikuriTui
     # @return [void]
     def reset_error_count
       @error_count = 0
-      @status_label.text = status_text
+      install_log_shortcut
     end
 
-    # Whatever lands in {@status_label}'s slot — the conversation
-    # Window's bottom border footer. Pure read of {@error_count}; all
-    # callers are on the event-loop thread.
+    # The status-bar hint advertised for +Ctrl+L+. The plain "logs"
+    # variant in cadetblue matches the Tuile-supplied "q quit" /
+    # "q Close" styling; the warning variant in red foregrounds the
+    # error tally so the user notices something broke without us
+    # writing log lines into the conversation pane.
+    #
+    # Pure read of {@error_count}; all callers are on the event-loop
+    # thread.
     #
     # @return [String]
-    def status_text
-      @error_count.zero? ? 'logs (^L)' : "⚠ logs (#{@error_count})"
+    def log_hint
+      if @error_count.zero?
+        "^L #{Rainbow('logs').cadetblue}"
+      else
+        "^L #{Rainbow("⚠ logs (#{@error_count})").red}"
+      end
     end
 
     # @param exception [StandardError]

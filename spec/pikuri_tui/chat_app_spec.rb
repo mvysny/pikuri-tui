@@ -46,36 +46,48 @@ RSpec.describe PikuriTui::ChatApp do
     assert_kind_of PikuriTui::TuileListener, @listener
   end
 
-  it 'starts with no errors logged and a discoverable "logs (^L)" status hint' do
+  it 'starts with no errors logged and a discoverable "^L logs" status-bar hint' do
     app
-    assert_equal 'logs (^L)', conversation_footer_text
+    assert_includes status_bar_text, '^L logs'
+    refute_includes status_bar_text, '⚠'
   end
 
-  it 'shows "⚠ logs (N)" when an error is logged through Tuile.logger' do
+  it 'also exposes the cancel intent as a "^C cancel" status-bar hint' do
+    app
+    assert_includes status_bar_text, '^C cancel'
+  end
+
+  it 'shows "^L ⚠ logs (N)" when an error is logged through Tuile.logger' do
     app
     Tuile.logger.error('boom')
-    assert_equal '⚠ logs (1)', conversation_footer_text
+    assert_includes status_bar_text, '^L ⚠ logs (1)'
   end
 
-  it 'increments the badge once per error (not once per log line)' do
+  it 'increments the hint counter once per error (not once per log line)' do
     app
     Tuile.logger.error('one')
     Tuile.logger.info('two')   # info shouldn't bump
     Tuile.logger.warn('three') # warn shouldn't bump either
     Tuile.logger.fatal('four') # fatal does (same bracket as error)
-    assert_equal '⚠ logs (2)', conversation_footer_text
+    assert_includes status_bar_text, '^L ⚠ logs (2)'
   end
 
-  it 'clears the badge when the log popup is dismissed (user has now read the diagnostics)' do
+  it 'clears the hint counter when the log popup is dismissed (user has now read the diagnostics)' do
     app
     Tuile.logger.error('boom')
-    assert_equal '⚠ logs (1)', conversation_footer_text
+    assert_includes status_bar_text, '^L ⚠ logs (1)'
 
     # Open the popup directly — same dispatch path as pressing Ctrl+L.
     log_popup = app.instance_variable_get(:@log_popup)
     log_popup.open
     log_popup.close
-    assert_equal 'logs (^L)', conversation_footer_text
+    assert_includes status_bar_text, '^L logs'
+    refute_includes status_bar_text, '⚠'
+  end
+
+  it 'leaves the conversation Window without a footer (status moved to the status bar)' do
+    app
+    assert_nil app.screen.pane.content.conversation.footer
   end
 
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do
@@ -96,7 +108,7 @@ RSpec.describe PikuriTui::ChatApp do
 
   private
 
-  def conversation_footer_text
-    app.screen.pane.content.conversation.footer.text.to_s
+  def status_bar_text
+    app.screen.pane.status_bar.text.to_s
   end
 end
