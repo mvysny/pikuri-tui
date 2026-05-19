@@ -81,7 +81,8 @@ app = PikuriTui::Chat::App.new do |listener|
     ]),
     step_limit: Pikuri::Agent::Control::StepLimit.new(max: 20),
     cancellable: cancel_flag,
-    llama_probe_url: llama_probe_url
+    llama_probe_url: llama_probe_url,
+    streaming: true
   ).tap { |a| a.allow_sub_agent(max_steps: 20) }
 end
 
