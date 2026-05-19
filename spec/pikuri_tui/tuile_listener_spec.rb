@@ -153,29 +153,31 @@ RSpec.describe PikuriTui::TuileListener do
   end
 
   context 'streaming ThinkingDelta' do
-    it 'streams plain text without markdown rendering (verified by the stub: ** stays raw)' do
-      listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: '**not bold**'))
-      assert_includes rendered, '**not bold**'
+    it 'streams reasoning through the same Markdown buffer as the assistant pane' do
+      listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: '**still bold in markdown**'))
+      assert_includes rendered, '**still bold in markdown**'
     end
 
-    it 'consecutive deltas extend the same hard line' do
+    it 'consecutive deltas extend the same thinking block' do
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'first '))
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'second'))
       lines = rendered.split("\n").reject(&:empty?)
-      # Both fragments should land on a single thinking line.
       thinking_lines = lines.grep(/first|second/)
       assert_equal 1, thinking_lines.size
       assert_includes thinking_lines.first, 'first second'
     end
 
-    it 'a non-thinking event between deltas breaks the streak (next delta starts a new line)' do
+    it 'a non-thinking event between deltas preserves the streamed prefix and starts a new block' do
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'before'))
       listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'x', arguments: {}))
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'after'))
       lines = rendered.split("\n").reject(&:empty?)
-      before_line = lines.find { |l| l.include?('before') }
+      # 'before' must survive the tool-call cross — preserving a committed
+      # thinking block is the whole reason flush_thinking is non-wiping.
+      assert_includes lines, 'before'
       after_line = lines.find { |l| l.include?('after') }
-      refute_equal before_line, after_line
+      refute_nil after_line
+      refute_equal 'before', after_line
     end
 
     it 'suppresses the Thinking bookend when deltas have already produced the block' do
@@ -197,6 +199,35 @@ RSpec.describe PikuriTui::TuileListener do
       # Round 2: only the bookend (no deltas) — should render.
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'round2 only'))
       assert_includes rendered, 'round2 only'
+    end
+
+    it 'recolors streamed thinking to a single gray tone, stripping any color the renderer produced' do
+      TTY::Markdown.define_singleton_method(:parse) { |_text, **_kwargs| "\e[31mred-from-renderer\e[0m" }
+      listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
+      fg_colors = text_view.text.spans.map { |s| s.style.fg }
+      refute_includes fg_colors, :red
+      assert_includes fg_colors, [85, 85, 85]
+    end
+
+    it 'preserves bold/italic/underline while repainting fg to gray' do
+      TTY::Markdown.define_singleton_method(:parse) do |_text, **_kwargs|
+        "\e[1;3;4;31mbold italic underlined red\e[0m"
+      end
+      listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
+      span = text_view.text.spans.find { |s| s.text.include?('bold italic underlined red') }
+      refute_nil span, 'expected a span carrying the rendered text'
+      assert_equal [85, 85, 85], span.style.fg
+      assert span.style.bold,      'bold should pass through the recolor'
+      assert span.style.italic,    'italic should pass through the recolor'
+      assert span.style.underline, 'underline should pass through the recolor'
+    end
+
+    it 'renders the non-streaming Thinking bookend in the same gray tone' do
+      TTY::Markdown.define_singleton_method(:parse) { |_text, **_kwargs| "\e[31mred\e[0m" }
+      listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'bookend'))
+      fg_colors = text_view.text.spans.map { |s| s.style.fg }
+      assert_includes fg_colors, [85, 85, 85]
+      refute_includes fg_colors, :red
     end
   end
 end

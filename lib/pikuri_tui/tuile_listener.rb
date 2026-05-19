@@ -26,16 +26,21 @@ module PikuriTui
   #    would silently kill the agent loop. Same "library exceptions are
   #    logged, our bugs raise" rule documented in CLAUDE.md.
   # 3. Streaming events ({Pikuri::Agent::Event::AssistantDelta} /
-  #    {Pikuri::Agent::Event::ThinkingDelta}) are rendered incrementally.
-  #    For assistant Markdown the listener owns a
-  #    {StreamingMarkdownBuffer} that re-renders the accumulated source
-  #    per token and applies the diff via +TextView#remove_last_n_lines+
-  #    + +#add_line+; the buffer is finalized against the authoritative
-  #    {Pikuri::Agent::Event::Assistant#content} when it arrives. For
-  #    thinking deltas there's no Markdown to render, so they're
-  #    streamed as plain dim-gray text directly into the +TextView+,
-  #    with the bookend {Pikuri::Agent::Event::Thinking} suppressed
-  #    when deltas already produced the visible reasoning block.
+  #    {Pikuri::Agent::Event::ThinkingDelta}) are both rendered
+  #    incrementally through a {StreamingMarkdownBuffer} that
+  #    re-renders the accumulated source per token and applies the
+  #    diff via +TextView#remove_last_n_lines+ + +#add_line+. The
+  #    assistant buffer is finalized against the authoritative
+  #    {Pikuri::Agent::Event::Assistant#content} when it arrives; the
+  #    thinking buffer's sink routes each emitted line through
+  #    {AnsiGrayscale.recolor} so reasoning renders in one muted-gray
+  #    tone with bold/italic/underline structure preserved — visually
+  #    distinct from the assistant's full-color answer. The bookend
+  #    {Pikuri::Agent::Event::Thinking} is suppressed when deltas
+  #    already produced the visible reasoning block (the streamed
+  #    preview is committed as-is rather than replaced); on the
+  #    non-streaming path the bookend renders directly as grayscale
+  #    Markdown.
   #
   # +Tokens+ and +ContextCap+ stay silent (their consumer is
   # +Pikuri::Agent::Listener::TokenLog+, which the host adds separately if
@@ -62,8 +67,7 @@ module PikuriTui
       @text_view = text_view
       @screen = screen
       @buffer = nil
-      @thinking_open = false
-      @streamed_thinking = false
+      @thinking_buffer = nil
     end
 
     # Dispatches one event to the conversation pane. Called from the agent's
@@ -81,33 +85,26 @@ module PikuriTui
     def on_event(event)
       case event
       in Pikuri::Agent::Event::UserTurn(content:)
-        flush_buffer(:wipe)
-        @thinking_open = false
-        @streamed_thinking = false
+        flush_assistant(:wipe)
+        flush_thinking
         add_line("> #{content}")
       in Pikuri::Agent::Event::ThinkingDelta(content:)
-        flush_buffer(:wipe)
-        styled = Rainbow(content).color(85, 85, 85).to_s
-        if @thinking_open
-          append_inline(styled)
-        else
-          add_line(styled)
-          @thinking_open = true
-        end
-        @streamed_thinking = true
+        flush_assistant(:wipe)
+        @thinking_buffer ||= make_thinking_buffer
+        @thinking_buffer.append(content)
       in Pikuri::Agent::Event::Thinking(content:)
-        flush_buffer(:wipe)
-        @thinking_open = false
-        unless @streamed_thinking
-          add_line(Rainbow(content).color(85, 85, 85).to_s)
+        flush_assistant(:wipe)
+        if @thinking_buffer
+          flush_thinking
+        else
+          add_line(AnsiGrayscale.recolor(render_markdown(content)))
         end
-        @streamed_thinking = false
       in Pikuri::Agent::Event::AssistantDelta(content:)
-        @thinking_open = false
+        flush_thinking
         @buffer ||= make_buffer
         @buffer.append(content)
       in Pikuri::Agent::Event::Assistant(content:)
-        @thinking_open = false
+        flush_thinking
         if @buffer
           @buffer.finalize(content)
           @buffer = nil
@@ -115,21 +112,21 @@ module PikuriTui
           add_line(render_markdown(content))
         end
       in Pikuri::Agent::Event::ToolCall(name:, arguments:)
-        flush_buffer(:wipe)
-        @thinking_open = false
+        flush_assistant(:wipe)
+        flush_thinking
         args = arguments.map { |k, v| "#{k}=#{v.inspect}" }.join(', ')
         add_line(Rainbow("→ #{name}(#{args})").cyan.to_s)
       in Pikuri::Agent::Event::ToolResult(content:)
-        flush_buffer(:wipe)
-        @thinking_open = false
+        flush_assistant(:wipe)
+        flush_thinking
         add_line(Rainbow("= #{truncate_tool_result(content)}").cyan.to_s)
       in Pikuri::Agent::Event::FallbackNotice(reason:)
-        flush_buffer(:wipe)
-        @thinking_open = false
+        flush_assistant(:wipe)
+        flush_thinking
         add_line(Rainbow("! #{reason}").yellow.to_s)
       in Pikuri::Agent::Event::Cancelled
-        flush_buffer(:preserve)
-        @thinking_open = false
+        flush_assistant(:preserve)
+        flush_thinking
         add_line(Rainbow('! cancelled').red.to_s)
       else
         # Tokens / ContextCap: silent here. TokenLog handles them if the host
@@ -156,25 +153,13 @@ module PikuriTui
       @screen.event_queue.submit { @text_view.add_line(text) }
     end
 
-    # Inline continuation of the current last hard line. Used for the
-    # second-and-subsequent +ThinkingDelta+ within a streak so the
-    # streamed reasoning grows in place instead of starting a new line
-    # per token.
-    #
-    # @param text [String]
-    # @return [void]
-    def append_inline(text)
-      @screen.event_queue.submit { @text_view.append(text) }
-    end
-
     # Construct a {StreamingMarkdownBuffer} wired to a sink that
     # applies the diff to {@text_view} on the UI thread. The render
     # width is read off the +TextView+'s current rect, minus a small
     # buffer for the scrollbar gutter and any future padding.
     # @return [StreamingMarkdownBuffer]
     def make_buffer
-      width = [@text_view.rect.width - 2, 1].max
-      StreamingMarkdownBuffer.new(width: width) do |remove_n, lines_to_add|
+      StreamingMarkdownBuffer.new(width: buffer_width) do |remove_n, lines_to_add|
         @screen.event_queue.submit do
           @text_view.remove_last_n_lines(remove_n) if remove_n.positive?
           @text_view.add_line(lines_to_add.join("\n")) if lines_to_add.any?
@@ -182,11 +167,38 @@ module PikuriTui
       end
     end
 
-    # Close out an open {StreamingMarkdownBuffer}. +:wipe+ finalizes
-    # against the empty string (the buffer emits a diff that removes
-    # its rendered region from the +TextView+), which is the right
-    # call when an unrelated event arrives mid-stream — the new event
-    # then renders directly on a fresh line. +:preserve+ finalizes
+    # Twin of {#make_buffer} for the reasoning pane. Same diff plumbing,
+    # but each emitted line is repainted via {AnsiGrayscale.recolor}
+    # before it lands in the +TextView+ — so streamed Markdown thinking
+    # keeps its bold/italic/list structure while the eye still reads
+    # the whole block as "reasoning, not answer." The recolor runs on
+    # the worker thread (CPU work) so only the +TextView+ mutation is
+    # marshaled onto the UI thread.
+    # @return [StreamingMarkdownBuffer]
+    def make_thinking_buffer
+      StreamingMarkdownBuffer.new(width: buffer_width) do |remove_n, lines_to_add|
+        recolored = lines_to_add.map { |line| AnsiGrayscale.recolor(line) }
+        @screen.event_queue.submit do
+          @text_view.remove_last_n_lines(remove_n) if remove_n.positive?
+          @text_view.add_line(recolored.join("\n")) if recolored.any?
+        end
+      end
+    end
+
+    # @return [Integer] render width for a fresh
+    #   {StreamingMarkdownBuffer}. Reads the +TextView+'s current rect
+    #   and reserves two columns for the scrollbar gutter / any future
+    #   padding; floors at 1 so a not-yet-laid-out view doesn't pass a
+    #   non-positive width to +TTY::Markdown+.
+    def buffer_width
+      [@text_view.rect.width - 2, 1].max
+    end
+
+    # Close out the assistant {StreamingMarkdownBuffer}. +:wipe+
+    # finalizes against the empty string (the buffer emits a diff that
+    # removes its rendered region from the +TextView+), which is the
+    # right call when an unrelated event arrives mid-stream — the new
+    # event then renders directly on a fresh line. +:preserve+ finalizes
     # against the buffer's accumulated source (the diff is a no-op
     # against the last render), keeping the streamed region visible —
     # the right call for {Pikuri::Agent::Event::Cancelled} so the user
@@ -194,7 +206,7 @@ module PikuriTui
     #
     # @param mode [:wipe, :preserve]
     # @return [void]
-    def flush_buffer(mode)
+    def flush_assistant(mode)
       return unless @buffer
 
       case mode
@@ -203,6 +215,21 @@ module PikuriTui
       else raise ArgumentError, "expected :wipe or :preserve, got #{mode.inspect}"
       end
       @buffer = nil
+    end
+
+    # Close out the thinking {StreamingMarkdownBuffer}. Always commits
+    # the streamed text as-is — there's no +:wipe+ counterpart because
+    # the reasoning preview is never speculative the way an assistant
+    # preview is: by the time any cross-event reaches us the thinking
+    # has *happened*, and erasing it would drop the only record. The
+    # {Pikuri::Agent::Event::Thinking} bookend's "suppress when streamed"
+    # behavior is the same preserve, just stated from the bookend's side.
+    # @return [void]
+    def flush_thinking
+      return unless @thinking_buffer
+
+      @thinking_buffer.finalize(@thinking_buffer.source)
+      @thinking_buffer = nil
     end
 
     # Render assistant Markdown for the conversation pane, degrading to the
