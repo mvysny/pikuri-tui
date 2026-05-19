@@ -62,6 +62,19 @@ cancel_flag = Pikuri::Agent::Control::Cancellable.new
 Tuile::Screen.new
 
 app = PikuriTui::Chat::App.new do |listener|
+  # Coalesce streaming delta chunks at 15 fps before they reach the
+  # Markdown-rendering TuileListener: a fast llama.cpp can emit dozens
+  # of deltas per second and re-rendering Markdown on every one is
+  # wasted work the user can't perceive. flush_pending_on_non_delta:
+  # false because the Assistant / Thinking bookend events re-render
+  # the authoritative final content (see TuileListener#flush_assistant
+  # / #flush_thinking), so emitting the trailing 0–66 ms of buffered
+  # deltas right before the redraw is pure CPU waste.
+  rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
+    listener,
+    fps: 15,
+    flush_pending_on_non_delta: false
+  )
   Pikuri::Agent.new(
     transport: Pikuri::Agent::ChatTransport.new(
       model: model,
@@ -76,7 +89,7 @@ app = PikuriTui::Chat::App.new do |listener|
       Pikuri::Tool::FETCH
     ],
     listeners: Pikuri::Agent::ListenerList.new([
-      listener,
+      rate_limited_listener,
       Pikuri::Agent::Listener::TokenLog.new
     ]),
     step_limit: Pikuri::Agent::Control::StepLimit.new(max: 20),
