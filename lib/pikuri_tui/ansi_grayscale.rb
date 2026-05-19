@@ -11,15 +11,15 @@ module PikuriTui
   # final answer — one gray tone with structure intact strikes that
   # balance without giving up Markdown legibility.
   #
-  # Round-trip is through {Tuile::StyledString}: parse the input into
-  # spans, rewrite each span's {Tuile::StyledString::Style} with
-  # +fg: GRAY+, +bg: nil+, +bold:+ / +italic:+ / +underline:+ unchanged,
-  # then +#to_ansi+ to rebuild the line. {Tuile::StyledString.parse} is
-  # strict — it raises {Tuile::StyledString::ParseError} on SGR codes it
-  # doesn't model (+dim+, +reverse+, +strike+, …). +TTY::Markdown+'s
-  # default theme uses Pastel and sticks to fg/bold/italic so the happy
-  # path is fine; if a theme tweak ever emits an unsupported code we
-  # log through {Tuile.logger} and return the input unrecolored rather
+  # Round-trip is through {Tuile::StyledString}: +#parse+ the input,
+  # repaint every span via +#with_fg(GRAY)+ + +#with_bg(nil)+ (text
+  # attributes pass through untouched), then +#to_ansi+ to rebuild the
+  # line. {Tuile::StyledString.parse} is strict — it raises
+  # {Tuile::StyledString::ParseError} on SGR codes it doesn't model
+  # (+dim+, +reverse+, +strike+, …). +TTY::Markdown+'s default theme
+  # uses Pastel and sticks to fg/bold/italic so the happy path is
+  # fine; if a theme tweak ever emits an unsupported code we log
+  # through {Tuile.logger} and return the input unrecolored rather
   # than tearing down the agent loop with an uncaught raise on the
   # worker thread. The expected fix when the log fires is to add the
   # missing code to {Tuile::StyledString}'s parser, not to grow a
@@ -46,14 +46,7 @@ module PikuriTui
       def recolor(ansi)
         return ansi if ansi.nil? || ansi.empty?
 
-        parsed = Tuile::StyledString.parse(ansi)
-        spans = parsed.spans.map do |span|
-          Tuile::StyledString::Span.new(
-            text: span.text,
-            style: span.style.merge(fg: GRAY, bg: nil)
-          )
-        end
-        Tuile::StyledString.new(spans).to_ansi
+        Tuile::StyledString.parse(ansi).with_fg(GRAY).with_bg(nil).to_ansi
       rescue Tuile::StyledString::ParseError => e
         Tuile.logger.warn(
           "AnsiGrayscale.recolor: StyledString parse failed " \
