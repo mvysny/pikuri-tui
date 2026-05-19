@@ -2,7 +2,6 @@
 
 require 'pikuri'
 require 'rainbow'
-require 'tty-markdown'
 
 module PikuriTui
   # Tuile-targeted equivalent of +Pikuri::Agent::Listener::Terminal+: renders
@@ -159,7 +158,7 @@ module PikuriTui
     # buffer for the scrollbar gutter and any future padding.
     # @return [StreamingMarkdownBuffer]
     def make_buffer
-      StreamingMarkdownBuffer.new(width: buffer_width) do |remove_n, lines_to_add|
+      StreamingMarkdownBuffer.new(render: build_renderer) do |remove_n, lines_to_add|
         @screen.event_queue.submit do
           @text_view.remove_last_n_lines(remove_n) if remove_n.positive?
           @text_view.add_line(lines_to_add.join("\n")) if lines_to_add.any?
@@ -176,13 +175,24 @@ module PikuriTui
     # marshaled onto the UI thread.
     # @return [StreamingMarkdownBuffer]
     def make_thinking_buffer
-      StreamingMarkdownBuffer.new(width: buffer_width) do |remove_n, lines_to_add|
+      StreamingMarkdownBuffer.new(render: build_renderer) do |remove_n, lines_to_add|
         recolored = lines_to_add.map { |line| AnsiGrayscale.recolor(line) }
         @screen.event_queue.submit do
           @text_view.remove_last_n_lines(remove_n) if remove_n.positive?
           @text_view.add_line(recolored.join("\n")) if recolored.any?
         end
       end
+    end
+
+    # Builds a callable +String -> String+ that snapshots the current
+    # {#buffer_width} and routes through {MarkdownRenderer.render}. Used
+    # by {#make_buffer} and {#make_thinking_buffer} as the +render:+ arg
+    # to {StreamingMarkdownBuffer}; the snapshot is what the buffer's
+    # docs call "the wrap-width at the moment the buffer is created."
+    # @return [Proc]
+    def build_renderer
+      width = buffer_width
+      ->(md) { MarkdownRenderer.render(md, width: width) }
     end
 
     # @return [Integer] render width for a fresh
@@ -244,9 +254,9 @@ module PikuriTui
     # @return [String] rendered ANSI text, or +content+ unchanged on
     #   render failure
     def render_markdown(content)
-      TTY::Markdown.parse(content)
+      MarkdownRenderer.render(content, width: buffer_width)
     rescue StandardError => e
-      Tuile.logger.warn("TTY::Markdown render failed (#{e.class}: #{e.message}); falling back to raw text")
+      Tuile.logger.warn("MarkdownRenderer.render failed (#{e.class}: #{e.message}); falling back to raw text")
       content
     end
 

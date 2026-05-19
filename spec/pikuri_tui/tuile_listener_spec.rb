@@ -84,13 +84,13 @@ RSpec.describe PikuriTui::TuileListener do
     assert_equal '', rendered
   end
 
-  it 'logs and falls back to raw text when TTY::Markdown raises' do
+  it 'logs and falls back to raw text when the Markdown renderer raises' do
     TTY::Markdown.define_singleton_method(:parse) { |*| raise StandardError, 'boom' }
     captured = StringIO.new
     Tuile.logger = Logger.new(captured)
     listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'plain content'))
     assert_includes rendered, 'plain content'
-    assert_includes captured.string, 'TTY::Markdown render failed'
+    assert_includes captured.string, 'MarkdownRenderer.render failed'
   end
 
   it 'reports its short label as "TuileListener" (used by Agent#to_s)' do

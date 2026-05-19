@@ -1,24 +1,12 @@
 # frozen_string_literal: true
 
 RSpec.describe PikuriTui::StreamingMarkdownBuffer do
-  # Temporarily replace +TTY::Markdown.parse+ with the given lambda for
-  # the duration of the block. Used by the render-failure specs to
-  # simulate +TTY::Markdown+ raising mid-stream.
-  def with_markdown_parse(stub_proc)
-    original = TTY::Markdown.method(:parse)
-    TTY::Markdown.define_singleton_method(:parse) do |*args, **kwargs|
-      stub_proc.call(*args, **kwargs)
-    end
-    yield
-  ensure
-    TTY::Markdown.define_singleton_method(:parse, original)
-  end
   # Recording sink — captures every (remove_n, lines_to_add) tuple the
   # buffer emits, plus exposes a #replay helper that rebuilds the final
   # TextView-equivalent line array by applying the events in order.
   # That replay is the easiest cross-check for "the buffer emits a
   # correct in-place diff" without having to assert exact intermediate
-  # diffs (which are sensitive to TTY::Markdown's exact line breaks).
+  # diffs (which are sensitive to the renderer's exact line breaks).
   class RecordingSink
     attr_reader :events
 
@@ -48,15 +36,21 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
 
   let(:sink) { RecordingSink.new }
   let(:width) { 80 }
+  # Render function used by the buffer in tests: the production
+  # +MarkdownRenderer+ with width baked in. The replay-vs-single-shot
+  # assertions below compare against this same renderer, so the buffer
+  # and the expected value are always tested against the same Markdown
+  # → ANSI transform.
+  let(:render) { ->(md) { PikuriTui::MarkdownRenderer.render(md, width: width) } }
 
-  def build(width: 80)
+  def build(render: self.render)
     sink_obj = sink
-    described_class.new(width: width) { |n, lines| sink_obj.record(n, lines) }
+    described_class.new(render: render) { |n, lines| sink_obj.record(n, lines) }
   end
 
   context 'construction' do
     it 'raises without a block sink' do
-      assert_raises(ArgumentError) { described_class.new(width: 80) }
+      assert_raises(ArgumentError) { described_class.new(render: render) }
     end
 
     it 'is not finalized at construction' do
@@ -89,7 +83,7 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
     it "replay matches a single-shot render of the same source" do
       buf = build
       'hello world'.each_char { |c| buf.append(c) }
-      expected = TTY::Markdown.parse('hello world', width: width).split("\n")
+      expected = render.call('hello world').split("\n")
       assert_equal expected, sink.replay
     end
 
@@ -97,7 +91,7 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       buf = build
       source = "First paragraph.\n\nSecond paragraph here.\n\nThird."
       source.chars.each_slice(3) { |chunk| buf.append(chunk.join) }
-      expected = TTY::Markdown.parse(source, width: width).split("\n")
+      expected = render.call(source).split("\n")
       assert_equal expected, sink.replay
     end
 
@@ -105,7 +99,7 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       buf = build
       source = "Here's some code:\n\n```ruby\ndef hi\n  puts :hi\nend\n```\n\ndone."
       source.chars.each_slice(2) { |chunk| buf.append(chunk.join) }
-      expected = TTY::Markdown.parse(source, width: width).split("\n")
+      expected = render.call(source).split("\n")
       assert_equal expected, sink.replay
     end
 
@@ -113,7 +107,7 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       buf = build
       source = "| a | b |\n|---|---|\n| 1 | very long cell |\n| 2 | 3 |"
       source.chars.each_slice(4) { |chunk| buf.append(chunk.join) }
-      expected = TTY::Markdown.parse(source, width: width).split("\n")
+      expected = render.call(source).split("\n")
       assert_equal expected, sink.replay
     end
 
@@ -151,14 +145,14 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       buf = build
       buf.append('hello tehre')  # typo
       buf.finalize('hello there')
-      expected = TTY::Markdown.parse('hello there', width: width).split("\n")
+      expected = render.call('hello there').split("\n")
       assert_equal expected, sink.replay
     end
 
     it 'works on a buffer that never received an append' do
       buf = build
       buf.finalize('just the final')
-      expected = TTY::Markdown.parse('just the final', width: width).split("\n")
+      expected = render.call('just the final').split("\n")
       assert_equal expected, sink.replay
     end
 
@@ -171,40 +165,57 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
   end
 
   context 'render failure handling' do
-    it 'catches TTY::Markdown exceptions, logs, and skips the emission' do
+    # Stateful render lambda used by the failure-handling specs. Starts
+    # out as a thin wrapper around the production renderer; flip
+    # +explode+ to +true+ to make the next render(s) raise, then back to
+    # +false+ to simulate the upstream library recovering.
+    class FlakyRenderer
+      attr_accessor :explode
+
+      def initialize(width:)
+        @width = width
+        @explode = false
+      end
+
+      def call(md)
+        raise StandardError, 'synthetic render boom' if @explode
+        PikuriTui::MarkdownRenderer.render(md, width: @width)
+      end
+    end
+
+    it 'catches render exceptions, logs, and skips the emission' do
       old_logger = Tuile.logger
       log_io = StringIO.new
       Tuile.logger = Logger.new(log_io)
 
-      buf = build
+      flaky = FlakyRenderer.new(width: width)
+      buf = build(render: flaky)
       buf.append('hello')
       sink.events.clear
 
-      raised = false
-      with_markdown_parse(->(*_a, **_kw) { raised = true; raise StandardError, 'synthetic render boom' }) do
-        buf.append(' world')
-      end
+      flaky.explode = true
+      buf.append(' world')
 
-      assert raised, 'expected the stub to be invoked'
       assert_empty sink.events
-      assert_includes log_io.string, 'TTY::Markdown render failed'
+      assert_includes log_io.string, 'render failed'
       assert_includes log_io.string, 'synthetic render boom'
     ensure
       Tuile.logger = old_logger
     end
 
     it 'recovers cleanly on the next successful render' do
-      buf = build
+      flaky = FlakyRenderer.new(width: width)
+      buf = build(render: flaky)
       buf.append('hello')
       sink.events.clear
 
-      with_markdown_parse(->(*_a, **_k) { raise 'boom' }) do
-        buf.append(' boom')
-      end
+      flaky.explode = true
+      buf.append(' boom')
       assert_empty sink.events
 
+      flaky.explode = false
       buf.append(' world')
-      expected = TTY::Markdown.parse('hello boom world', width: width).split("\n")
+      expected = PikuriTui::MarkdownRenderer.render('hello boom world', width: width).split("\n")
       assert_equal expected, sink.replay
     end
   end

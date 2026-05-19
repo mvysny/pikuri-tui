@@ -1,17 +1,18 @@
 # frozen_string_literal: true
 
-require 'tty-markdown'
 require 'tuile'
 
 module PikuriTui
   # Stateful buffer that turns a stream of Markdown deltas into hard-line
   # edits against a +Tuile::Component::TextView+. The buffer itself is
-  # UI-unaware — it accepts source chunks, re-renders the currently
-  # *open* Markdown block to ANSI via +TTY::Markdown+, diffs the rendered
-  # output at hard-line granularity against its previous emission, and
-  # calls a caller-supplied sink with the diff as +(remove_last_n,
-  # lines_to_add)+. The sink is what knows about +TextView+ and the
-  # Tuile UI thread.
+  # UI-unaware — it accepts source chunks, hands the currently *open*
+  # Markdown block to a caller-supplied render function, diffs the
+  # rendered ANSI at hard-line granularity against its previous
+  # emission, and calls a caller-supplied sink with the diff as
+  # +(remove_last_n, lines_to_add)+. The sink is what knows about
+  # +TextView+ and the Tuile UI thread; the render function is what
+  # knows about +TTY::Markdown+ (or whatever swap-in renderer the caller
+  # wired up — see {MarkdownRenderer}).
   #
   # == Why re-render-and-diff
   #
@@ -85,7 +86,7 @@ module PikuriTui
   # +screen.event_queue.submit+ in the listener's wiring).
   class StreamingMarkdownBuffer
     # Probe marker appended after the committed source at commit time so
-    # we can ask +TTY::Markdown+ "what does committed render to, given
+    # we can ask the renderer "what does committed render to, given
     # that *something* follows?" — the lines before the marker in the
     # probe output are the natural rendered form of the committed source
     # right up to the boundary with whatever block comes next. Using
@@ -101,16 +102,20 @@ module PikuriTui
     # text emits it, and Markdown has nothing to do with it (an
     # earlier ASCII +_PKBND_+ marker got stripped to +PKBND+ because
     # tty-markdown treated the surrounding underscores as italics —
-    # a U+E000 has no such risk). It survives +TTY::Markdown.parse+
-    # unchanged.
+    # a U+E000 has no such risk). It passes through any sane Markdown
+    # renderer unchanged.
     COMMIT_PROBE_SENTINEL = ""
     private_constant :COMMIT_PROBE_SENTINEL
 
-    # @param width [Integer] render width passed to +TTY::Markdown.parse+.
-    #   Should be the +TextView+'s wrap-width at the moment the buffer
-    #   is created. The buffer ignores resizes during streaming — the
-    #   next message renders at the new width and looks right; the
-    #   in-flight message may look slightly off if resized mid-stream.
+    # @param render [#call] callable that takes a Markdown +String+ and
+    #   returns rendered ANSI +String+. The buffer treats it as an
+    #   opaque function — it must be deterministic for a given input
+    #   and must preserve {COMMIT_PROBE_SENTINEL} through to the output
+    #   unchanged. Callers typically bake render width into the lambda
+    #   at construction time (see {MarkdownRenderer}); the buffer
+    #   ignores resizes during streaming, so the next message renders
+    #   at the new width and looks right while an in-flight message may
+    #   look slightly off if resized mid-stream.
     # @yield [remove_last_n, lines_to_add] called with each diff.
     # @yieldparam remove_last_n [Integer] number of hard lines to drop
     #   from the +TextView+'s tail (0 on the first emission and any
@@ -119,10 +124,10 @@ module PikuriTui
     #   after the removal (may contain embedded ANSI; may be empty
     #   when the new render is a strict prefix of the previous one).
     # @raise [ArgumentError] if no block is given.
-    def initialize(width:, &sink)
+    def initialize(render:, &sink)
       raise ArgumentError, 'block sink required' unless sink
 
-      @width = width
+      @render = render
       @sink = sink
       @committed_source = +''
       @committed_lines = []
@@ -256,7 +261,7 @@ module PikuriTui
     # the *whole* committed source (old + new chunk) with a probe
     # sentinel appended, splits the result on +\n+, and takes
     # everything *before* the sentinel line as the new
-    # +@committed_lines+. This lets +TTY::Markdown+ decide whether the
+    # +@committed_lines+. This lets the renderer decide whether the
     # boundary needs a trailing blank — fence-then-paragraph doesn't;
     # paragraph-then-paragraph does — instead of us guessing.
     #
@@ -273,7 +278,7 @@ module PikuriTui
       new_committed_source = @committed_source + chunk
 
       probe = "#{new_committed_source}\n\n#{COMMIT_PROBE_SENTINEL}"
-      probe_rendered = TTY::Markdown.parse(probe, width: @width)
+      probe_rendered = @render.call(probe)
       lines = probe_rendered.split("\n")
       # +rindex+ rather than +find_index+ so even a hypothetical collision
       # with committed content can't fool us — the sentinel we just appended
@@ -287,7 +292,7 @@ module PikuriTui
                            # Markdown meaning). Fall back to a direct render;
                            # the boundary may pick up an extra blank but the
                            # content is still correct.
-                           TTY::Markdown.parse(new_committed_source, width: @width).split("\n")
+                           @render.call(new_committed_source).split("\n")
                          end
       @committed_source = new_committed_source
       @open_source = remaining
@@ -328,11 +333,11 @@ module PikuriTui
     def render_lines(source)
       return [] if source.empty?
 
-      rendered = TTY::Markdown.parse(source, width: @width)
+      rendered = @render.call(source)
       rendered.split("\n")
     rescue StandardError => e
       Tuile.logger.warn(
-        "StreamingMarkdownBuffer: TTY::Markdown render failed " \
+        "StreamingMarkdownBuffer: render failed " \
         "(#{e.class}: #{e.message}); keeping previous rendered state"
       )
       nil
