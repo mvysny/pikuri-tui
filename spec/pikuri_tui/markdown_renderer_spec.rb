@@ -85,6 +85,57 @@ RSpec.describe PikuriTui::MarkdownRenderer do
     end
   end
 
+  context 'malformed table separators (em-dash / en-dash)' do
+    # The bug: LLMs often emit "—-" (em-dash + hyphen) where they meant
+    # "---". kramdown's separator detector rejects non-ASCII chars and
+    # the whole table falls back to prose with literal pipes. We rewrite
+    # the dashes to ASCII before parsing so the table renders.
+
+    it 'rewrites em-dash separator rows so the table renders' do
+      bad  = "| a | b |\n|—-|—-|\n| 1 | 2 |"
+      good = "| a | b |\n|---|---|\n| 1 | 2 |"
+      assert_equal raw(good), render(bad)
+    end
+
+    it 'rewrites en-dash separator rows so the table renders' do
+      bad  = "| a | b |\n|–-|–-|\n| 1 | 2 |"
+      good = "| a | b |\n|---|---|\n| 1 | 2 |"
+      assert_equal raw(good), render(bad)
+    end
+
+    it 'rewrites a separator row made entirely of em-dashes' do
+      bad  = "| a | b |\n|———|———|\n| 1 | 2 |"
+      good = "| a | b |\n|---|---|\n| 1 | 2 |"
+      assert_equal raw(good), render(bad)
+    end
+
+    it 'rewrites single-em-dash cells in a separator row' do
+      # Bare "|—|—|—|" — one em-dash per cell, no hyphens at all.
+      bad  = "| a | b | c |\n|—|—|—|\n| 1 | 2 | 3 |"
+      good = "| a | b | c |\n|-|-|-|\n| 1 | 2 | 3 |"
+      assert_equal raw(good), render(bad)
+    end
+
+    it 'leaves prose containing em-dashes alone' do
+      # The interior-pipe requirement protects prose: "foo — bar" has
+      # no pipes, so the pattern doesn't match.
+      src = "foo — bar\n\nbaz — quux"
+      assert_equal raw(src), render(src)
+    end
+
+    it 'leaves a properly-formed separator row untouched' do
+      src = "| a | b |\n|---|---|\n| 1 | 2 |"
+      assert_equal raw(src), render(src)
+    end
+
+    it 'leaves a horizontal rule of em-dashes alone (no interior pipe)' do
+      # "———" alone is not a separator row candidate — no pipe — so we
+      # don't rewrite it.
+      src = "before\n\n———\n\nafter"
+      assert_equal raw(src), render(src)
+    end
+  end
+
   context 'blank-run collapse' do
     it 'collapses adjacent blank lines down to one' do
       assert_equal ['a', '', 'b'], described_class.collapse_blank_runs("a\n\n\n\nb").split("\n")
