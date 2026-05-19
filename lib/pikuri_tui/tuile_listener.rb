@@ -107,6 +107,7 @@ module PikuriTui
         if @buffer
           @buffer.finalize(content)
           @buffer = nil
+          add_line('')
         else
           add_line(render_markdown(content))
         end
@@ -214,15 +215,28 @@ module PikuriTui
     # the right call for {Pikuri::Agent::Event::Cancelled} so the user
     # sees the partial assistant reply they had when they hit cancel.
     #
+    # +:preserve+ also appends a blank hard line below the kept region
+    # as a separator between it and whatever event renders next. The
+    # streaming buffer's renderer drops trailing empty lines (it splits
+    # on +\n+ without preserving trailing empties, so a "para.\n" or
+    # "para.\n\n" both end up as +["para."]+), so without this the next
+    # event lands flush against the last paragraph. +:wipe+ deliberately
+    # skips the separator: there's nothing to separate from once the
+    # preview is gone.
+    #
     # @param mode [:wipe, :preserve]
     # @return [void]
     def flush_assistant(mode)
       return unless @buffer
 
       case mode
-      when :wipe     then @buffer.finalize('')
-      when :preserve then @buffer.finalize(@buffer.source)
-      else raise ArgumentError, "expected :wipe or :preserve, got #{mode.inspect}"
+      when :wipe
+        @buffer.finalize('')
+      when :preserve
+        @buffer.finalize(@buffer.source)
+        add_line('')
+      else
+        raise ArgumentError, "expected :wipe or :preserve, got #{mode.inspect}"
       end
       @buffer = nil
     end
@@ -234,12 +248,19 @@ module PikuriTui
     # has *happened*, and erasing it would drop the only record. The
     # {Pikuri::Agent::Event::Thinking} bookend's "suppress when streamed"
     # behavior is the same preserve, just stated from the bookend's side.
+    #
+    # Appends a blank hard line below the committed region as a
+    # separator between it and whatever event renders next. The buffer's
+    # renderer drops trailing empty lines (see {#flush_assistant}), so
+    # without this the next event lands flush against the last
+    # paragraph of the reasoning.
     # @return [void]
     def flush_thinking
       return unless @thinking_buffer
 
       @thinking_buffer.finalize(@thinking_buffer.source)
       @thinking_buffer = nil
+      add_line('')
     end
 
     # Render assistant Markdown for the conversation pane, degrading to the
