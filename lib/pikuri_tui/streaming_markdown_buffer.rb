@@ -95,13 +95,15 @@ module PikuriTui
     # block and a following paragraph; trying to reproduce those
     # quirks by hand is a losing game).
     #
-    # The marker is plain uppercase ASCII on purpose: no underscores,
-    # asterisks, backticks, or other characters tty-markdown would
-    # interpret as emphasis or code spans (an earlier +_PKBND_+ marker
-    # got stripped to +PKBND+ because tty-markdown treated the
-    # surrounding underscores as italics). Collision with assistant
-    # content is implausible.
-    COMMIT_PROBE_SENTINEL = 'ZPKBNDZ'
+    # The marker is a single Private-Use-Area Unicode codepoint
+    # (+U+E000+). Unicode reserves the PUA for application-specific
+    # use, so no spec assigns it a meaning, no LLM trained on natural
+    # text emits it, and Markdown has nothing to do with it (an
+    # earlier ASCII +_PKBND_+ marker got stripped to +PKBND+ because
+    # tty-markdown treated the surrounding underscores as italics —
+    # a U+E000 has no such risk). It survives +TTY::Markdown.parse+
+    # unchanged.
+    COMMIT_PROBE_SENTINEL = ""
     private_constant :COMMIT_PROBE_SENTINEL
 
     # @param width [Integer] render width passed to +TTY::Markdown.parse+.
@@ -273,7 +275,10 @@ module PikuriTui
       probe = "#{new_committed_source}\n\n#{COMMIT_PROBE_SENTINEL}"
       probe_rendered = TTY::Markdown.parse(probe, width: @width)
       lines = probe_rendered.split("\n")
-      sentinel_idx = lines.find_index { |line| line.include?(COMMIT_PROBE_SENTINEL) }
+      # +rindex+ rather than +find_index+ so even a hypothetical collision
+      # with committed content can't fool us — the sentinel we just appended
+      # is always the last occurrence.
+      sentinel_idx = lines.rindex { |line| line.include?(COMMIT_PROBE_SENTINEL) }
 
       @committed_lines = if sentinel_idx
                            lines[0...sentinel_idx]
