@@ -61,9 +61,7 @@ module PikuriTui
     # @return [void]
     def write(string)
       bump_error_count(string) if ERROR_PREFIXES.any? { |p| string.start_with?(p) }
-      @log_window.screen.event_queue.submit do
-        @log_window.content.add_line(string.chomp)
-      end
+      @log_window.log(string.chomp)
     end
 
     # +TTY::Logger+'s +puts+ path; included for parity with
@@ -75,9 +73,7 @@ module PikuriTui
     #   newline so callers should not include one
     # @return [void]
     def puts(string)
-      @log_window.screen.event_queue.submit do
-        @log_window.content.add_line(string)
-      end
+      @log_window.log(string)
     end
 
     # Stdlib +Logger+ treats an object as an IO target only when it
