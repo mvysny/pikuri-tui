@@ -85,6 +85,7 @@ module PikuriTui
       @markdown = markdown
       @buffer = nil
       @thinking_buffer = nil
+      @thinking_streamed = false
     end
 
     # Dispatches one event to the conversation pane. Called from the agent's
@@ -104,18 +105,20 @@ module PikuriTui
       in Pikuri::Agent::Event::UserTurn(content:)
         flush_assistant(:wipe)
         flush_thinking
+        @thinking_streamed = false
         add_line("> #{content}")
       in Pikuri::Agent::Event::ThinkingDelta(content:)
         flush_assistant(:wipe)
         @thinking_buffer ||= make_thinking_buffer
         @thinking_buffer.append(content)
+        @thinking_streamed = true
       in Pikuri::Agent::Event::Thinking(content:)
-        flush_assistant(:wipe)
         if @thinking_buffer
           flush_thinking
-        else
+        elsif !@thinking_streamed
           add_line(AnsiGrayscale.recolor(render_markdown(content)))
         end
+        @thinking_streamed = false
       in Pikuri::Agent::Event::AssistantDelta(content:)
         flush_thinking
         @buffer ||= make_buffer

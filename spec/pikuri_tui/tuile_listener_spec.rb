@@ -187,6 +187,20 @@ RSpec.describe PikuriTui::TuileListener do
       refute_includes rendered, 'streamed (authoritative)'
     end
 
+    it 'suppresses the Thinking bookend even when AssistantDelta arrived between deltas and bookend' do
+      listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'reasoning'))
+      listener.on_event(Pikuri::Agent::Event::AssistantDelta.new(content: 'answer'))
+      listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'reasoning (authoritative)'))
+      listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'answer'))
+      # The streamed reasoning is preserved; the bookend's content must not be
+      # rendered a second time (pikuri's natural per-step emit order is
+      # ThinkingDelta, AssistantDelta, Thinking, Assistant — flushing the
+      # thinking buffer when AssistantDelta arrives must not unhide the
+      # bookend's else branch).
+      assert_equal 1, rendered.scan('reasoning').size
+      refute_includes rendered, 'reasoning (authoritative)'
+    end
+
     it 'renders the Thinking bookend when no deltas were emitted (non-streaming provider)' do
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'bookend only'))
       assert_includes rendered, 'bookend only'
