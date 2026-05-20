@@ -8,9 +8,22 @@ module PikuriTui
   # the normalized event stream into a {Tuile::Component::TextView} (the
   # conversation pane) instead of stdout.
   #
-  # The agent's loop runs on a worker thread (Tuile owns the UI thread), so
-  # every {#on_event} call marshals its render through
-  # +screen.event_queue.submit+ to satisfy Tuile's single-threaded UI rule.
+  # Each logical block — user turn, streamed reasoning, streamed assistant
+  # answer, tool call, tool result, fallback notice, cancellation marker —
+  # lives in its own {Tuile::Component::TextView::Region}. The listener
+  # creates a region per block and assigns its content (or, for streaming,
+  # hands the region to a {StreamingMarkdownBuffer} / {PassthroughBuffer}
+  # that rewrites it on each delta). Per-block region addressing lets
+  # earlier sections keep their content independently of what comes after:
+  # the "wipe an unfinished preview" path becomes +region.remove+ and
+  # "preserve the streamed text on cancel" becomes "just drop the buffer
+  # handle."
+  #
+  # The agent's loop runs on a worker thread (Tuile owns the UI thread),
+  # and the streaming buffers mutate their regions directly — which
+  # requires the UI lock. {#on_event} therefore wraps the whole dispatch
+  # in +screen.event_queue.submit+ so every region mutation runs on the
+  # event-loop thread; the queue is FIFO, so events still land in order.
   #
   # Variant coverage mirrors the terminal listener with three intentional
   # departures:
@@ -26,13 +39,9 @@ module PikuriTui
   #    logged, our bugs raise" rule documented in CLAUDE.md.
   # 3. Streaming events ({Pikuri::Agent::Event::AssistantDelta} /
   #    {Pikuri::Agent::Event::ThinkingDelta}) are both rendered
-  #    incrementally through a {StreamingMarkdownBuffer} that
-  #    re-renders the accumulated source per token and applies the
-  #    diff via +TextView#remove_last_n_lines+ + +#add_line+. The
-  #    assistant buffer is finalized against the authoritative
-  #    {Pikuri::Agent::Event::Assistant#content} when it arrives; the
-  #    thinking buffer's sink routes each emitted line through
-  #    {AnsiGrayscale.recolor} so reasoning renders in one muted-gray
+  #    incrementally through a {StreamingMarkdownBuffer} wired to a
+  #    dedicated region. The thinking buffer's renderer is wrapped with
+  #    {AnsiGrayscale.recolor} so reasoning paints in one muted-gray
   #    tone with bold/italic/underline structure preserved — visually
   #    distinct from the assistant's full-color answer. The bookend
   #    {Pikuri::Agent::Event::Thinking} is suppressed when deltas
@@ -42,15 +51,17 @@ module PikuriTui
   #    Markdown.
   #
   # +Tokens+ and +ContextCap+ stay silent (their consumer is
-  # +Pikuri::Agent::Listener::TokenLog+, which the host adds separately if
-  # it wants token accounting in the diagnostic log).
+  # +Pikuri::Agent::Listener::TokenLog+, which the host adds separately
+  # if it wants token accounting in the diagnostic log).
   #
   # The Markdown render is gated on a +markdown:+ ctor flag (default
-  # +true+). When the host wires +markdown: false+, both the streaming
-  # path (via {PassthroughBuffer} instead of {StreamingMarkdownBuffer})
-  # and the non-streaming +render_markdown+ path skip +TTY::Markdown+ —
-  # content goes to the +TextView+ verbatim. The thinking pane's
-  # grayscale repaint is independent of the toggle.
+  # +true+). When the host wires +markdown: false+, the assistant
+  # streaming path uses {PassthroughBuffer} and the non-streaming
+  # assistant path skips +TTY::Markdown+ — content goes to the +TextView+
+  # verbatim. The thinking pane's grayscale repaint is independent of
+  # the toggle: a +markdown: false+ thinking buffer is still a
+  # {StreamingMarkdownBuffer} but with a recolor-only render function,
+  # so the gray tint survives.
   class TuileListener < Pikuri::Agent::Listener::Base
     # Cap, in characters, applied to tool-result content before it lands in
     # the conversation pane. Mirrors the terminal listener's cap so the two
@@ -60,7 +71,7 @@ module PikuriTui
     MAX_TOOL_RESULT_CHARS = 200
 
     # @param text_view [Tuile::Component::TextView] the conversation pane
-    #   to append rendered events into. Lifetime is owned by the host
+    #   to render rendered events into. Lifetime is owned by the host
     #   ({PikuriTui::Chat::App}); the listener doesn't construct or
     #   destroy it.
     # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals
@@ -68,30 +79,30 @@ module PikuriTui
     #   (rather than reached for via +Tuile::Screen.instance+) so tests can
     #   inject a {Tuile::FakeScreen} without having to install it as the
     #   singleton at construction time.
-    # @param markdown [Boolean] when +true+ (the default), assistant and
-    #   thinking content is rendered through +TTY::Markdown+ and the
-    #   streaming path uses {StreamingMarkdownBuffer}. When +false+, the
-    #   listener skips Markdown rendering entirely — non-streaming events
-    #   echo their content verbatim and the streaming path uses
-    #   {PassthroughBuffer}. Toggle off for back-ends whose content is
-    #   already in display form (raw text agents, code-agent tool output)
-    #   where +TTY::Markdown+ would corrupt or re-style it. The thinking
-    #   pane's grayscale repaint still applies in both modes — the toggle
-    #   is purely about Markdown.
+    # @param markdown [Boolean] when +true+ (the default), assistant
+    #   content is rendered through +TTY::Markdown+. When +false+, the
+    #   listener skips Markdown rendering for the assistant path —
+    #   non-streaming events echo their content verbatim and the streaming
+    #   path uses {PassthroughBuffer}. The thinking path always recolors
+    #   to gray and so always goes through a {StreamingMarkdownBuffer}
+    #   (with the renderer set to +TTY::Markdown+→recolor or
+    #   recolor-only, depending on the flag).
     def initialize(text_view:, screen:, markdown: true)
       super()
       @text_view = text_view
       @screen = screen
       @markdown = markdown
       @buffer = nil
+      @assistant_region = nil
       @thinking_buffer = nil
+      @thinking_region = nil
       @thinking_streamed = false
     end
 
-    # Dispatches one event to the conversation pane. Called from the agent's
-    # worker thread; every write to {@text_view} is wrapped in
-    # +screen.event_queue.submit+ so the UI mutation runs on the event-loop
-    # thread.
+    # Dispatches one event to the conversation pane. Called from the
+    # agent's worker thread; the whole dispatch is marshaled onto the
+    # event-loop thread via +screen.event_queue.submit+ so the
+    # downstream region mutations execute under the UI lock.
     #
     # @param event [Pikuri::Agent::Event::UserTurn,
     #   Pikuri::Agent::Event::Thinking, Pikuri::Agent::Event::ThinkingDelta,
@@ -101,58 +112,7 @@ module PikuriTui
     #   Pikuri::Agent::Event::Tokens, Pikuri::Agent::Event::ContextCap]
     # @return [void]
     def on_event(event)
-      case event
-      in Pikuri::Agent::Event::UserTurn(content:)
-        flush_assistant(:wipe)
-        flush_thinking
-        @thinking_streamed = false
-        add_line("> #{content}")
-      in Pikuri::Agent::Event::ThinkingDelta(content:)
-        flush_assistant(:wipe)
-        @thinking_buffer ||= make_thinking_buffer
-        @thinking_buffer.append(content)
-        @thinking_streamed = true
-      in Pikuri::Agent::Event::Thinking(content:)
-        if @thinking_buffer
-          flush_thinking
-        elsif !@thinking_streamed
-          add_line(AnsiGrayscale.recolor(render_markdown(content)))
-        end
-        @thinking_streamed = false
-      in Pikuri::Agent::Event::AssistantDelta(content:)
-        flush_thinking
-        @buffer ||= make_buffer
-        @buffer.append(content)
-      in Pikuri::Agent::Event::Assistant(content:)
-        flush_thinking
-        if @buffer
-          @buffer.finalize(content)
-          @buffer = nil
-          add_line('')
-        else
-          add_line(render_markdown(content))
-        end
-      in Pikuri::Agent::Event::ToolCall(name:, arguments:)
-        flush_assistant(:wipe)
-        flush_thinking
-        args = arguments.map { |k, v| "#{k}=#{v.inspect}" }.join(', ')
-        add_line(Rainbow("→ #{name}(#{args})").cyan.to_s)
-      in Pikuri::Agent::Event::ToolResult(content:)
-        flush_assistant(:wipe)
-        flush_thinking
-        add_line(Rainbow("= #{truncate_tool_result(content)}").cyan.to_s)
-      in Pikuri::Agent::Event::FallbackNotice(reason:)
-        flush_assistant(:wipe)
-        flush_thinking
-        add_line(Rainbow("! #{reason}").yellow.to_s)
-      in Pikuri::Agent::Event::Cancelled
-        flush_assistant(:preserve)
-        flush_thinking
-        add_line(Rainbow('! cancelled').red.to_s)
-      else
-        # Tokens / ContextCap: silent here. TokenLog handles them if the host
-        # registered one.
-      end
+      @screen.event_queue.submit { dispatch_event(event) }
     end
 
     # @return [String] short label used by +Pikuri::Agent#to_s+ when this
@@ -161,108 +121,149 @@ module PikuriTui
 
     private
 
-    # Marshal an event onto a fresh hard line in the conversation pane.
-    # Each pikuri event maps to its own hard line, so this — not
-    # +TextView#append+ — is the right primitive for the per-event
-    # dispatch in {#on_event}. Rendering work (Markdown, Rainbow) is
-    # done on the worker thread; only the UI mutation is submitted.
+    # The actual case dispatch. Runs on the event-loop thread (via
+    # {#on_event}'s +submit+) so every region mutation here is under the
+    # UI lock.
     #
-    # @param text [String] one or more lines (embedded +\n+ produce
-    #   further hard lines), possibly with embedded ANSI styling.
+    # @param event [Pikuri::Agent::Event::Base]
     # @return [void]
-    def add_line(text)
-      @screen.event_queue.submit { @text_view.add_line(text) }
-    end
-
-    # Construct a streaming buffer wired to a sink that applies the diff
-    # to {@text_view} on the UI thread. Returns a {StreamingMarkdownBuffer}
-    # when +@markdown+ is true (render width snapshotted from the
-    # +TextView+'s current rect, minus a small buffer for the scrollbar
-    # gutter), and a {PassthroughBuffer} otherwise — same sink contract
-    # either way, so the rest of the listener doesn't branch.
-    # @return [StreamingMarkdownBuffer, PassthroughBuffer]
-    def make_buffer
-      new_streaming_buffer do |remove_n, lines_to_add|
-        @screen.event_queue.submit do
-          @text_view.remove_last_n_lines(remove_n) if remove_n.positive?
-          @text_view.add_line(lines_to_add.join("\n")) if lines_to_add.any?
+    def dispatch_event(event)
+      case event
+      in Pikuri::Agent::Event::UserTurn(content:)
+        flush_assistant(:wipe)
+        release_thinking
+        @thinking_streamed = false
+        add_block("> #{content}")
+      in Pikuri::Agent::Event::ThinkingDelta(content:)
+        flush_assistant(:wipe)
+        @thinking_region ||= @text_view.create_region
+        @thinking_buffer ||= make_thinking_buffer(@thinking_region)
+        @thinking_buffer.append(content)
+        @thinking_streamed = true
+      in Pikuri::Agent::Event::Thinking(content:)
+        if @thinking_buffer
+          release_thinking
+        elsif !@thinking_streamed
+          add_block(AnsiGrayscale.recolor(render_markdown(content)))
         end
-      end
-    end
-
-    # Twin of {#make_buffer} for the reasoning pane. Same diff plumbing,
-    # but each emitted line is repainted via {AnsiGrayscale.recolor}
-    # before it lands in the +TextView+ — so streamed thinking keeps its
-    # bold/italic/list structure (when Markdown rendering is on) while
-    # the eye still reads the whole block as "reasoning, not answer."
-    # The grayscale repaint applies in passthrough mode too: plain text
-    # still gets the gray fg, which is what visually separates thinking
-    # from the assistant's answer. The recolor runs on the worker
-    # thread (CPU work) so only the +TextView+ mutation is marshaled
-    # onto the UI thread.
-    # @return [StreamingMarkdownBuffer, PassthroughBuffer]
-    def make_thinking_buffer
-      new_streaming_buffer do |remove_n, lines_to_add|
-        recolored = lines_to_add.map { |line| AnsiGrayscale.recolor(line) }
-        @screen.event_queue.submit do
-          @text_view.remove_last_n_lines(remove_n) if remove_n.positive?
-          @text_view.add_line(recolored.join("\n")) if recolored.any?
+        @thinking_streamed = false
+      in Pikuri::Agent::Event::AssistantDelta(content:)
+        release_thinking
+        @assistant_region ||= @text_view.create_region
+        @buffer ||= make_buffer(@assistant_region)
+        @buffer.append(content)
+      in Pikuri::Agent::Event::Assistant(content:)
+        release_thinking
+        if @buffer
+          @buffer.finalize(content)
+          @buffer = nil
+          @assistant_region = nil
+        else
+          add_block(render_markdown(content))
         end
-      end
-    end
-
-    # Pick the streaming-buffer class based on +@markdown+ and hand it
-    # the caller's sink. Exists so {#make_buffer} and {#make_thinking_buffer}
-    # share the toggle without each reimplementing the branch.
-    # @yield [remove_last_n, lines_to_add] sink contract shared by both
-    #   buffer classes.
-    # @return [StreamingMarkdownBuffer, PassthroughBuffer]
-    def new_streaming_buffer(&sink)
-      if @markdown
-        StreamingMarkdownBuffer.new(render: build_renderer, &sink)
+      in Pikuri::Agent::Event::ToolCall(name:, arguments:)
+        flush_assistant(:wipe)
+        release_thinking
+        args = arguments.map { |k, v| "#{k}=#{v.inspect}" }.join(', ')
+        add_block(Rainbow("→ #{name}(#{args})").cyan.to_s)
+      in Pikuri::Agent::Event::ToolResult(content:)
+        flush_assistant(:wipe)
+        release_thinking
+        add_block(Rainbow("= #{truncate_tool_result(content)}").cyan.to_s)
+      in Pikuri::Agent::Event::FallbackNotice(reason:)
+        flush_assistant(:wipe)
+        release_thinking
+        add_block(Rainbow("! #{reason}").yellow.to_s)
+      in Pikuri::Agent::Event::Cancelled
+        flush_assistant(:preserve)
+        release_thinking
+        add_block(Rainbow('! cancelled').red.to_s)
       else
-        PassthroughBuffer.new(&sink)
+        # Tokens / ContextCap: silent here. TokenLog handles them if the
+        # host registered one.
       end
+    end
+
+    # Append one logical block to the conversation pane: create a fresh
+    # region and assign +text+ to it. Each pikuri event that isn't a
+    # streaming delta lands as exactly one such block, so subsequent
+    # mutations (a later +flush_assistant(:wipe)+, a re-render on resize)
+    # can address it in isolation.
+    #
+    # @param text [String] the block's content (one or more lines;
+    #   embedded +\n+ produce further hard lines), possibly with embedded
+    #   ANSI styling.
+    # @return [void]
+    def add_block(text)
+      @text_view.create_region.text = text
+    end
+
+    # Construct a streaming buffer wired to +region+. The buffer rewrites
+    # +region.text+ on every append, so the listener doesn't need to
+    # marshal individual UI mutations — the surrounding submit in
+    # {#on_event} already places the call under the UI lock.
+    #
+    # @param region [Tuile::Component::TextView::Region]
+    # @return [StreamingMarkdownBuffer, PassthroughBuffer]
+    def make_buffer(region)
+      if @markdown
+        StreamingMarkdownBuffer.new(render: build_markdown_renderer, region: region)
+      else
+        PassthroughBuffer.new(region: region)
+      end
+    end
+
+    # Twin of {#make_buffer} for the reasoning pane. Always returns a
+    # {StreamingMarkdownBuffer}: the renderer is +TTY::Markdown+→recolor
+    # when Markdown is on, recolor-only when it's off. Going through the
+    # streaming buffer in both cases gives us the same lifecycle (one
+    # buffer per thinking block, finalize at bookend) and keeps the gray
+    # tint applied regardless of mode.
+    #
+    # The block-cutter inside {StreamingMarkdownBuffer} cuts on blank
+    # lines and fences. With a pure recolor render it just commits each
+    # paragraph as-is, which is fine — the end result is +region.text =
+    # recolor(source)+ either way.
+    #
+    # @param region [Tuile::Component::TextView::Region]
+    # @return [StreamingMarkdownBuffer]
+    def make_thinking_buffer(region)
+      render = if @markdown
+                 markdown = build_markdown_renderer
+                 ->(md) { AnsiGrayscale.recolor(markdown.call(md)) }
+               else
+                 AnsiGrayscale.method(:recolor)
+               end
+      StreamingMarkdownBuffer.new(render: render, region: region)
     end
 
     # Builds a callable +String -> String+ that snapshots the current
     # {#buffer_width} and routes through {MarkdownRenderer.render}. Used
     # by {#make_buffer} and {#make_thinking_buffer} as the +render:+ arg
-    # to {StreamingMarkdownBuffer}; the snapshot is what the buffer's
-    # docs call "the wrap-width at the moment the buffer is created."
+    # (the thinking variant composes it with recolor).
     # @return [Proc]
-    def build_renderer
+    def build_markdown_renderer
       width = buffer_width
       ->(md) { MarkdownRenderer.render(md, width: width) }
     end
 
-    # @return [Integer] render width for a fresh
-    #   {StreamingMarkdownBuffer}. Reads the +TextView+'s current rect
-    #   and reserves two columns for the scrollbar gutter / any future
-    #   padding; floors at 1 so a not-yet-laid-out view doesn't pass a
-    #   non-positive width to +TTY::Markdown+.
+    # @return [Integer] render width for a fresh streaming buffer. Reads
+    #   the +TextView+'s current rect and reserves two columns for the
+    #   scrollbar gutter / any future padding; floors at 1 so a
+    #   not-yet-laid-out view doesn't pass a non-positive width to
+    #   +TTY::Markdown+.
     def buffer_width
       [@text_view.rect.width - 2, 1].max
     end
 
-    # Close out the assistant {StreamingMarkdownBuffer}. +:wipe+
-    # finalizes against the empty string (the buffer emits a diff that
-    # removes its rendered region from the +TextView+), which is the
-    # right call when an unrelated event arrives mid-stream — the new
-    # event then renders directly on a fresh line. +:preserve+ finalizes
-    # against the buffer's accumulated source (the diff is a no-op
-    # against the last render), keeping the streamed region visible —
-    # the right call for {Pikuri::Agent::Event::Cancelled} so the user
-    # sees the partial assistant reply they had when they hit cancel.
+    # Close out the assistant streaming buffer.
     #
-    # +:preserve+ also appends a blank hard line below the kept region
-    # as a separator between it and whatever event renders next. The
-    # streaming buffer's renderer drops trailing empty lines (it splits
-    # on +\n+ without preserving trailing empties, so a "para.\n" or
-    # "para.\n\n" both end up as +["para."]+), so without this the next
-    # event lands flush against the last paragraph. +:wipe+ deliberately
-    # skips the separator: there's nothing to separate from once the
-    # preview is gone.
+    # +:wipe+ removes the streamed region entirely (a +ToolCall+ /
+    # +UserTurn+ / etc. arrived mid-stream and the preview is no longer
+    # what the user should see). +:preserve+ just drops the buffer
+    # handle — the region keeps its rendered content (the cancel-preserve
+    # case: the partial assistant reply the user had when they hit
+    # cancel must stay visible).
     #
     # @param mode [:wipe, :preserve]
     # @return [void]
@@ -271,45 +272,35 @@ module PikuriTui
 
       case mode
       when :wipe
-        @buffer.finalize('')
+        @assistant_region.remove
       when :preserve
-        @buffer.finalize(@buffer.source)
-        add_line('')
+        # Region keeps its content; drop the handle below.
       else
         raise ArgumentError, "expected :wipe or :preserve, got #{mode.inspect}"
       end
       @buffer = nil
+      @assistant_region = nil
     end
 
-    # Close out the thinking {StreamingMarkdownBuffer}. Always commits
-    # the streamed text as-is — there's no +:wipe+ counterpart because
-    # the reasoning preview is never speculative the way an assistant
-    # preview is: by the time any cross-event reaches us the thinking
-    # has *happened*, and erasing it would drop the only record. The
-    # {Pikuri::Agent::Event::Thinking} bookend's "suppress when streamed"
-    # behavior is the same preserve, just stated from the bookend's side.
-    #
-    # Appends a blank hard line below the committed region as a
-    # separator between it and whatever event renders next. The buffer's
-    # renderer drops trailing empty lines (see {#flush_assistant}), so
-    # without this the next event lands flush against the last
-    # paragraph of the reasoning.
+    # Drop the thinking buffer + region handles. The region itself stays
+    # in the +TextView+ with its rendered content — there's no UI
+    # mutation here, just bookkeeping. Called from every handler except
+    # {Pikuri::Agent::Event::ThinkingDelta} so that the next
+    # +ThinkingDelta+ in a later step opens a fresh region rather than
+    # extending the previous one.
     # @return [void]
-    def flush_thinking
-      return unless @thinking_buffer
-
-      @thinking_buffer.finalize(@thinking_buffer.source)
+    def release_thinking
       @thinking_buffer = nil
-      add_line('')
+      @thinking_region = nil
     end
 
-    # Render assistant Markdown for the conversation pane, degrading to the
-    # raw string when the renderer raises. +tty-markdown+ has known issues
-    # around ANSI inside tables (+Strings::Wrap.insert_ansi+ raising
-    # +IndexError+); on a long-running TUI we'd rather show ugly Markdown
-    # than abort an in-flight conversation. Used on the non-streaming
-    # +Assistant+ path; the streaming path lets the buffer do its own
-    # catch-and-log.
+    # Render assistant Markdown for the conversation pane, degrading to
+    # the raw string when the renderer raises. +tty-markdown+ has known
+    # issues around ANSI inside tables (+Strings::Wrap.insert_ansi+
+    # raising +IndexError+); on a long-running TUI we'd rather show ugly
+    # Markdown than abort an in-flight conversation. Used on the
+    # non-streaming +Assistant+ / +Thinking+ paths; the streaming path
+    # lets the buffer do its own catch-and-log.
     #
     # When the listener was constructed with +markdown: false+, this is
     # a no-op — the +content+ comes back unchanged, matching the
