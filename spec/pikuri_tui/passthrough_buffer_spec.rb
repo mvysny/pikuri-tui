@@ -1,44 +1,17 @@
 # frozen_string_literal: true
 
 RSpec.describe PikuriTui::PassthroughBuffer do
-  # Recording sink mirrored from the StreamingMarkdownBuffer spec — same
-  # +#replay+ trick: apply each (remove_n, lines_to_add) tuple in order
-  # and the resulting array is what the TextView would show. Lets us
-  # assert "after streaming, the visible region equals the input" without
-  # caring about which chunk boundary produced which emission.
-  class PassthroughRecordingSink
-    attr_reader :events
+  let(:view) { Tuile::Component::TextView.new }
+  let(:region) { view.create_region }
 
-    def initialize
-      @events = []
-    end
+  before { Tuile::Screen.fake }
+  after  { Tuile::Screen.close }
 
-    def record(remove_n, lines_to_add)
-      @events << [remove_n, lines_to_add.dup]
-    end
-
-    def replay
-      lines = []
-      @events.each do |remove_n, to_add|
-        remove_n.times { lines.pop }
-        lines.concat(to_add)
-      end
-      lines
-    end
-  end
-
-  let(:sink) { PassthroughRecordingSink.new }
-
-  def build
-    sink_obj = sink
-    described_class.new { |n, lines| sink_obj.record(n, lines) }
+  def build(region: self.region)
+    described_class.new(region: region)
   end
 
   context 'construction' do
-    it 'raises without a block sink' do
-      assert_raises(ArgumentError) { described_class.new }
-    end
-
     it 'is not finalized at construction' do
       buf = build
       refute buf.finalized?
@@ -48,56 +21,51 @@ RSpec.describe PikuriTui::PassthroughBuffer do
       buf = build
       assert_equal '', buf.source
     end
+
+    it 'does not touch the region' do
+      build
+      assert region.empty?
+    end
   end
 
   context '#append' do
     it 'is a no-op on nil content' do
       buf = build
       buf.append(nil)
-      assert_empty sink.events
+      assert region.empty?
     end
 
     it 'is a no-op on empty content' do
       buf = build
       buf.append('')
-      assert_empty sink.events
+      assert region.empty?
     end
 
     it 'passes the input through unchanged (no Markdown conversion)' do
       buf = build
       buf.append("# heading\n\n**bold** _italic_")
-      assert_equal ['# heading', '', '**bold** _italic_'], sink.replay
+      assert_equal "# heading\n\n**bold** _italic_", region.text.to_s
     end
 
-    it 'emits (0, all_lines) on the first non-empty chunk' do
-      buf = build
-      buf.append('hello world')
-      assert_equal 1, sink.events.size
-      remove_n, lines = sink.events.first
-      assert_equal 0, remove_n
-      assert_equal ['hello world'], lines
-    end
-
-    it 'replay matches the raw source after token-by-token feeding' do
+    it 'token-by-token feeding ends with the raw source in the region' do
       buf = build
       source = "first line\nsecond line\nthird line"
       source.chars.each { |c| buf.append(c) }
-      assert_equal source.split("\n"), sink.replay
+      assert_equal source, region.text.to_s
     end
 
-    it 'replay matches multi-paragraph source after chunked feeding' do
+    it 'multi-paragraph source after chunked feeding lands as-is' do
       buf = build
       source = "First paragraph.\n\nSecond paragraph.\n\nThird."
       source.chars.each_slice(3) { |chunk| buf.append(chunk.join) }
-      assert_equal source.split("\n"), sink.replay
+      assert_equal source, region.text.to_s
     end
 
     it 'extends the trailing line when no newline arrives' do
       buf = build
       buf.append('hel')
       buf.append('lo')
-      # Two emissions, but the replay collapses to the single final line.
-      assert_equal ['hello'], sink.replay
+      assert_equal 'hello', region.text.to_s
     end
 
     it 'accumulates into #source' do
@@ -112,6 +80,14 @@ RSpec.describe PikuriTui::PassthroughBuffer do
       buf.append('hello')
       buf.finalize('hello')
       assert_raises(RuntimeError) { buf.append(' world') }
+    end
+
+    it 'leaves earlier regions untouched' do
+      before_region = view.create_region
+      before_region << 'untouched prefix'
+      target = view.create_region
+      build(region: target).append('streamed body')
+      assert_equal 'untouched prefix', before_region.text.to_s
     end
   end
 
@@ -132,29 +108,29 @@ RSpec.describe PikuriTui::PassthroughBuffer do
       buf = build
       buf.append('hello tehre')  # typo
       buf.finalize('hello there')
-      assert_equal ['hello there'], sink.replay
+      assert_equal 'hello there', region.text.to_s
     end
 
     it 'works on a buffer that never received an append' do
       buf = build
       buf.finalize('just the final')
-      assert_equal ['just the final'], sink.replay
+      assert_equal 'just the final', region.text.to_s
     end
 
     it 'handles authoritative content that is empty' do
       buf = build
       buf.append('partial preview')
       buf.finalize('')
-      assert_empty sink.replay
+      assert region.empty?
     end
 
-    it 'fast-paths when authoritative equals current source (no extra events)' do
+    it 'fast-paths when authoritative equals current source (region keeps its content)' do
       buf = build
       buf.append('keep this')
-      events_before = sink.events.size
+      content_before = region.text.to_s
       buf.finalize(buf.source)
-      assert_equal events_before, sink.events.size
       assert buf.finalized?
+      assert_equal content_before, region.text.to_s
     end
   end
 end

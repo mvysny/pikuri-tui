@@ -3,28 +3,32 @@
 require 'tuile'
 
 module PikuriTui
-  # Stateful buffer that turns a stream of Markdown deltas into hard-line
-  # edits against a +Tuile::Component::TextView+. The buffer itself is
-  # UI-unaware — it accepts source chunks, hands the currently *open*
-  # Markdown block to a caller-supplied render function, diffs the
-  # rendered ANSI at hard-line granularity against its previous
-  # emission, and calls a caller-supplied sink with the diff as
-  # +(remove_last_n, lines_to_add)+. The sink is what knows about
-  # +TextView+ and the Tuile UI thread; the render function is what
-  # knows about +TTY::Markdown+ (or whatever swap-in renderer the caller
-  # wired up — see {MarkdownRenderer}).
+  # Stateful buffer that turns a stream of Markdown deltas into in-place
+  # rewrites of a +Tuile::Component::TextView::Region+. The buffer keeps
+  # the region's content equal to the rendered form of the accumulated
+  # source: each {#append} rerenders the currently-open block and assigns
+  # the result back via +Region#text=+. The TextView's per-hard-line wrap
+  # cache means only the changed tail is re-spliced, and an unchanged
+  # render is short-circuited inside +Region#text=+, so per-token cost
+  # stays bounded.
   #
-  # == Why re-render-and-diff
+  # The buffer is UI-unaware in the sense that it doesn't know about the
+  # surrounding panes or layout — it owns one +Region+ and rewrites only
+  # that region. Mutations of the region call +Tuile::Screen#check_locked+,
+  # so the buffer must be driven from the UI thread (or a +FakeScreen+).
+  # The listener is responsible for marshaling agent-event dispatch onto
+  # the UI thread before calling into the buffer.
+  #
+  # == Why re-render-on-each-token
   #
   # Markdown rendering isn't streamable in any usable Ruby library:
   # +TTY::Markdown+ batches over +kramdown+, +CommonMarker+ batches over
   # +cmark+. Worse, Markdown is retroactively reformattable — a closing
   # +```+ turns earlier text into a code block; a new table row with a
   # wider cell re-pads every previous row. So the cheapest correct
-  # primitive is: on each token, render the source, split the rendered
-  # ANSI on +\n+, compare against the previous render, and emit just
-  # the trailing damage. +TextView+'s +#remove_last_n_lines+ + +#add_line+
-  # pair applies the diff in place.
+  # primitive is: on each token, render the open block, assign the
+  # combined committed-plus-open result to the region, and let the
+  # +Region#text=+ splice do the in-place update.
   #
   # == Block-cutter: bound per-token work to one block
   #
@@ -37,7 +41,7 @@ module PikuriTui
   # paragraph / list / blockquote / table), and a closing +```+ /
   # +~~~+ (ends a fenced code block). Committed source is rendered
   # *once*, its rendered lines stashed in +@committed_lines+, and
-  # never revisited. Per-token work shrinks from O(message-so-far) to
+  # never re-rendered. Per-token work shrinks from O(message-so-far) to
   # O(current-open-block).
   #
   # The cases this doesn't optimize — by design, because they're
@@ -61,29 +65,30 @@ module PikuriTui
   #
   # == Lifecycle
   #
-  # One buffer per assistant turn. The owner calls {#append} for each
+  # One buffer per assistant turn. The owner creates a fresh
+  # {Tuile::Component::TextView::Region} (typically one per logical
+  # block) and hands it to the buffer; the buffer rewrites only that
+  # region. The owner calls {#append} for each
   # +Pikuri::Agent::Event::AssistantDelta+ payload, then {#finalize}
   # exactly once with the +Pikuri::Agent::Event::Assistant+ payload.
   # +AssistantDelta+ is documented as preview-only — pikuri makes no
   # guarantee that +deltas.join == Assistant#content+ (providers
   # normalize whitespace; Anthropic strips thinking signatures) — so
   # {#finalize} replaces the accumulated source with the authoritative
-  # content and runs one final diff against the preview, leaving the
-  # visible region exactly matching the authoritative render. After
-  # finalize the buffer is dead: further calls raise.
+  # content and re-renders against it, leaving the region's content
+  # exactly matching the authoritative render. After finalize the buffer
+  # is dead: further calls raise.
   #
   # As a fast path, {#finalize} called with the buffer's own
   # +#source+ (the cancel-preserve case) skips the re-render entirely
-  # — the TextView already matches.
+  # — the region already matches.
   #
   # == Threading
   #
-  # Not thread-safe. Designed to be driven from a single thread (in
-  # practice, pikuri's agent worker via the +Pikuri::Agent::Listener+
-  # dispatch). The Markdown render and diff run on whatever thread
-  # calls {#append} / {#finalize}; only the sink callback needs to
-  # marshal back to the Tuile UI thread (it does this with
-  # +screen.event_queue.submit+ in the listener's wiring).
+  # Not thread-safe. The region's mutators check
+  # +Tuile::Screen#check_locked+, so the buffer must be driven from
+  # whichever thread holds the UI lock (in practice, the UI thread; in
+  # tests, any thread under +Tuile::Screen.fake+).
   class StreamingMarkdownBuffer
     # Probe marker appended after the committed source at commit time so
     # we can ask the renderer "what does committed render to, given
@@ -116,23 +121,18 @@ module PikuriTui
     #   ignores resizes during streaming, so the next message renders
     #   at the new width and looks right while an in-flight message may
     #   look slightly off if resized mid-stream.
-    # @yield [remove_last_n, lines_to_add] called with each diff.
-    # @yieldparam remove_last_n [Integer] number of hard lines to drop
-    #   from the +TextView+'s tail (0 on the first emission and any
-    #   time the previous render was a clean prefix of the new one).
-    # @yieldparam lines_to_add [Array<String>] hard lines to append
-    #   after the removal (may contain embedded ANSI; may be empty
-    #   when the new render is a strict prefix of the previous one).
-    # @raise [ArgumentError] if no block is given.
-    def initialize(render:, &sink)
-      raise ArgumentError, 'block sink required' unless sink
-
+    # @param region [Tuile::Component::TextView::Region] the region to
+    #   rewrite on every append. The buffer assumes exclusive ownership
+    #   of the region for its lifetime: only the buffer should call
+    #   +region.text=+ / +region.append+ / +region.replace+ between
+    #   construction and {#finalize}. Surrounding content outside this
+    #   region is untouched.
+    def initialize(render:, region:)
       @render = render
-      @sink = sink
+      @region = region
       @committed_source = +''
       @committed_lines = []
       @open_source = +''
-      @rendered_lines = []
       @scan_position = 0
       @fence_state = :normal
       @finalized = false
@@ -140,9 +140,10 @@ module PikuriTui
 
     # Feeds one streamed Markdown chunk. Concatenates onto the
     # accumulated source, advances any newly-closed block boundaries
-    # into +@committed_lines+, re-renders the open block, diffs against
-    # the previous full render, and emits the diff to the sink. Empty
-    # / +nil+ content is a no-op (no source mutation, no emission).
+    # into +@committed_lines+, re-renders the open block, and writes
+    # the combined +(committed + open)+ result back to the region.
+    # Empty / +nil+ content is a no-op (no source mutation, no region
+    # write).
     #
     # @param content [String, nil] the +AssistantDelta#content+ payload.
     # @return [void]
@@ -152,11 +153,11 @@ module PikuriTui
       return if content.nil? || content.empty?
 
       process_for_commits(content)
-      rerender_and_emit
+      update_region
     end
 
     # Replaces the accumulated source with the authoritative content
-    # and runs one final diff. Designed to be called once per
+    # and runs one final render. Designed to be called once per
     # assistant turn with the +Pikuri::Agent::Event::Assistant#content+
     # payload (the authoritative final Markdown, which may differ from
     # +deltas.join+). After this call the buffer is finalized — further
@@ -165,7 +166,7 @@ module PikuriTui
     # Fast path: if +authoritative+ equals the buffer's current
     # +#source+ (the cancel-preserve case — the host wants to commit
     # the preview as-is), the buffer just marks itself finalized and
-    # returns without re-rendering. The TextView already shows the
+    # returns without re-rendering. The region already shows the
     # right thing.
     #
     # @param authoritative [String] the final Markdown for this turn.
@@ -184,7 +185,7 @@ module PikuriTui
       @open_source = authoritative.to_s.dup
       @scan_position = 0
       @fence_state = :normal
-      rerender_and_emit
+      update_region
       @finalized = true
     end
 
@@ -267,8 +268,8 @@ module PikuriTui
     #
     # If the commit-time render raises, leave the buffer untouched —
     # the content stays open and the next successful render still
-    # diffs against the right baseline. Returns whether the commit
-    # actually happened, so the caller can decide whether to adjust
+    # writes the right baseline. Returns whether the commit actually
+    # happened, so the caller can decide whether to adjust
     # +@scan_position+.
     # @param idx [Integer] exclusive end of the committed slice.
     # @return [Boolean] +true+ on success.
@@ -305,26 +306,20 @@ module PikuriTui
       false
     end
 
-    # Render the open block, splice with the committed prefix, diff
-    # against the previous full render, and emit. The committed prefix
-    # already includes any natural trailing blank line the renderer
-    # produced at the block boundary (see {#commit_up_to}'s sentinel
-    # probe), so we just concatenate. On render failure the open block
-    # keeps its previous rendered shape — next successful render still
-    # produces a clean diff.
+    # Render the open block, concatenate with the committed prefix, and
+    # write the result back to the region. The committed prefix already
+    # includes any natural trailing blank line the renderer produced at
+    # the block boundary (see {#commit_up_to}'s sentinel probe), so we
+    # just join with +\n+. On render failure the region keeps its
+    # previous content — next successful render still produces a clean
+    # update.
     # @return [void]
-    def rerender_and_emit
+    def update_region
       open_rendered = render_lines(@open_source)
       return if open_rendered.nil?
 
-      new_rendered_lines = @committed_lines + open_rendered
-
-      prefix = common_prefix_length(@rendered_lines, new_rendered_lines)
-      damage = @rendered_lines.size - prefix
-      tail = new_rendered_lines[prefix..] || []
-
-      @sink.call(damage, tail) if damage.positive? || tail.any?
-      @rendered_lines = new_rendered_lines
+      new_lines = @committed_lines + open_rendered
+      @region.text = new_lines.join("\n")
     end
 
     # @param source [String]
@@ -341,16 +336,6 @@ module PikuriTui
         "(#{e.class}: #{e.message}); keeping previous rendered state"
       )
       nil
-    end
-
-    # @param a [Array<String>]
-    # @param b [Array<String>]
-    # @return [Integer] length of the longest common prefix of +a+ and +b+.
-    def common_prefix_length(a, b)
-      limit = [a.size, b.size].min
-      i = 0
-      i += 1 while i < limit && a[i] == b[i]
-      i
     end
   end
 end

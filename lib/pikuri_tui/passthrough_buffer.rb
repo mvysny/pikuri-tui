@@ -4,49 +4,37 @@ require 'tuile'
 
 module PikuriTui
   # API-compatible passthrough variant of {StreamingMarkdownBuffer}: same
-  # +#append+ / +#finalize+ / +#finalized?+ / +#source+ surface and the
-  # same +(remove_last_n, lines_to_add)+ sink contract, but no Markdown
-  # rendering and no block-cutter. The accumulated source is split on
-  # +\n+ and emitted to the sink directly — what comes in goes out.
+  # +#append+ / +#finalize+ / +#finalized?+ / +#source+ surface, same
+  # one-region-per-turn lifecycle, but no Markdown rendering and no
+  # block-cutter. {#append} forwards the chunk straight to
+  # +Region#append+ (which splits on embedded +\n+ for hard lines);
+  # {#finalize} assigns the authoritative content to +Region#text+.
   #
   # Use this where the streamed content is already in its final display
   # form (plain text, pre-formatted output, ANSI from elsewhere) and the
   # +TTY::Markdown+ trip through {StreamingMarkdownBuffer} would either
-  # corrupt the text or add unwanted styling. The diff plumbing — count
-  # the common prefix against the last emission, emit the trailing
-  # damage — is unchanged, so a sink wired up for {StreamingMarkdownBuffer}
-  # works as-is.
-  #
-  # No +render:+ keyword: there's no renderer to inject. There is no
-  # block-commit logic either; the diff machinery alone naturally avoids
-  # re-emitting an unchanged prefix because the source-as-lines *is* the
-  # rendered form.
+  # corrupt the text or add unwanted styling.
   #
   # == Lifecycle and threading
   #
   # Identical to {StreamingMarkdownBuffer}: one buffer per turn, drive
   # {#append} until done, then {#finalize} exactly once. Not thread-safe;
-  # the sink is what marshals UI mutations back to the Tuile thread.
+  # the region's mutators check +Tuile::Screen#check_locked+, so the
+  # buffer must be driven from whichever thread holds the UI lock.
   class PassthroughBuffer
-    # @yield [remove_last_n, lines_to_add] called with each diff.
-    # @yieldparam remove_last_n [Integer] number of hard lines to drop
-    #   from the +TextView+'s tail.
-    # @yieldparam lines_to_add [Array<String>] hard lines to append
-    #   after the removal.
-    # @raise [ArgumentError] if no block is given.
-    def initialize(&sink)
-      raise ArgumentError, 'block sink required' unless sink
-
-      @sink = sink
+    # @param region [Tuile::Component::TextView::Region] the region to
+    #   write into. The buffer assumes exclusive ownership for its
+    #   lifetime — only the buffer should mutate the region between
+    #   construction and {#finalize}.
+    def initialize(region:)
+      @region = region
       @source = +''
-      @emitted_lines = []
       @finalized = false
     end
 
-    # Feeds one streamed chunk. Concatenates onto the accumulated source,
-    # splits the whole source on +\n+, diffs against the previous
-    # emission, and emits the trailing damage. Empty / +nil+ content is
-    # a no-op.
+    # Feeds one streamed chunk. Concatenates onto the accumulated source
+    # and forwards verbatim to the region. Empty / +nil+ content is a
+    # no-op.
     #
     # @param content [String, nil] the chunk to append.
     # @return [void]
@@ -56,12 +44,13 @@ module PikuriTui
       return if content.nil? || content.empty?
 
       @source << content
-      emit_diff
+      @region.append(content)
     end
 
-    # Replaces the accumulated source with +authoritative+ and runs one
-    # final diff. Fast path: if +authoritative+ equals {#source}, just
-    # mark the buffer finalized — the sink has already seen everything.
+    # Replaces the accumulated source with +authoritative+ and writes
+    # it to the region. Fast path: if +authoritative+ equals {#source},
+    # just mark the buffer finalized — the region already shows the
+    # right thing.
     #
     # @param authoritative [String] the final content for this turn.
     # @return [void]
@@ -75,7 +64,7 @@ module PikuriTui
       end
 
       @source = authoritative.to_s.dup
-      emit_diff
+      @region.text = @source
       @finalized = true
     end
 
@@ -88,33 +77,6 @@ module PikuriTui
     #   as-is.
     def source
       @source.dup
-    end
-
-    private
-
-    # Split the source into hard lines, find the common prefix against
-    # the previous emission, and emit the trailing damage. No-op when
-    # the new line array is identical to the previous one.
-    # @return [void]
-    def emit_diff
-      new_lines = @source.split("\n")
-
-      prefix = common_prefix_length(@emitted_lines, new_lines)
-      damage = @emitted_lines.size - prefix
-      tail = new_lines[prefix..] || []
-
-      @sink.call(damage, tail) if damage.positive? || tail.any?
-      @emitted_lines = new_lines
-    end
-
-    # @param a [Array<String>]
-    # @param b [Array<String>]
-    # @return [Integer] length of the longest common prefix of +a+ and +b+.
-    def common_prefix_length(a, b)
-      limit = [a.size, b.size].min
-      i = 0
-      i += 1 while i < limit && a[i] == b[i]
-      i
     end
   end
 end

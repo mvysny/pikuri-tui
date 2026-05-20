@@ -1,61 +1,32 @@
 # frozen_string_literal: true
 
 RSpec.describe PikuriTui::StreamingMarkdownBuffer do
-  # Recording sink — captures every (remove_n, lines_to_add) tuple the
-  # buffer emits, plus exposes a #replay helper that rebuilds the final
-  # TextView-equivalent line array by applying the events in order.
-  # That replay is the easiest cross-check for "the buffer emits a
-  # correct in-place diff" without having to assert exact intermediate
-  # diffs (which are sensitive to the renderer's exact line breaks).
-  class RecordingSink
-    attr_reader :events
-
-    def initialize
-      @events = []
-    end
-
-    def to_proc
-      method(:record).to_proc
-    end
-
-    def record(remove_n, lines_to_add)
-      @events << [remove_n, lines_to_add.dup]
-    end
-
-    # Apply the recorded events to an empty line array; what remains is
-    # what the TextView would show for the streaming region.
-    def replay
-      lines = []
-      @events.each do |remove_n, to_add|
-        remove_n.times { lines.pop }
-        lines.concat(to_add)
-      end
-      lines
-    end
-  end
-
-  let(:sink) { RecordingSink.new }
   let(:width) { 80 }
   # Render function used by the buffer in tests: the production
-  # +MarkdownRenderer+ with width baked in. The replay-vs-single-shot
-  # assertions below compare against this same renderer, so the buffer
-  # and the expected value are always tested against the same Markdown
-  # → ANSI transform.
+  # +MarkdownRenderer+ with width baked in. Assertions below compare
+  # +region.text.to_s+ against the same renderer's single-shot output,
+  # so the buffer and the expected value are always tested against the
+  # same Markdown → ANSI transform.
   let(:render) { ->(md) { PikuriTui::MarkdownRenderer.render(md, width: width) } }
+  let(:view) { Tuile::Component::TextView.new }
+  let(:region) { view.create_region }
 
-  def build(render: self.render)
-    sink_obj = sink
-    described_class.new(render: render) { |n, lines| sink_obj.record(n, lines) }
+  before { Tuile::Screen.fake }
+  after  { Tuile::Screen.close }
+
+  def build(render: self.render, region: self.region)
+    described_class.new(render: render, region: region)
   end
 
   context 'construction' do
-    it 'raises without a block sink' do
-      assert_raises(ArgumentError) { described_class.new(render: render) }
-    end
-
     it 'is not finalized at construction' do
       buf = build
       refute buf.finalized?
+    end
+
+    it 'does not touch the region' do
+      build
+      assert region.empty?
     end
   end
 
@@ -63,61 +34,46 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
     it 'is a no-op on nil content' do
       buf = build
       buf.append(nil)
-      assert_empty sink.events
+      assert region.empty?
     end
 
     it 'is a no-op on empty content' do
       buf = build
       buf.append('')
-      assert_empty sink.events
+      assert region.empty?
     end
 
-    it 'emits a (0, all_lines) event on the first non-empty chunk' do
+    it 'writes the rendered content into the region' do
       buf = build
       buf.append('hello world')
-      assert_equal 1, sink.events.size
-      remove_n, _lines = sink.events.first
-      assert_equal 0, remove_n
+      assert_equal render.call('hello world').strip, region.text.to_s.strip
     end
 
-    it "replay matches a single-shot render of the same source" do
+    it 'token-by-token feeding ends in the same render as a single-shot' do
       buf = build
       'hello world'.each_char { |c| buf.append(c) }
-      expected = render.call('hello world').split("\n")
-      assert_equal expected, sink.replay
+      assert_equal render.call('hello world').strip, region.text.to_s.strip
     end
 
-    it 'replay matches a multi-paragraph source after token-by-token feeding' do
+    it 'multi-paragraph source converges to the single-shot render' do
       buf = build
       source = "First paragraph.\n\nSecond paragraph here.\n\nThird."
       source.chars.each_slice(3) { |chunk| buf.append(chunk.join) }
-      expected = render.call(source).split("\n")
-      assert_equal expected, sink.replay
+      assert_equal render.call(source).strip, region.text.to_s.strip
     end
 
-    it 'replay matches a streamed code fence' do
+    it 'streamed code fence converges to the single-shot render' do
       buf = build
       source = "Here's some code:\n\n```ruby\ndef hi\n  puts :hi\nend\n```\n\ndone."
       source.chars.each_slice(2) { |chunk| buf.append(chunk.join) }
-      expected = render.call(source).split("\n")
-      assert_equal expected, sink.replay
+      assert_equal render.call(source).strip, region.text.to_s.strip
     end
 
-    it 'replay matches a streamed table (the reformat-earlier-lines case)' do
+    it 'streamed table (the reformat-earlier-lines case) converges' do
       buf = build
       source = "| a | b |\n|---|---|\n| 1 | very long cell |\n| 2 | 3 |"
       source.chars.each_slice(4) { |chunk| buf.append(chunk.join) }
-      expected = render.call(source).split("\n")
-      assert_equal expected, sink.replay
-    end
-
-    it 'emits no event when content extends the source without changing the render' do
-      # Some leading whitespace can be a no-op for the rendered output.
-      buf = build
-      buf.append('hello')
-      sink.events.clear
-      buf.append('')
-      assert_empty sink.events
+      assert_equal render.call(source).strip, region.text.to_s.strip
     end
 
     it 'raises if called after finalize' do
@@ -125,6 +81,14 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       buf.append('hello')
       buf.finalize('hello')
       assert_raises(RuntimeError) { buf.append(' world') }
+    end
+
+    it 'leaves earlier regions untouched' do
+      before_region = view.create_region
+      before_region << 'untouched prefix'
+      target = view.create_region
+      build(region: target).append('streamed body')
+      assert_equal 'untouched prefix', before_region.text.to_s
     end
   end
 
@@ -145,22 +109,29 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       buf = build
       buf.append('hello tehre')  # typo
       buf.finalize('hello there')
-      expected = render.call('hello there').split("\n")
-      assert_equal expected, sink.replay
+      assert_equal render.call('hello there').strip, region.text.to_s.strip
     end
 
     it 'works on a buffer that never received an append' do
       buf = build
       buf.finalize('just the final')
-      expected = render.call('just the final').split("\n")
-      assert_equal expected, sink.replay
+      assert_equal render.call('just the final').strip, region.text.to_s.strip
     end
 
     it 'handles authoritative content that is empty' do
       buf = build
       buf.append('partial preview')
       buf.finalize('')
-      assert_empty sink.replay
+      assert region.empty?
+    end
+
+    it 'fast-paths when authoritative equals current source (region keeps its content)' do
+      buf = build
+      buf.append('keep this')
+      content_before = region.text.to_s
+      buf.finalize(buf.source)
+      assert buf.finalized?
+      assert_equal content_before, region.text.to_s
     end
   end
 
@@ -183,7 +154,7 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       end
     end
 
-    it 'catches render exceptions, logs, and skips the emission' do
+    it 'catches render exceptions, logs, and keeps prior region content' do
       old_logger = Tuile.logger
       log_io = StringIO.new
       Tuile.logger = Logger.new(log_io)
@@ -191,12 +162,12 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       flaky = FlakyRenderer.new(width: width)
       buf = build(render: flaky)
       buf.append('hello')
-      sink.events.clear
+      content_before = region.text.to_s
 
       flaky.explode = true
       buf.append(' world')
 
-      assert_empty sink.events
+      assert_equal content_before, region.text.to_s
       assert_includes log_io.string, 'render failed'
       assert_includes log_io.string, 'synthetic render boom'
     ensure
@@ -207,16 +178,14 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       flaky = FlakyRenderer.new(width: width)
       buf = build(render: flaky)
       buf.append('hello')
-      sink.events.clear
 
       flaky.explode = true
       buf.append(' boom')
-      assert_empty sink.events
 
       flaky.explode = false
       buf.append(' world')
-      expected = PikuriTui::MarkdownRenderer.render('hello boom world', width: width).split("\n")
-      assert_equal expected, sink.replay
+      expected = PikuriTui::MarkdownRenderer.render('hello boom world', width: width)
+      assert_equal expected.strip, region.text.to_s.strip
     end
   end
 end
