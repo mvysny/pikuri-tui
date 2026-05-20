@@ -59,6 +59,9 @@ llama_probe_url = "#{server}/props"
 
 cancel_flag = Pikuri::Agent::Control::Cancellable.new
 
+system_prompt = Pikuri.prompt(:'pikuri-chat')
+system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
+
 Tuile::Screen.new
 
 app = PikuriTui::Chat::App.new do |listener|
@@ -81,7 +84,7 @@ app = PikuriTui::Chat::App.new do |listener|
       provider: :openai,
       assume_model_exists: true
     ),
-    system_prompt: Pikuri.prompt(:'pikuri-chat'),
+    system_prompt: system_prompt,
     tools: [
       Pikuri::Tool::WEB_SEARCH,
       Pikuri::Tool::CALCULATOR,
