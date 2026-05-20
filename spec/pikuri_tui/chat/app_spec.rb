@@ -97,6 +97,20 @@ RSpec.describe PikuriTui::Chat::App do
     assert_includes rendered, 'pikuri-side message'
   end
 
+  it 'forwards markdown: true (the default) to the TuileListener' do
+    app
+    assert_equal true, @listener.instance_variable_get(:@markdown)
+  end
+
+  it 'forwards markdown: false to the TuileListener when wired off' do
+    explicit_app = described_class.new(markdown: false) do |listener|
+      @listener = listener
+      StubAgent.new(listener)
+    end
+    explicit_app # force construction
+    assert_equal false, @listener.instance_variable_get(:@markdown)
+  end
+
   it 'installs an on_error handler that funnels uncaught exceptions to Tuile.logger' do
     app
     captured = StringIO.new

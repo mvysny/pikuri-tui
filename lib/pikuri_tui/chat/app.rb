@@ -67,6 +67,11 @@ module PikuriTui
       #   to install additional logger sinks.
       attr_reader :log_window
 
+      # @param markdown [Boolean] forwarded to {TuileListener}'s
+      #   +markdown:+ flag (default +true+). When +false+, the
+      #   conversation pane skips +TTY::Markdown+ and the streaming path
+      #   uses {PassthroughBuffer} — appropriate for back-ends whose
+      #   content is already in display form.
       # @yield [listener] one-shot factory invoked exactly once during
       #   construction. The block receives the {TuileListener} bound to
       #   this app's conversation pane and must return a constructed
@@ -75,10 +80,11 @@ module PikuriTui
       #   listener; include it in the agent's +ListenerList+.
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given (no agent → no app).
-      def initialize(&build_agent)
+      def initialize(markdown: true, &build_agent)
         raise LocalJumpError, 'Chat::App requires a block that builds the Pikuri::Agent' unless block_given?
 
         @screen = Tuile::Screen.instance
+        @markdown = markdown
         @error_count = 0
         @turn_in_progress = false
 
@@ -127,7 +133,7 @@ module PikuriTui
         @input_window = Tuile::Component::Window.new('You')
         @input_window.content = @input
 
-        @listener = TuileListener.new(text_view: @conversation_view, screen: @screen)
+        @listener = TuileListener.new(text_view: @conversation_view, screen: @screen, markdown: @markdown)
 
         @layout = Layout.new(
           conversation: @conversation_window,
