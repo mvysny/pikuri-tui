@@ -83,6 +83,16 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   conversation pane). The equivalent of pikuri's
   `Pikuri::Agent::Listener::Terminal`, retargeted at the TUI.
   Shared by `Chat::App` and the planned `Code::App`.
+- `lib/pikuri_tui/passthrough_buffer.rb` —
+  `PikuriTui::PassthroughBuffer`, API-compatible variant of
+  `StreamingMarkdownBuffer` (same `#append` / `#finalize` /
+  `#finalized?` / `#source` surface and the same
+  `(remove_last_n, lines_to_add)` sink contract) that skips the
+  Markdown render and the block-cutter entirely — the accumulated
+  source is split on `\n` and passed through to the sink as-is. For
+  streams whose payload is already in display form (plain text,
+  pre-formatted output) where `TTY::Markdown` would corrupt or
+  re-style it.
 - `lib/pikuri_tui/counting_log_io.rb` — `PikuriTui::CountingLogIO`,
   the `IO`-shaped sink that forwards every line to the diagnostic
   `LogWindow` and counts error-class writes so the `Ctrl+L`
