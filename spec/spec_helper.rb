@@ -2,6 +2,16 @@
 
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 
+# Disable ANSI colorisation in +TTY::Markdown+ (via +Pastel+ / +tty-color+)
+# for the suite. Spec assertions about Markdown output target *structure*
+# — bullet markers, blank-line placement, table-separator rewriting —
+# not the surrounding ANSI styling. Colour bytes vary by terminal and by
+# +tty-color+'s auto-detection (TTY vs piped), which would make the same
+# spec pass in CI and fail interactively. Pin both ends to the no-colour
+# branch so the suite is deterministic everywhere. Must be set before
+# +tty-markdown+ is loaded so +Pastel.new+ sees it.
+ENV['NO_COLOR'] = '1'
+
 require 'rspec/core'
 require 'minitest'
 require 'minitest/assertions'
