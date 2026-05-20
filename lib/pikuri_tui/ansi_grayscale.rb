@@ -25,13 +25,12 @@ module PikuriTui
   # missing code to {Tuile::StyledString}'s parser, not to grow a
   # parallel ANSI parser here.
   module AnsiGrayscale
-    # 24-bit RGB triplet for the gray fg every recolored span carries.
-    # Matches the +Rainbow.color(85, 85, 85)+ tone the listener used for
-    # thinking text before this module existed — same SGR
-    # (+\e[38;2;85;85;85m+), kept as a constant so any future
-    # adjustment lands in one place.
-    # @return [Array<Integer>]
-    GRAY = [85, 85, 85].freeze
+    # The gray fg every recolored span carries. Matches the
+    # +Rainbow.color(85, 85, 85)+ tone the listener used for thinking
+    # text before this module existed — same SGR (+\e[38;2;85;85;85m+),
+    # kept as a constant so any future adjustment lands in one place.
+    # @return [Tuile::Color]
+    GRAY = Tuile::Color.new([85, 85, 85])
 
     class << self
       # Repaint +ansi+ as one gray tone, preserving bold/italic/underline.

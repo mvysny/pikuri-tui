@@ -3,6 +3,7 @@
 RSpec.describe PikuriTui::TuileListener do
   let(:text_view) { Tuile::Component::TextView.new }
   let(:listener)  { described_class.new(text_view: text_view, screen: Tuile::Screen.instance) }
+  let(:gray)      { PikuriTui::AnsiGrayscale::GRAY }
 
   before do
     Tuile::Screen.fake
@@ -219,8 +220,8 @@ RSpec.describe PikuriTui::TuileListener do
       TTY::Markdown.define_singleton_method(:parse) { |_text, **_kwargs| "\e[31mred-from-renderer\e[0m" }
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
       fg_colors = text_view.text.spans.map { |s| s.style.fg }
-      refute_includes fg_colors, :red
-      assert_includes fg_colors, [85, 85, 85]
+      refute_includes fg_colors, Tuile::Color.new(:red)
+      assert_includes fg_colors, gray
     end
 
     it 'preserves bold/italic/underline while repainting fg to gray' do
@@ -230,7 +231,7 @@ RSpec.describe PikuriTui::TuileListener do
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
       span = text_view.text.spans.find { |s| s.text.include?('bold italic underlined red') }
       refute_nil span, 'expected a span carrying the rendered text'
-      assert_equal [85, 85, 85], span.style.fg
+      assert_equal gray, span.style.fg
       assert span.style.bold,      'bold should pass through the recolor'
       assert span.style.italic,    'italic should pass through the recolor'
       assert span.style.underline, 'underline should pass through the recolor'
@@ -240,8 +241,8 @@ RSpec.describe PikuriTui::TuileListener do
       TTY::Markdown.define_singleton_method(:parse) { |_text, **_kwargs| "\e[31mred\e[0m" }
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'bookend'))
       fg_colors = text_view.text.spans.map { |s| s.style.fg }
-      assert_includes fg_colors, [85, 85, 85]
-      refute_includes fg_colors, :red
+      assert_includes fg_colors, gray
+      refute_includes fg_colors, Tuile::Color.new(:red)
     end
   end
 
@@ -269,7 +270,7 @@ RSpec.describe PikuriTui::TuileListener do
       assert_includes rendered, '**raw thinking**'
       refute_includes rendered, 'MARKDOWN_RAN'
       fg_colors = text_view.text.spans.map { |s| s.style.fg }
-      assert_includes fg_colors, [85, 85, 85]
+      assert_includes fg_colors, gray
     end
 
     it 'streams AssistantDelta content through PassthroughBuffer (no Markdown render)' do
@@ -283,7 +284,7 @@ RSpec.describe PikuriTui::TuileListener do
       assert_includes rendered, '**still literal**'
       refute_includes rendered, 'MARKDOWN_RAN'
       fg_colors = text_view.text.spans.map { |s| s.style.fg }
-      assert_includes fg_colors, [85, 85, 85]
+      assert_includes fg_colors, gray
     end
   end
 end
