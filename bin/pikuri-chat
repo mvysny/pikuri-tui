@@ -68,7 +68,7 @@ Tuile::Screen.new
 # Agent's ListenerList see the same TokenLog instance.
 token_log = Pikuri::Agent::Listener::TokenLog.new
 
-app = PikuriTui::Chat::App.new(token_log: token_log, capture_mouse: false) do |listener|
+app = PikuriTui::Chat::App.new(token_log: token_log) do |listener|
   # Coalesce streaming delta chunks at 15 fps before they reach the
   # Markdown-rendering TuileListener: a fast llama.cpp can emit dozens
   # of deltas per second and re-rendering Markdown on every one is
