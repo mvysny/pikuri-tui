@@ -85,9 +85,18 @@ RSpec.describe PikuriTui::Chat::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'leaves the conversation Window without a footer (status moved to the status bar)' do
+  it 'mounts a FooterLabel as the conversation Window footer (token status + spinner slot)' do
     app
-    assert_nil app.screen.pane.content.conversation.footer
+    assert_kind_of PikuriTui::Chat::FooterLabel, app.screen.pane.content.conversation.footer
+  end
+
+  it 'feeds the FooterLabel from the same TokenLog the host wires into the agent' do
+    explicit_token_log = Pikuri::Agent::Listener::TokenLog.new
+    explicit_app = described_class.new(token_log: explicit_token_log) do |listener|
+      StubAgent.new(listener)
+    end
+    footer = explicit_app.screen.pane.content.conversation.footer
+    assert_same explicit_token_log, footer.instance_variable_get(:@token_log)
   end
 
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do

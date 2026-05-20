@@ -67,6 +67,21 @@ module PikuriTui
       #   to install additional logger sinks.
       attr_reader :log_window
 
+      # @return [Pikuri::Agent::Listener::TokenLog] the main agent's
+      #   token log, fed into the conversation-window {FooterLabel}.
+      #   The host's build block must include this instance (or one
+      #   the host supplied via the +token_log:+ ctor arg) in the
+      #   agent's +ListenerList+ so it actually receives +Tokens+
+      #   events; the App doesn't register listeners itself.
+      attr_reader :token_log
+
+      # @param token_log [Pikuri::Agent::Listener::TokenLog] the
+      #   per-conversation token log whose +status_line+ feeds the
+      #   conversation-window footer. The host is responsible for
+      #   wiring the same instance into the agent's +ListenerList+
+      #   (so it actually receives +Tokens+ events). Defaults to a
+      #   fresh instance — tests that don't exercise the footer can
+      #   ignore this knob.
       # @param markdown [Boolean] forwarded to {TuileListener}'s
       #   +markdown:+ flag (default +true+). When +false+, the
       #   conversation pane skips +TTY::Markdown+ and the streaming path
@@ -75,15 +90,17 @@ module PikuriTui
       # @yield [listener] one-shot factory invoked exactly once during
       #   construction. The block receives the {TuileListener} bound to
       #   this app's conversation pane and must return a constructed
-      #   +Pikuri::Agent+ whose +ListenerList+ includes that listener.
+      #   +Pikuri::Agent+ whose +ListenerList+ includes that listener
+      #   and the +token_log+ exposed at {#token_log}.
       # @yieldparam listener [TuileListener] the conversation-pane
       #   listener; include it in the agent's +ListenerList+.
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given (no agent → no app).
-      def initialize(markdown: true, capture_mouse: true, &build_agent)
+      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, markdown: true, capture_mouse: true, &build_agent)
         raise LocalJumpError, 'Chat::App requires a block that builds the Pikuri::Agent' unless block_given?
 
         @screen = Tuile::Screen.instance
+        @token_log = token_log
         @markdown = markdown
         @capture_mouse = capture_mouse
         @error_count = 0
@@ -129,6 +146,8 @@ module PikuriTui
         @conversation_window = Tuile::Component::Window.new('Conversation')
         @conversation_window.content = @conversation_view
         @conversation_window.scrollbar = true
+        @footer_label = FooterLabel.new(screen: @screen, token_log: @token_log)
+        @conversation_window.footer = @footer_label
 
         @input = Input.new(on_submit: method(:submit_message))
         @input_window = Tuile::Component::Window.new('You')
@@ -212,6 +231,7 @@ module PikuriTui
       # @param message [String]
       # @return [void]
       def start_turn(message)
+        @footer_label.start_animation
         Thread.new do
           @agent.run_loop(user_message: message)
         rescue Pikuri::Agent::Control::Cancellable::Cancelled
@@ -224,7 +244,10 @@ module PikuriTui
             @conversation_view.add_line(Rainbow("! #{e.class}: #{e.message}").red.to_s)
           end
         ensure
-          @screen.event_queue.submit { @turn_in_progress = false }
+          @screen.event_queue.submit do
+            @footer_label.stop_animation
+            @turn_in_progress = false
+          end
         end
       end
 

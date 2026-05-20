@@ -64,7 +64,11 @@ system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
 
 Tuile::Screen.new
 
-app = PikuriTui::Chat::App.new do |listener|
+# Constructed up front so both the App (for the footer's status line) and the
+# Agent's ListenerList see the same TokenLog instance.
+token_log = Pikuri::Agent::Listener::TokenLog.new
+
+app = PikuriTui::Chat::App.new(token_log: token_log, capture_mouse: false) do |listener|
   # Coalesce streaming delta chunks at 15 fps before they reach the
   # Markdown-rendering TuileListener: a fast llama.cpp can emit dozens
   # of deltas per second and re-rendering Markdown on every one is
@@ -93,7 +97,7 @@ app = PikuriTui::Chat::App.new do |listener|
     ],
     listeners: Pikuri::Agent::ListenerList.new([
       rate_limited_listener,
-      Pikuri::Agent::Listener::TokenLog.new
+      token_log
     ]),
     step_limit: Pikuri::Agent::Control::StepLimit.new(max: 20),
     cancellable: cancel_flag,
