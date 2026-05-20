@@ -195,9 +195,12 @@ module PikuriTui
 
       # Spawn a worker thread for one agent turn. Library exceptions are
       # logged (the long-running TUI takes the "exceptions logged, our
-      # bugs raise" path from CLAUDE.md); cancellation is silent because
-      # {TuileListener} already rendered the {Pikuri::Agent::Event::Cancelled}
-      # event before the exception re-raised.
+      # bugs raise" path from CLAUDE.md) and a short red one-liner is
+      # echoed into the conversation pane so the user notices the turn
+      # ended in failure without having to open the log popup;
+      # cancellation is silent because {TuileListener} already rendered
+      # the {Pikuri::Agent::Event::Cancelled} event before the exception
+      # re-raised.
       #
       # @param message [String]
       # @return [void]
@@ -210,6 +213,9 @@ module PikuriTui
           Tuile.logger.error(
             "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"
           )
+          @screen.event_queue.submit do
+            @conversation_view.add_line(Rainbow("! #{e.class}: #{e.message}").red.to_s)
+          end
         ensure
           @screen.event_queue.submit { @turn_in_progress = false }
         end
