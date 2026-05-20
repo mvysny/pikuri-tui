@@ -32,17 +32,17 @@ module PikuriTui
     #
     # == Threading
     #
-    # The animation runs on a private background thread that submits a
-    # text update through +screen.event_queue+ every {FRAME_INTERVAL_S}.
-    # Per CLAUDE.md, every UI mutation lands on the event-loop thread;
-    # the worker only computes the next frame index and dispatches.
+    # The animation rides Tuile's +EventQueue#tick+: every {FRAME_INTERVAL_S}
+    # the queue fires a block on the event-loop thread, so the spinner
+    # frame and the +status_line+ read happen on the UI thread directly —
+    # no marshaling, no background thread owned by this class.
     # +TokenLog#status_line+ is documented as safe to read from any
-    # thread (single instance-var read), so reading it from inside the
-    # submitted block on the UI thread costs nothing extra.
+    # thread (single instance-var read), so reading it from the tick
+    # block costs nothing extra.
     #
     # {#start_animation} and {#stop_animation} themselves must be called
-    # on the UI thread — they touch +@thread+ and (in +stop+) push a
-    # final +submit+ to settle the label back to its idle text. The
+    # on the UI thread — they touch +@ticker+ and (in +stop+) call
+    # +refresh+ inline to settle the label back to its idle text. The
     # host calls them from {App#start_turn} (pre-spawn) and from the
     # +ensure+ block's +event_queue.submit+ (post-loop), which is the
     # UI thread in both cases.
@@ -62,67 +62,55 @@ module PikuriTui
       # @return [Float]
       FRAME_INTERVAL_S = 0.1
 
-      # @param screen [Tuile::Screen] screen whose +event_queue+ the
-      #   animation thread submits UI mutations through.
+      # @param screen [Tuile::Screen] screen whose +event_queue+ drives
+      #   the spinner ticker.
       # @param token_log [Pikuri::Agent::Listener::TokenLog] main
       #   agent's token log; +#status_line+ is read on every refresh.
       def initialize(screen:, token_log:)
         super()
         @screen = screen
         @token_log = token_log
-        @thread = nil
+        @ticker = nil
         self.bg = 236
         refresh
       end
 
-      # Spawn the spinner thread (idempotent — calling twice is a
-      # no-op). Each tick reads {SPINNER}'s next frame and submits a
-      # +refresh(spinner_frame:)+ onto the event queue.
+      # Start the spinner ticker (idempotent — calling twice keeps the
+      # existing ticker). Each tick reads {SPINNER}'s next frame and
+      # calls +refresh(spinner_frame:)+ on the event-loop thread.
       #
       # Must be called on the UI thread.
       #
       # @return [void]
       def start_animation
-        return if @thread&.alive?
+        return if @ticker
 
-        @thread = Thread.new { spin_loop }
+        @ticker = @screen.event_queue.tick(1.0 / FRAME_INTERVAL_S) do |tick|
+          refresh(spinner_frame: SPINNER[tick % SPINNER.length])
+        end
       end
 
-      # Stop the spinner thread and settle the label back to its idle
+      # Cancel the spinner ticker and settle the label back to its idle
       # text (no spinner glyph). Idempotent.
       #
-      # The final +refresh+ is submitted onto the event queue (rather
-      # than called inline) so it queues *after* any spinner-frame
-      # callbacks the running thread may have submitted before it was
-      # killed — that way the visible end state is always the
-      # spinner-less idle line.
+      # The post-cancel +refresh+ runs inline because we're already on
+      # the UI thread; any ticker firing that was queued mid-cancel is a
+      # no-op once +Ticker#cancelled?+ flips, so this +refresh+ is the
+      # last write either way.
       #
       # Must be called on the UI thread.
       #
       # @return [void]
       def stop_animation
-        thread = @thread
-        @thread = nil
-        return if thread.nil?
+        ticker = @ticker
+        @ticker = nil
+        return if ticker.nil?
 
-        thread.kill
-        @screen.event_queue.submit { refresh }
+        ticker.cancel
+        refresh
       end
 
       private
-
-      # @return [void]
-      def spin_loop
-        frame = 0
-        while @thread == Thread.current
-          glyph = SPINNER[frame % SPINNER.length]
-          @screen.event_queue.submit { refresh(spinner_frame: glyph) }
-          sleep FRAME_INTERVAL_S
-          frame += 1
-        end
-      rescue StandardError => e
-        Tuile.logger.error("FooterLabel animation thread failed: #{e.class}: #{e.message}")
-      end
 
       # @param spinner_frame [String, nil] one glyph from {SPINNER} when
       #   a turn is in progress; +nil+ when idle.
