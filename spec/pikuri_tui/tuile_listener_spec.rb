@@ -230,4 +230,46 @@ RSpec.describe PikuriTui::TuileListener do
       refute_includes fg_colors, :red
     end
   end
+
+  context 'markdown: false' do
+    let(:listener) do
+      described_class.new(text_view: text_view, screen: Tuile::Screen.instance, markdown: false)
+    end
+
+    # If the TTY::Markdown stub fired we'd see no behavior difference vs
+    # markdown: true (the stub is a passthrough). Replace it with a
+    # sentinel that would *always* be visible if invoked, so the spec
+    # actually proves the flag short-circuits the render.
+    before do
+      TTY::Markdown.define_singleton_method(:parse) { |*| 'MARKDOWN_RAN' }
+    end
+
+    it 'echoes non-streaming Assistant content verbatim, skipping TTY::Markdown' do
+      listener.on_event(Pikuri::Agent::Event::Assistant.new(content: '**not bold here**'))
+      assert_includes rendered, '**not bold here**'
+      refute_includes rendered, 'MARKDOWN_RAN'
+    end
+
+    it 'echoes the non-streaming Thinking bookend verbatim (still gray-tinted)' do
+      listener.on_event(Pikuri::Agent::Event::Thinking.new(content: '**raw thinking**'))
+      assert_includes rendered, '**raw thinking**'
+      refute_includes rendered, 'MARKDOWN_RAN'
+      fg_colors = text_view.text.spans.map { |s| s.style.fg }
+      assert_includes fg_colors, [85, 85, 85]
+    end
+
+    it 'streams AssistantDelta content through PassthroughBuffer (no Markdown render)' do
+      listener.on_event(Pikuri::Agent::Event::AssistantDelta.new(content: '**still literal**'))
+      assert_includes rendered, '**still literal**'
+      refute_includes rendered, 'MARKDOWN_RAN'
+    end
+
+    it 'streams ThinkingDelta content through PassthroughBuffer, gray-tinted' do
+      listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: '**still literal**'))
+      assert_includes rendered, '**still literal**'
+      refute_includes rendered, 'MARKDOWN_RAN'
+      fg_colors = text_view.text.spans.map { |s| s.style.fg }
+      assert_includes fg_colors, [85, 85, 85]
+    end
+  end
 end

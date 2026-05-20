@@ -44,6 +44,13 @@ module PikuriTui
   # +Tokens+ and +ContextCap+ stay silent (their consumer is
   # +Pikuri::Agent::Listener::TokenLog+, which the host adds separately if
   # it wants token accounting in the diagnostic log).
+  #
+  # The Markdown render is gated on a +markdown:+ ctor flag (default
+  # +true+). When the host wires +markdown: false+, both the streaming
+  # path (via {PassthroughBuffer} instead of {StreamingMarkdownBuffer})
+  # and the non-streaming +render_markdown+ path skip +TTY::Markdown+ —
+  # content goes to the +TextView+ verbatim. The thinking pane's
+  # grayscale repaint is independent of the toggle.
   class TuileListener < Pikuri::Agent::Listener::Base
     # Cap, in characters, applied to tool-result content before it lands in
     # the conversation pane. Mirrors the terminal listener's cap so the two
@@ -61,10 +68,21 @@ module PikuriTui
     #   (rather than reached for via +Tuile::Screen.instance+) so tests can
     #   inject a {Tuile::FakeScreen} without having to install it as the
     #   singleton at construction time.
-    def initialize(text_view:, screen:)
+    # @param markdown [Boolean] when +true+ (the default), assistant and
+    #   thinking content is rendered through +TTY::Markdown+ and the
+    #   streaming path uses {StreamingMarkdownBuffer}. When +false+, the
+    #   listener skips Markdown rendering entirely — non-streaming events
+    #   echo their content verbatim and the streaming path uses
+    #   {PassthroughBuffer}. Toggle off for back-ends whose content is
+    #   already in display form (raw text agents, code-agent tool output)
+    #   where +TTY::Markdown+ would corrupt or re-style it. The thinking
+    #   pane's grayscale repaint still applies in both modes — the toggle
+    #   is purely about Markdown.
+    def initialize(text_view:, screen:, markdown: true)
       super()
       @text_view = text_view
       @screen = screen
+      @markdown = markdown
       @buffer = nil
       @thinking_buffer = nil
     end
@@ -153,13 +171,15 @@ module PikuriTui
       @screen.event_queue.submit { @text_view.add_line(text) }
     end
 
-    # Construct a {StreamingMarkdownBuffer} wired to a sink that
-    # applies the diff to {@text_view} on the UI thread. The render
-    # width is read off the +TextView+'s current rect, minus a small
-    # buffer for the scrollbar gutter and any future padding.
-    # @return [StreamingMarkdownBuffer]
+    # Construct a streaming buffer wired to a sink that applies the diff
+    # to {@text_view} on the UI thread. Returns a {StreamingMarkdownBuffer}
+    # when +@markdown+ is true (render width snapshotted from the
+    # +TextView+'s current rect, minus a small buffer for the scrollbar
+    # gutter), and a {PassthroughBuffer} otherwise — same sink contract
+    # either way, so the rest of the listener doesn't branch.
+    # @return [StreamingMarkdownBuffer, PassthroughBuffer]
     def make_buffer
-      StreamingMarkdownBuffer.new(render: build_renderer) do |remove_n, lines_to_add|
+      new_streaming_buffer do |remove_n, lines_to_add|
         @screen.event_queue.submit do
           @text_view.remove_last_n_lines(remove_n) if remove_n.positive?
           @text_view.add_line(lines_to_add.join("\n")) if lines_to_add.any?
@@ -169,19 +189,36 @@ module PikuriTui
 
     # Twin of {#make_buffer} for the reasoning pane. Same diff plumbing,
     # but each emitted line is repainted via {AnsiGrayscale.recolor}
-    # before it lands in the +TextView+ — so streamed Markdown thinking
-    # keeps its bold/italic/list structure while the eye still reads
-    # the whole block as "reasoning, not answer." The recolor runs on
-    # the worker thread (CPU work) so only the +TextView+ mutation is
-    # marshaled onto the UI thread.
-    # @return [StreamingMarkdownBuffer]
+    # before it lands in the +TextView+ — so streamed thinking keeps its
+    # bold/italic/list structure (when Markdown rendering is on) while
+    # the eye still reads the whole block as "reasoning, not answer."
+    # The grayscale repaint applies in passthrough mode too: plain text
+    # still gets the gray fg, which is what visually separates thinking
+    # from the assistant's answer. The recolor runs on the worker
+    # thread (CPU work) so only the +TextView+ mutation is marshaled
+    # onto the UI thread.
+    # @return [StreamingMarkdownBuffer, PassthroughBuffer]
     def make_thinking_buffer
-      StreamingMarkdownBuffer.new(render: build_renderer) do |remove_n, lines_to_add|
+      new_streaming_buffer do |remove_n, lines_to_add|
         recolored = lines_to_add.map { |line| AnsiGrayscale.recolor(line) }
         @screen.event_queue.submit do
           @text_view.remove_last_n_lines(remove_n) if remove_n.positive?
           @text_view.add_line(recolored.join("\n")) if recolored.any?
         end
+      end
+    end
+
+    # Pick the streaming-buffer class based on +@markdown+ and hand it
+    # the caller's sink. Exists so {#make_buffer} and {#make_thinking_buffer}
+    # share the toggle without each reimplementing the branch.
+    # @yield [remove_last_n, lines_to_add] sink contract shared by both
+    #   buffer classes.
+    # @return [StreamingMarkdownBuffer, PassthroughBuffer]
+    def new_streaming_buffer(&sink)
+      if @markdown
+        StreamingMarkdownBuffer.new(render: build_renderer, &sink)
+      else
+        PassthroughBuffer.new(&sink)
       end
     end
 
@@ -268,13 +305,19 @@ module PikuriTui
     # around ANSI inside tables (+Strings::Wrap.insert_ansi+ raising
     # +IndexError+); on a long-running TUI we'd rather show ugly Markdown
     # than abort an in-flight conversation. Used on the non-streaming
-    # +Assistant+ path; the streaming path lets
-    # {StreamingMarkdownBuffer} do its own catch-and-log.
+    # +Assistant+ path; the streaming path lets the buffer do its own
+    # catch-and-log.
+    #
+    # When the listener was constructed with +markdown: false+, this is
+    # a no-op — the +content+ comes back unchanged, matching the
+    # passthrough behavior on the streaming path.
     #
     # @param content [String] assistant Markdown
     # @return [String] rendered ANSI text, or +content+ unchanged on
-    #   render failure
+    #   render failure (or when +@markdown+ is false)
     def render_markdown(content)
+      return content unless @markdown
+
       MarkdownRenderer.render(content, width: buffer_width)
     rescue StandardError => e
       Tuile.logger.warn("MarkdownRenderer.render failed (#{e.class}: #{e.message}); falling back to raw text")
