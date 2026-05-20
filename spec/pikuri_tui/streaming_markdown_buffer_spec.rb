@@ -66,7 +66,7 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       buf = build
       source = "Here's some code:\n\n```ruby\ndef hi\n  puts :hi\nend\n```\n\ndone."
       source.chars.each_slice(2) { |chunk| buf.append(chunk.join) }
-      assert_equal render.call(source).strip, region.text.to_s.strip
+      assert_equal render.call(source).strip, region.text.to_ansi.strip
     end
 
     it 'streamed table (the reformat-earlier-lines case) converges' do
