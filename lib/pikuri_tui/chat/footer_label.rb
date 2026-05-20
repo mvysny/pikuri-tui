@@ -71,6 +71,7 @@ module PikuriTui
         @screen = screen
         @token_log = token_log
         @thread = nil
+        self.bg = 236
         refresh
       end
 
