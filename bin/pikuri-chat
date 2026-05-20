@@ -64,7 +64,7 @@ system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
 
 Tuile::Screen.new
 
-app = PikuriTui::Chat::App.new(markdown: false, capture_mouse: false) do |listener|
+app = PikuriTui::Chat::App.new do |listener|
   # Coalesce streaming delta chunks at 15 fps before they reach the
   # Markdown-rendering TuileListener: a fast llama.cpp can emit dozens
   # of deltas per second and re-rendering Markdown on every one is
