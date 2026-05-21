@@ -43,12 +43,17 @@ module PikuriTui
   #    dedicated region. The thinking buffer's renderer is wrapped with
   #    {AnsiGrayscale.recolor} so reasoning paints in one muted-gray
   #    tone with bold/italic/underline structure preserved — visually
-  #    distinct from the assistant's full-color answer. The bookend
-  #    {Pikuri::Agent::Event::Thinking} is suppressed when deltas
-  #    already produced the visible reasoning block (the streamed
-  #    preview is committed as-is rather than replaced); on the
-  #    non-streaming path the bookend renders directly as grayscale
-  #    Markdown.
+  #    distinct from the assistant's full-color answer. When the
+  #    bookend {Pikuri::Agent::Event::Thinking} arrives after deltas
+  #    its content is handed to +StreamingMarkdownBuffer#finalize+
+  #    on the open thinking buffer — same shape as the assistant
+  #    bookend handler. The fast-path equality check inside
+  #    +#finalize+ makes the common "deltas already match" case a
+  #    no-op, but when the delta stream is incomplete (provider
+  #    truncated the tail, network dropped a delta) the
+  #    authoritative content replaces the preview so the user sees
+  #    the full reasoning. On the non-streaming path (no deltas
+  #    emitted) the bookend renders directly as grayscale Markdown.
   #
   # +Tokens+ and +ContextCap+ stay silent (their consumer is
   # +Pikuri::Agent::Listener::TokenLog+, which the host adds separately
@@ -157,6 +162,7 @@ module PikuriTui
         @thinking_streamed = true
       in Pikuri::Agent::Event::Thinking(content:)
         if @thinking_buffer
+          @thinking_buffer.finalize(content)
           release_thinking
         elsif !@thinking_streamed
           add_block(AnsiGrayscale.recolor(render_markdown(content)))

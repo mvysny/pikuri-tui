@@ -181,23 +181,33 @@ RSpec.describe PikuriTui::TuileListener do
       refute_equal 'before', after_line
     end
 
-    it 'suppresses the Thinking bookend when deltas have already produced the block' do
+    it 'reconciles the streamed thinking with the Thinking bookend when they diverge' do
+      # Real-world case: the provider truncates the delta stream and the
+      # bookend carries content that the deltas never delivered. The
+      # streamed preview must be replaced by the authoritative content so
+      # the user sees the full reasoning, not just the prefix the deltas
+      # got through.
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'streamed'))
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'streamed (authoritative)'))
-      assert_includes rendered, 'streamed'
-      refute_includes rendered, 'streamed (authoritative)'
+      assert_includes rendered, 'streamed (authoritative)'
     end
 
-    it 'suppresses the Thinking bookend even when AssistantDelta arrived between deltas and bookend' do
+    it 'suppresses the Thinking bookend when AssistantDelta arrived between deltas and bookend' do
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'reasoning'))
       listener.on_event(Pikuri::Agent::Event::AssistantDelta.new(content: 'answer'))
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'reasoning (authoritative)'))
       listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'answer'))
-      # The streamed reasoning is preserved; the bookend's content must not be
-      # rendered a second time (pikuri's natural per-step emit order is
-      # ThinkingDelta, AssistantDelta, Thinking, Assistant — flushing the
-      # thinking buffer when AssistantDelta arrives must not unhide the
-      # bookend's else branch).
+      # AssistantDelta releases the thinking buffer (the streamed
+      # reasoning is preserved in its region but the handle is dropped
+      # so the next ThinkingDelta opens fresh). The bookend that follows
+      # then has nowhere to land — @thinking_buffer is nil and
+      # @thinking_streamed is still true, so neither finalize-buffer nor
+      # non-streaming-add_block fires. That's intentional: in this
+      # interleaved order the streamed preview already shipped to the
+      # screen, and rendering the bookend a second time as a new block
+      # would duplicate the reasoning. The reconcile-on-divergence path
+      # only protects the non-interleaved case, which is by far the more
+      # common one (deltas truncated before the bookend arrives).
       assert_equal 1, rendered.scan('reasoning').size
       refute_includes rendered, 'reasoning (authoritative)'
     end
