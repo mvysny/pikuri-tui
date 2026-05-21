@@ -66,7 +66,13 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
       buf = build
       source = "Here's some code:\n\n```ruby\ndef hi\n  puts :hi\nend\n```\n\ndone."
       source.chars.each_slice(2) { |chunk| buf.append(chunk.join) }
-      assert_equal render.call(source).strip, region.text.to_ansi.strip
+      # Rouge and Tuile's StyledString emit semantically equivalent but
+      # byte-different SGR (e.g. `\e[38;5;221;01m` vs `\e[1;38;5;221m`, and
+      # Rouge wraps whitespace in empty styled spans that StyledString
+      # normalizes away). Round-trip both sides through the parser so the
+      # comparison is structural, not byte-wise.
+      expected = Tuile::StyledString.parse(render.call(source).strip)
+      assert_equal expected, Tuile::StyledString.parse(region.text.to_ansi.strip)
     end
 
     it 'streamed table (the reformat-earlier-lines case) converges' do
