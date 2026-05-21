@@ -70,6 +70,13 @@ module PikuriTui
     # @return [Integer]
     MAX_TOOL_RESULT_CHARS = 200
 
+    # Path of the debug event-dump file. Truncated on construction when
+    # the listener is built with +dump_events: true+, and appended to on
+    # every {#on_event} call thereafter.
+    #
+    # @return [String]
+    EVENT_DUMP_PATH = '/tmp/pikuri-tui-events.txt'
+
     # @param text_view [Tuile::Component::TextView] the conversation pane
     #   to render rendered events into. Lifetime is owned by the host
     #   ({PikuriTui::Chat::App}); the listener doesn't construct or
@@ -87,16 +94,23 @@ module PikuriTui
     #   to gray and so always goes through a {StreamingMarkdownBuffer}
     #   (with the renderer set to +TTY::Markdown+→recolor or
     #   recolor-only, depending on the flag).
-    def initialize(text_view:, screen:, markdown: true)
+    # @param dump_events [Boolean] when +true+, every event handed to
+    #   {#on_event} is also +inspect+-ed and appended to
+    #   {EVENT_DUMP_PATH}. The file is truncated here so each run starts
+    #   clean. Off by default; intended as a local debugging aid.
+    def initialize(text_view:, screen:, markdown: true, dump_events: false)
       super()
       @text_view = text_view
       @screen = screen
       @markdown = markdown
+      @dump_events = dump_events
       @buffer = nil
       @assistant_region = nil
       @thinking_buffer = nil
       @thinking_region = nil
       @thinking_streamed = false
+
+      File.write(EVENT_DUMP_PATH, '') if @dump_events
     end
 
     # Dispatches one event to the conversation pane. Called from the
@@ -112,6 +126,7 @@ module PikuriTui
     #   Pikuri::Agent::Event::Tokens, Pikuri::Agent::Event::ContextCap]
     # @return [void]
     def on_event(event)
+      File.open(EVENT_DUMP_PATH, 'a') { |f| f.puts(event.inspect) } if @dump_events
       @screen.event_queue.submit { dispatch_event(event) }
     end
 
