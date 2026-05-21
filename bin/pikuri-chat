@@ -22,6 +22,7 @@ require 'pikuri_tui'
 
 server = 'http://localhost:8080'
 model  = 'unsloth/Qwen3.6-35B-A3B-GGUF'
+api_key_env = 'OPENAI_API_KEY'
 
 parser = OptionParser.new do |opts|
   opts.banner = 'Usage: pikuri-chat [options]'
@@ -29,6 +30,7 @@ parser = OptionParser.new do |opts|
   opts.separator 'Options:'
   opts.on('--server URL', "LLM server base URL (default: #{server})") { |v| server = v }
   opts.on('--model NAME', "Model identifier (default: #{model})") { |v| model = v }
+  opts.on('--api-key-env VAR', "Env var holding the API key (default: #{api_key_env})") { |v| api_key_env = v }
   opts.on('-h', '--help', 'Print this help and exit') do
     puts opts
     exit
@@ -46,9 +48,13 @@ end
 server = server.chomp('/')
 openai_api_base = "#{server}/v1"
 
+api_key = ENV[api_key_env]
+api_key_missing = api_key.nil? || api_key.strip.empty?
+api_key = 'not-needed' if api_key_missing
+
 RubyLLM.configure do |c|
   c.openai_api_base = openai_api_base
-  c.openai_api_key  = 'not-needed'
+  c.openai_api_key  = api_key
 end
 
 # llama.cpp exposes the server's launched +n_ctx+ at +/props+ on the base
@@ -104,6 +110,13 @@ app = PikuriTui::Chat::App.new(token_log: token_log) do |listener|
     llama_probe_url: llama_probe_url,
     streaming: true
   ).tap { |a| a.allow_sub_agent(max_steps: 20) }
+end
+
+if api_key_missing
+  Tuile.logger.warn(
+    "API key env var #{api_key_env} is blank or unset; falling back to \"not-needed\" " \
+    '(fine for local llama.cpp, will fail against authenticated remotes)'
+  )
 end
 
 app.run
