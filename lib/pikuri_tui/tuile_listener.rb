@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'pikuri'
+require 'pikuri-core'
 require 'rainbow'
 
 module PikuriTui

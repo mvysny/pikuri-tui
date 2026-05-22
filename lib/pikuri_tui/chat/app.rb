@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'logger'
-require 'pikuri'
+require 'pikuri-core'
 require 'rainbow'
 require 'tuile'
 

@@ -17,7 +17,7 @@ require 'optparse'
 # here lets +require 'pikuri_tui'+ resolve through Zeitwerk.
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 
-require 'pikuri'
+require 'pikuri-core'
 require 'pikuri_tui'
 
 server = 'http://localhost:8080'
@@ -95,21 +95,19 @@ app = PikuriTui::Chat::App.new(token_log: token_log) do |listener|
       assume_model_exists: true
     ),
     system_prompt: system_prompt,
-    tools: [
-      Pikuri::Tool::WEB_SEARCH,
-      Pikuri::Tool::CALCULATOR,
-      Pikuri::Tool::WEB_SCRAPE,
-      Pikuri::Tool::FETCH
-    ],
-    listeners: Pikuri::Agent::ListenerList.new([
-      rate_limited_listener,
-      token_log
-    ]),
     step_limit: Pikuri::Agent::Control::StepLimit.new(max: 20),
     cancellable: cancel_flag,
     llama_probe_url: llama_probe_url,
     streaming: true
-  ).tap { |a| a.allow_sub_agent(max_steps: 20) }
+  ) do |c|
+    c.add_listener rate_limited_listener
+    c.add_listener token_log
+    c.add_tool Pikuri::Tool::WEB_SEARCH
+    c.add_tool Pikuri::Tool::CALCULATOR
+    c.add_tool Pikuri::Tool::WEB_SCRAPE
+    c.add_tool Pikuri::Tool::FETCH
+    c.allow_sub_agent(max_steps: 20)
+  end
 end
 
 if api_key_missing

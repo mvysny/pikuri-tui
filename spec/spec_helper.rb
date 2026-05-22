@@ -16,7 +16,7 @@ require 'rspec/core'
 require 'minitest'
 require 'minitest/assertions'
 
-require 'pikuri'
+require 'pikuri-core'
 require 'pikuri_tui'
 
 # Silence pikuri's default $stderr logging during the suite so production
