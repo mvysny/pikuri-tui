@@ -4,7 +4,7 @@
 # Entry point for the Tuile chat TUI built on Pikuri::Agent.
 #
 # Pin Bundler to this project's Gemfile so locked dependency versions win and
-# the script works when invoked via a symlink (e.g. ~/.local/bin/pikuri-chat)
+# the script works when invoked via a symlink (e.g. ~/.local/bin/pikuri-tui-chat)
 # from any working directory. `__dir__` resolves through symlinks, so this
 # points at the real checkout.
 ENV['BUNDLE_GEMFILE'] ||= File.expand_path('../Gemfile', __dir__)
@@ -25,7 +25,7 @@ model  = 'unsloth/Qwen3.6-35B-A3B-GGUF'
 api_key_env = 'OPENAI_API_KEY'
 
 parser = OptionParser.new do |opts|
-  opts.banner = 'Usage: pikuri-chat [options]'
+  opts.banner = 'Usage: pikuri-tui-chat [options]'
   opts.separator ''
   opts.separator 'Options:'
   opts.on('--server URL', "LLM server base URL (default: #{server})") { |v| server = v }

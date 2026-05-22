@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module PikuriTui
-  # Namespace for the +bin/pikuri-chat+ TUI: the conversation-pane shell
+  # Namespace for the +bin/pikuri-tui-chat+ TUI: the conversation-pane shell
   # ({Chat::App}), its vertical-split root layout ({Chat::Layout}), and the
   # Enter-submits text input ({Chat::Input}).
   #

@@ -4,7 +4,7 @@
 
 A pair of Tuile-based TUI front-ends on a shared core, wrapping the
 [pikuri](https://codeberg.org/mvysny/pikuri) library:
-`bin/pikuri-chat` (general-purpose chat) and `bin/pikuri-code`
+`bin/pikuri-tui-chat` (general-purpose chat) and `bin/pikuri-code`
 (in-repo coding agent). Both bind the same `Pikuri::Agent` and the
 same `Pikuri::Tool` set as pikuri's own demo scripts; they differ
 only in their system prompt and which tools they register.
@@ -104,13 +104,13 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 - `lib/pikuri_tui/chat.rb` — `PikuriTui::Chat` namespace shell
   for the chat front-end.
 - `lib/pikuri_tui/chat/app.rb` — `PikuriTui::Chat::App`, the
-  Tuile shell for `bin/pikuri-chat` (conversation `TextView` +
+  Tuile shell for `bin/pikuri-tui-chat` (conversation `TextView` +
   diagnostic `LogWindow` + input field + status bar).
 - `lib/pikuri_tui/chat/layout.rb` — `PikuriTui::Chat::Layout`,
   the vertical-split root layout (conversation top, input bottom).
 - `lib/pikuri_tui/chat/input.rb` — `PikuriTui::Chat::Input`, the
   `TextArea` subclass that rebinds Enter to submit-and-clear.
-- `bin/pikuri-chat` — boot script for the chat agent: configures
+- `bin/pikuri-tui-chat` — boot script for the chat agent: configures
   `RubyLLM` for the local llama.cpp server, builds a
   `Pikuri::Agent` wired with the web/calc tools and a
   `PikuriTui::TuileListener`, hands it to `PikuriTui::Chat::App`.
@@ -122,7 +122,7 @@ Planned, not yet present:
   (`TuileListener`, `CountingLogIO`, `LogPopup`) and add the
   code-agent-specific composition (Tuile-based confirmer,
   coding-tool wiring).
-- `bin/pikuri-code` — same shape as `bin/pikuri-chat`, with the
+- `bin/pikuri-code` — same shape as `bin/pikuri-tui-chat`, with the
   six coding tools, a `Pikuri::Tool::Workspace::Cwd` rooted at
   `Dir.pwd`, and a Tuile-based confirmer instead of
   `Pikuri::Tool::Confirmer::TERMINAL`.

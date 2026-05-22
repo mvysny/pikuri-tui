@@ -7,7 +7,7 @@ require 'tuile'
 
 module PikuriTui
   module Chat
-    # The Tuile shell behind +bin/pikuri-chat+: builds the framed conversation
+    # The Tuile shell behind +bin/pikuri-tui-chat+: builds the framed conversation
     # pane, the framed input pane, the eager diagnostic +LogWindow+
     # (popup-visible on Ctrl+L), the +Ctrl+L+ / +Ctrl+C+ global-shortcut hints
     # in the screen-wide status bar, and wires the agent's loop onto a worker
