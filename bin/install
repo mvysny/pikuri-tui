@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Symlink pikuri-tui-chat into $PREFIX (default ~/.local/bin) so it's on $PATH.
+# The script pins BUNDLE_GEMFILE to this checkout's Gemfile, so it works from
+# any working directory once installed.
+#
+# Usage:
+#   ./bin/install                # install into ~/.local/bin
+#   PREFIX=~/bin ./bin/install   # install into a different directory
+set -euo pipefail
+IFS=$'\n\t'
+
+DEST="${PREFIX:-$HOME/.local/bin}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+declare -A BINARIES=(
+  [pikuri-tui-chat]="$ROOT/bin/pikuri-tui-chat"
+)
+
+mkdir -p "$DEST"
+for name in "${!BINARIES[@]}"; do
+  src="${BINARIES[$name]}"
+  ln -sfn "$src" "$DEST/$name"
+  echo "  $DEST/$name -> $src"
+done
+
+case ":$PATH:" in
+  *":$DEST:"*) ;;
+  *) echo; echo "note: $DEST is not on \$PATH" ;;
+esac

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Remove the pikuri-tui-chat symlink created by bin/install.
+# Only removes entries that are symlinks pointing back into this checkout —
+# an unrelated file or symlink with the same name in $PREFIX is left alone.
+#
+# Usage:
+#   ./bin/uninstall                # uninstall from ~/.local/bin
+#   PREFIX=~/bin ./bin/uninstall   # uninstall from a different directory
+set -euo pipefail
+IFS=$'\n\t'
+
+DEST="${PREFIX:-$HOME/.local/bin}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Mirror bin/install's per-binary source paths so we only remove
+# symlinks that point back into THIS checkout (an unrelated file or
+# symlink with the same name in $PREFIX is left alone).
+declare -A BINARIES=(
+  [pikuri-tui-chat]="$ROOT/bin/pikuri-tui-chat"
+)
+
+for name in "${!BINARIES[@]}"; do
+  link="$DEST/$name"
+  if [ ! -L "$link" ]; then
+    echo "  skip $link (not a symlink)"
+    continue
+  fi
+  target="$(readlink -f "$link")"
+  expected="${BINARIES[$name]}"
+  if [ "$target" != "$expected" ]; then
+    echo "  skip $link -> $target (not this checkout)"
+    continue
+  fi
+  rm "$link"
+  echo "  removed $link"
+done
