@@ -21,7 +21,7 @@ require 'pikuri-core'
 require 'pikuri_tui'
 
 server = 'http://localhost:8080'
-model  = 'unsloth/Qwen3.6-35B-A3B-GGUF'
+model  = 'unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M'
 api_key_env = 'OPENAI_API_KEY'
 
 parser = OptionParser.new do |opts|
