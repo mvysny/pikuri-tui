@@ -20,7 +20,7 @@ gem 'zeitwerk', '~> 2.7'
 # metagem also exists and pulls in every sibling; we only need
 # core for the chat shell). Bundled bin scripts in this repo wire
 # +Pikuri::Agent+ + +Pikuri::Tool::*+ into Tuile TUIs.
-gem 'pikuri-core', '~> 0.0.3'
+gem 'pikuri-core', '~> 0.0.4'
 
 group :test do
   # Test runner. We use the rspec-core describe/it harness but write

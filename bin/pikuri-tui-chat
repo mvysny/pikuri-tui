@@ -106,7 +106,6 @@ app = PikuriTui::Chat::App.new(token_log: token_log) do |listener|
     c.add_tool Pikuri::Tool::CALCULATOR
     c.add_tool Pikuri::Tool::WEB_SCRAPE
     c.add_tool Pikuri::Tool::FETCH
-    c.allow_sub_agent(max_steps: 20)
   end
 end
 
