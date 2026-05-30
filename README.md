@@ -1,5 +1,7 @@
 # pikuri-tui
 
+[![status](https://ci.codeberg.org/api/badges/17231/status.svg)](https://ci.codeberg.org/repos/17231)
+
 Terminal UI front-ends for [pikuri](https://codeberg.org/mvysny/pikuri) — a Ruby LLM agent framework.
 
 Two shells:
