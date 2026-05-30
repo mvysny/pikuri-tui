@@ -118,11 +118,11 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 Planned, not yet present:
 
 - `lib/pikuri_tui/code/…` — sibling `PikuriTui::Code` namespace
-  for the `bin/pikuri-code` shell. Will reuse the shared pieces
+  for the `bin/pikuri-tui-code` shell. Will reuse the shared pieces
   (`TuileListener`, `CountingLogIO`, `LogPopup`) and add the
   code-agent-specific composition (Tuile-based confirmer,
   coding-tool wiring).
-- `bin/pikuri-code` — same shape as `bin/pikuri-tui-chat`, with the
+- `bin/pikuri-tui-code` — same shape as `bin/pikuri-tui-chat`, with the
   six coding tools, a `Pikuri::Tool::Workspace::Cwd` rooted at
   `Dir.pwd`, and a Tuile-based confirmer instead of
   `Pikuri::Tool::Confirmer::TERMINAL`.
