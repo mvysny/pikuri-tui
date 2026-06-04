@@ -66,14 +66,18 @@ place. The code shell (`bin/pikuri-tui-code` and the
   Tuile UI methods raise `"UI lock not held"` if you violate it,
   and the ones that don't will silently corrupt the repaint set.
 
-- **Mid-loop input and multi-window layouts beyond log + input —
-  out of scope until there's a concrete need.** Pikuri exposes
-  `Control::Interloper` for mid-loop user injection; wiring it
-  through is a real feature, not a 5-minute add, so it waits.
-  (Streaming used to sit on this list; it has since landed — the
-  chat agent runs with `streaming: true` and deltas reach the
-  listener through a 15 fps `Listener::RateLimited` coalescer
-  into `StreamingMarkdownBuffer`.)
+- **Multi-window layouts beyond log + input — out of scope until
+  there's a concrete need.** (Streaming and mid-loop input used
+  to sit on this list; both have since landed. The chat agent
+  runs with `streaming: true` and deltas reach the listener
+  through a 15 fps `Listener::RateLimited` coalescer into
+  `StreamingMarkdownBuffer`. Mid-loop input rides pikuri's
+  `Control::Interloper`: Enter during a running turn injects into
+  the agent's queue — drained at the next tool-result boundary
+  and echoed by the listener as a `mid_loop:` `UserTurn` — the
+  conversation footer shows an "N queued" count while injections
+  are pending, and anything still queued when the turn ends is
+  delivered as a fresh turn by `Chat::App`.)
 
 ## Layout
 
@@ -136,13 +140,16 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `TextArea` subclass that rebinds Enter to submit-and-clear.
 - `lib/pikuri_tui/chat/footer_label.rb` —
   `PikuriTui::Chat::FooterLabel`, the conversation-window footer
-  label: ticks a spinner while the agent is mid-turn and renders
-  the main agent's context-window snapshot off a
+  label: ticks a spinner while the agent is mid-turn, shows an
+  "N queued" count while the agent's `Control::Interloper` holds
+  pending mid-turn injections, and renders the main agent's
+  context-window snapshot off a
   `Pikuri::Agent::Listener::TokenLog`.
 - `bin/pikuri-tui-chat` — boot script for the chat agent: configures
   `RubyLLM` for the local llama.cpp server, builds a streaming
   `Pikuri::Agent` wired with the web/calc tools (search, scrape,
-  fetch, calculator), a `TokenLog`, and a rate-limited
+  fetch, calculator), a `TokenLog`, a `Control::Interloper` (for
+  mid-turn message injection), and a rate-limited
   `PikuriTui::TuileListener`, hands it to `PikuriTui::Chat::App`.
 - `bin/setup` — `bundle install` wrapper.
 - `bin/install` / `bin/uninstall` — symlink `bin/pikuri-tui-chat`

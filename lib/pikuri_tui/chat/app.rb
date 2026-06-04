@@ -44,9 +44,11 @@ module PikuriTui
     #   +agent.run_loop+. The listener's renderings, the worker's status
     #   flag toggle, and any error logging marshal back via
     #   +screen.event_queue.submit+ so they execute on the UI thread.
-    # - Concurrent turns are prevented by +@turn_in_progress+: Enter is a
-    #   no-op while a turn is running. The flag is read and written only on
-    #   the UI thread.
+    # - Concurrent turns are prevented by +@turn_in_progress+: while a turn
+    #   is running, Enter routes the message into the agent's
+    #   +Pikuri::Agent::Control::Interloper+ (delivered at the next
+    #   tool-result boundary) instead of starting a second +run_loop+. The
+    #   flag is read and written only on the UI thread.
     class App
       # @return [Tuile::Screen] the (already-installed) screen this app
       #   runs on.
@@ -109,6 +111,12 @@ module PikuriTui
         build_components
         wire_logging
         @agent = build_agent.call(@listener)
+        # The footer renders a "N queued" segment off the interloper's
+        # +peek+ while mid-turn injections are pending. Installed here
+        # (rather than at FooterLabel construction) because the agent —
+        # and therefore its interloper — doesn't exist until the build
+        # block has run.
+        @footer_label.interloper = @agent.interloper
 
         @screen.on_error = method(:on_screen_error)
         @screen.content = @layout
@@ -213,10 +221,37 @@ module PikuriTui
       # @param message [String] non-empty draft handed up by {Input}
       # @return [void]
       def submit_message(message)
-        return if @turn_in_progress
+        if @turn_in_progress
+          queue_mid_turn(message)
+          return
+        end
 
         @turn_in_progress = true
         start_turn(message)
+      end
+
+      # Route a message submitted while a turn is in flight into the
+      # agent's +Pikuri::Agent::Control::Interloper+. The agent drains the
+      # queue at its next +after_tool_result+ boundary, appending the
+      # message to the chat history and emitting a +UserTurn+ with
+      # +mid_loop: true+ — which {TuileListener} echoes into the
+      # conversation pane like any other user turn. Until then the
+      # {FooterLabel} advertises the pending count.
+      #
+      # When the host wired no interloper into the agent, the message is
+      # dropped with a warn in the diagnostic log — same observable
+      # behavior as before mid-loop input existed, but no longer silent.
+      #
+      # @param message [String] non-empty draft handed up by {Input}
+      # @return [void]
+      def queue_mid_turn(message)
+        interloper = @agent.interloper
+        if interloper.nil?
+          Tuile.logger.warn('mid-turn message dropped: the agent has no Interloper wired')
+          return
+        end
+
+        interloper.inject_user_message(message)
       end
 
       # Spawn a worker thread for one agent turn. Library exceptions are
@@ -247,8 +282,32 @@ module PikuriTui
           @screen.event_queue.submit do
             @footer_label.stop_animation
             @turn_in_progress = false
+            deliver_pending_injections
           end
         end
+      end
+
+      # A turn can end — final answer, cancellation, error — with messages
+      # still sitting in the interloper queue: the agent only drains it at
+      # +after_tool_result+ boundaries, so a turn that finishes without
+      # another tool round-trip never sees them, and leaving them queued
+      # would have them surface mid-way through some *future* turn, out of
+      # order. Drain the leftovers here and start a fresh turn with them
+      # (multiple messages joined into one turn, in submission order) so
+      # every mid-turn message is delivered promptly. This deliberately
+      # also fires after a cancelled turn: a message typed mid-turn is
+      # usually a correction ("stop, do X instead"), and the cancel is
+      # what makes room for it.
+      #
+      # Runs on the UI thread (the caller marshals via +submit+), so the
+      # +@turn_in_progress+ read inside {#submit_message} is safe.
+      #
+      # @return [void]
+      def deliver_pending_injections
+        pending = @agent.interloper&.drain! || []
+        return if pending.empty?
+
+        submit_message(pending.join("\n\n"))
       end
 
       # @return [void]

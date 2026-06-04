@@ -64,6 +64,45 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
     label.stop_animation
   end
 
+  it 'appends an "N queued" segment while the interloper holds pending injections' do
+    interloper = Pikuri::Agent::Control::Interloper.new
+    label.interloper = interloper
+    interloper.inject_user_message('hold this')
+    label.start_animation
+    event_queue.tick_once
+    assert_match(/\A[#{described_class::SPINNER.join}] 1 queued\z/, label.text.to_s)
+  ensure
+    label.stop_animation
+  end
+
+  it 'joins the queued count and the token status with a separator' do
+    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    interloper = Pikuri::Agent::Control::Interloper.new
+    label.interloper = interloper
+    interloper.inject_user_message('one')
+    interloper.inject_user_message('two')
+    label.send(:refresh)
+    assert_includes label.text.to_s, '2 queued · msg #1: ctx=11.0k'
+  end
+
+  it 'drops the queued segment once the interloper is drained' do
+    interloper = Pikuri::Agent::Control::Interloper.new
+    label.interloper = interloper
+    interloper.inject_user_message('soon gone')
+    label.send(:refresh)
+    assert_includes label.text.to_s, '1 queued'
+
+    interloper.drain!
+    label.send(:refresh)
+    assert_equal '', label.text.to_s
+  end
+
+  it 'renders no queued segment when no interloper was installed (host wired none)' do
+    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    label.send(:refresh)
+    refute_includes label.text.to_s, 'queued'
+  end
+
   it 'is idempotent: start_animation while already running keeps the same ticker' do
     label.start_animation
     first_ticker = label.instance_variable_get(:@ticker)

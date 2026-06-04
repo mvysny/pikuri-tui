@@ -29,6 +29,11 @@ RSpec.describe PikuriTui::TuileListener do
     assert_includes rendered, '> hello?'
   end
 
+  it 'renders mid-loop UserTurn injections (Interloper deliveries) the same way' do
+    listener.on_event(Pikuri::Agent::Event::UserTurn.new(content: 'also handle this', mid_loop: true))
+    assert_includes rendered, '> also handle this'
+  end
+
   it 'renders Thinking content (so the user sees the reasoning stream)' do
     listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'pondered'))
     assert_includes rendered, 'pondered'

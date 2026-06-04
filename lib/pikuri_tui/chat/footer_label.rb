@@ -5,11 +5,15 @@ require 'tuile'
 module PikuriTui
   module Chat
     # A {Tuile::Component::Label} that mounts in the conversation window's
-    # footer slot and surfaces two pieces of status the user otherwise has
-    # no way to see: whether the agent is mid-turn (a spinner ticks while
-    # +run_loop+ is on the worker thread) and the latest context-window
-    # snapshot for the main agent (read straight off
-    # +Pikuri::Agent::Listener::TokenLog#status_line+).
+    # footer slot and surfaces three pieces of status the user otherwise
+    # has no way to see: whether the agent is mid-turn (a spinner ticks
+    # while +run_loop+ is on the worker thread), how many mid-turn
+    # messages are queued in the agent's
+    # +Pikuri::Agent::Control::Interloper+ awaiting delivery ("N queued" —
+    # submitting mid-turn clears the input, so without this the message
+    # would seem to vanish until the agent's next tool boundary echoes
+    # it), and the latest context-window snapshot for the main agent
+    # (read straight off +Pikuri::Agent::Listener::TokenLog#status_line+).
     #
     # == Why the spinner and the tokens share a slot
     #
@@ -62,6 +66,18 @@ module PikuriTui
       # @return [Float]
       FRAME_INTERVAL_S = 0.1
 
+      # The main agent's mid-loop input queue, or +nil+ when the host
+      # wired none. Installed by {App} *after* the agent is built (the
+      # label is constructed before the agent exists — same
+      # chicken-and-egg as the listener/agent cycle documented on
+      # {App#initialize}). When set, every refresh appends an
+      # "N queued" segment while +#peek+ reports pending injections.
+      # Read only on the UI thread (the ticker block); +Interloper#peek+
+      # is itself documented as safe from any thread.
+      #
+      # @return [Pikuri::Agent::Control::Interloper, nil]
+      attr_accessor :interloper
+
       # @param screen [Tuile::Screen] screen whose +event_queue+ drives
       #   the spinner ticker.
       # @param token_log [Pikuri::Agent::Listener::TokenLog] main
@@ -70,6 +86,7 @@ module PikuriTui
         super()
         @screen = screen
         @token_log = token_log
+        @interloper = nil
         @ticker = nil
         self.bg = 236
         refresh
@@ -116,14 +133,19 @@ module PikuriTui
       #   a turn is in progress; +nil+ when idle.
       # @return [void]
       def refresh(spinner_frame: nil)
+        segments = []
+        pending = @interloper ? @interloper.peek.size : 0
+        segments << "#{pending} queued" if pending.positive?
         status = @token_log.status_line
+        segments << status unless status.empty?
+        tail = segments.join(' · ')
         self.text =
           if spinner_frame.nil?
-            status
-          elsif status.empty?
+            tail
+          elsif tail.empty?
             spinner_frame
           else
-            "#{spinner_frame} #{status}"
+            "#{spinner_frame} #{tail}"
           end
       end
     end

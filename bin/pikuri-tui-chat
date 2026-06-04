@@ -65,6 +65,12 @@ llama_probe_url = "#{server}/props"
 
 cancel_flag = Pikuri::Agent::Control::Cancellable.new
 
+# Mid-loop input channel: PikuriTui::Chat::App injects messages submitted
+# while a turn is in flight; the agent drains the queue at every
+# after_tool_result boundary, and App delivers any leftovers as a fresh
+# turn when the loop ends.
+interloper = Pikuri::Agent::Control::Interloper.new
+
 system_prompt = Pikuri.prompt(:'pikuri-chat')
 system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
 
@@ -97,6 +103,7 @@ app = PikuriTui::Chat::App.new(token_log: token_log) do |listener|
     system_prompt: system_prompt,
     step_limit: Pikuri::Agent::Control::StepLimit.new(max: 20),
     cancellable: cancel_flag,
+    interloper: interloper,
     llama_probe_url: llama_probe_url,
     streaming: true
   ) do |c|

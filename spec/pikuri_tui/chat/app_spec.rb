@@ -2,18 +2,35 @@
 
 RSpec.describe PikuriTui::Chat::App do
   # Minimal +Pikuri::Agent+ stand-in: App only reaches for +run_loop+
-  # (from the worker thread, which we never trigger here) and +cancellable+
-  # (from {Chat::App#cancel_turn}). Anything else stays untouched, so we
-  # don't pay the network / RubyLLM cost in a unit spec.
+  # (from the worker thread), +cancellable+ (from {Chat::App#cancel_turn})
+  # and +interloper+ (mid-turn queueing + the FooterLabel handoff).
+  # Anything else stays untouched, so we don't pay the network / RubyLLM
+  # cost in a unit spec.
+  #
+  # +run_loop+ records each +user_message:+ into {#messages}; after
+  # {#block_turns!} it additionally parks on an internal queue until the
+  # spec calls {#finish_turn!}, so a spec can hold a turn open and observe
+  # the mid-turn paths.
   class StubAgent
-    attr_reader :cancellable, :listener
+    attr_reader :cancellable, :interloper, :listener, :messages
 
-    def initialize(listener)
+    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new)
       @listener = listener
       @cancellable = Pikuri::Agent::Control::Cancellable.new
+      @interloper = interloper
+      @messages = []
+      @gate = Queue.new
+      @blocking = false
     end
 
-    def run_loop(user_message:); end
+    def block_turns! = @blocking = true
+
+    def finish_turn! = @gate << :done
+
+    def run_loop(user_message:)
+      @messages << user_message
+      @gate.pop if @blocking
+    end
   end
 
   let(:app) do
@@ -90,6 +107,77 @@ RSpec.describe PikuriTui::Chat::App do
     assert_kind_of PikuriTui::Chat::FooterLabel, app.screen.pane.content.conversation.footer
   end
 
+  it "hands the agent's interloper to the FooterLabel for the queued-count display" do
+    footer = app.screen.pane.content.conversation.footer
+    assert_same app.agent.interloper, footer.interloper
+  end
+
+  it 'queues a mid-turn submission into the interloper instead of starting a second run_loop' do
+    agent = app.agent
+    agent.block_turns!
+    app.send(:submit_message, 'first')
+    wait_until { agent.messages.size == 1 }
+
+    app.send(:submit_message, 'second')
+    assert_equal ['second'], agent.interloper.peek
+    assert_equal ['first'], agent.messages
+  ensure
+    # One release for the held turn, one for the leftover-delivery turn
+    # the App starts with the drained 'second'; then wait for both turns
+    # to settle so no worker outlives the screen the after-hook closes.
+    2.times { agent.finish_turn! }
+    wait_until { agent.messages.size == 2 && !app.instance_variable_get(:@turn_in_progress) }
+  end
+
+  it 'delivers injections still queued when the turn ends as a fresh turn (in order)' do
+    agent = app.agent
+    agent.block_turns!
+    app.send(:submit_message, 'first')
+    wait_until { agent.messages.size == 1 }
+
+    app.send(:submit_message, 'queued while busy')
+    agent.finish_turn!
+    wait_until { agent.messages.size == 2 }
+    assert_equal ['first', 'queued while busy'], agent.messages
+    assert_empty agent.interloper.peek
+  ensure
+    agent.finish_turn! # release the leftover-delivery turn
+    wait_until { !app.instance_variable_get(:@turn_in_progress) }
+  end
+
+  it 'joins multiple leftover injections into one delivery turn, in submission order' do
+    agent = app.agent
+    agent.block_turns!
+    app.send(:submit_message, 'first')
+    wait_until { agent.messages.size == 1 }
+
+    app.send(:submit_message, 'also this')
+    app.send(:submit_message, 'and this')
+    agent.finish_turn!
+    wait_until { agent.messages.size == 2 }
+    assert_equal ['first', "also this\n\nand this"], agent.messages
+  ensure
+    agent.finish_turn! # release the leftover-delivery turn
+    wait_until { !app.instance_variable_get(:@turn_in_progress) }
+  end
+
+  it 'drops a mid-turn submission with a warn when the agent has no interloper wired' do
+    no_interloper_app = described_class.new do |listener|
+      StubAgent.new(listener, interloper: nil)
+    end
+    agent = no_interloper_app.agent
+    agent.block_turns!
+    no_interloper_app.send(:submit_message, 'first')
+    wait_until { agent.messages.size == 1 }
+
+    no_interloper_app.send(:submit_message, 'second')
+    agent.finish_turn!
+    wait_until { !no_interloper_app.instance_variable_get(:@turn_in_progress) }
+    assert_equal ['first'], agent.messages
+    rendered = no_interloper_app.log_window.content.lines.map(&:to_s).join("\n")
+    assert_includes rendered, 'mid-turn message dropped'
+  end
+
   it 'feeds the FooterLabel from the same TokenLog the host wires into the agent' do
     explicit_token_log = Pikuri::Agent::Listener::TokenLog.new
     explicit_app = described_class.new(token_log: explicit_token_log) do |listener|
@@ -133,5 +221,18 @@ RSpec.describe PikuriTui::Chat::App do
 
   def status_bar_text
     app.screen.pane.status_bar.text.to_s
+  end
+
+  # Spin until the block yields truthy. App's turn lifecycle crosses a
+  # real worker thread (start_turn's Thread.new) even under FakeScreen —
+  # the fake event queue runs submits inline on whichever thread calls
+  # them — so specs that observe post-turn state must wait for the worker.
+  def wait_until(timeout: 2)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+    until yield
+      raise 'timed out waiting for condition' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+      sleep 0.005
+    end
   end
 end
