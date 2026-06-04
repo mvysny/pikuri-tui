@@ -71,8 +71,8 @@ module PikuriTui
       # label is constructed before the agent exists — same
       # chicken-and-egg as the listener/agent cycle documented on
       # {App#initialize}). When set, every refresh appends an
-      # "N queued" segment while +#peek+ reports pending injections.
-      # Read only on the UI thread (the ticker block); +Interloper#peek+
+      # "N queued" segment while +#size+ reports pending injections.
+      # Read only on the UI thread (the ticker block); +Interloper#size+
       # is itself documented as safe from any thread.
       #
       # @return [Pikuri::Agent::Control::Interloper, nil]
@@ -134,7 +134,7 @@ module PikuriTui
       # @return [void]
       def refresh(spinner_frame: nil)
         segments = []
-        pending = @interloper ? @interloper.peek.size : 0
+        pending = @interloper ? @interloper.size : 0
         segments << "#{pending} queued" if pending.positive?
         status = @token_log.status_line
         segments << status unless status.empty?
