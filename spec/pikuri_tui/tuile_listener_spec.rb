@@ -7,18 +7,16 @@ RSpec.describe PikuriTui::TuileListener do
 
   before do
     Tuile::Screen.fake
-    # TTY::Markdown.parse probes the TTY for width via ioctl on $stdout,
-    # which StringIO/PTY-less rspec runs can't satisfy. Swap to a
-    # passthrough for the duration of the spec so assistant rendering
-    # doesn't blow up; the actual Markdown rendering quality is tty-
-    # markdown's responsibility, not ours.
-    @original_md_parse = TTY::Markdown.method(:parse)
-    TTY::Markdown.define_singleton_method(:parse) { |text, **| text }
+    # Stub the renderer seam with a passthrough: these specs are about
+    # the listener's event routing, not Markdown rendering quality
+    # (markdown_renderer_spec.rb and ansi_converter_spec.rb own that).
+    @original_md_render = PikuriTui::MarkdownRenderer.method(:render)
+    PikuriTui::MarkdownRenderer.define_singleton_method(:render) { |text, **| text }
   end
 
   after do
-    original = @original_md_parse
-    TTY::Markdown.define_singleton_method(:parse) { |*a, **k| original.call(*a, **k) }
+    original = @original_md_render
+    PikuriTui::MarkdownRenderer.define_singleton_method(:render) { |*a, **k| original.call(*a, **k) }
     Tuile::Screen.close
   end
 
@@ -39,7 +37,7 @@ RSpec.describe PikuriTui::TuileListener do
     assert_includes rendered, 'pondered'
   end
 
-  it 'renders Assistant content through TTY::Markdown' do
+  it 'renders Assistant content through the Markdown renderer' do
     listener.on_event(Pikuri::Agent::Event::Assistant.new(content: '**hi**'))
     assert_includes rendered, 'hi'
   end
@@ -91,7 +89,7 @@ RSpec.describe PikuriTui::TuileListener do
   end
 
   it 'logs and falls back to raw text when the Markdown renderer raises' do
-    TTY::Markdown.define_singleton_method(:parse) { |*| raise StandardError, 'boom' }
+    PikuriTui::MarkdownRenderer.define_singleton_method(:render) { |*| raise StandardError, 'boom' }
     captured = StringIO.new
     Tuile.logger = Logger.new(captured)
     listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'plain content'))
@@ -232,7 +230,7 @@ RSpec.describe PikuriTui::TuileListener do
     end
 
     it 'recolors streamed thinking to a single gray tone, stripping any color the renderer produced' do
-      TTY::Markdown.define_singleton_method(:parse) { |_text, **_kwargs| "\e[31mred-from-renderer\e[0m" }
+      PikuriTui::MarkdownRenderer.define_singleton_method(:render) { |_text, **_kwargs| "\e[31mred-from-renderer\e[0m" }
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
       fg_colors = text_view.text.spans.map { |s| s.style.fg }
       refute_includes fg_colors, Tuile::Color.new(:red)
@@ -240,7 +238,7 @@ RSpec.describe PikuriTui::TuileListener do
     end
 
     it 'preserves bold/italic/underline while repainting fg to gray' do
-      TTY::Markdown.define_singleton_method(:parse) do |_text, **_kwargs|
+      PikuriTui::MarkdownRenderer.define_singleton_method(:render) do |_text, **_kwargs|
         "\e[1;3;4;31mbold italic underlined red\e[0m"
       end
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
@@ -253,7 +251,7 @@ RSpec.describe PikuriTui::TuileListener do
     end
 
     it 'renders the non-streaming Thinking bookend in the same gray tone' do
-      TTY::Markdown.define_singleton_method(:parse) { |_text, **_kwargs| "\e[31mred\e[0m" }
+      PikuriTui::MarkdownRenderer.define_singleton_method(:render) { |_text, **_kwargs| "\e[31mred\e[0m" }
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'bookend'))
       fg_colors = text_view.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
@@ -266,15 +264,15 @@ RSpec.describe PikuriTui::TuileListener do
       described_class.new(text_view: text_view, screen: Tuile::Screen.instance, markdown: false)
     end
 
-    # If the TTY::Markdown stub fired we'd see no behavior difference vs
-    # markdown: true (the stub is a passthrough). Replace it with a
+    # If the MarkdownRenderer stub fired we'd see no behavior difference
+    # vs markdown: true (the stub is a passthrough). Replace it with a
     # sentinel that would *always* be visible if invoked, so the spec
     # actually proves the flag short-circuits the render.
     before do
-      TTY::Markdown.define_singleton_method(:parse) { |*| 'MARKDOWN_RAN' }
+      PikuriTui::MarkdownRenderer.define_singleton_method(:render) { |*| 'MARKDOWN_RAN' }
     end
 
-    it 'echoes non-streaming Assistant content verbatim, skipping TTY::Markdown' do
+    it 'echoes non-streaming Assistant content verbatim, skipping the Markdown renderer' do
       listener.on_event(Pikuri::Agent::Event::Assistant.new(content: '**not bold here**'))
       assert_includes rendered, '**not bold here**'
       refute_includes rendered, 'MARKDOWN_RAN'

@@ -3,15 +3,11 @@
 RSpec.describe PikuriTui::MarkdownRenderer do
   let(:width) { 80 }
 
+  # NO_COLOR is set for the whole suite (see spec_helper.rb), so the
+  # rendered output here is structure only — no SGR escapes. Styling
+  # is covered by ansi_converter_spec.rb, which re-enables color.
   def render(src)
     described_class.render(src, width: width).split("\n")
-  end
-
-  # Same source rendered directly through TTY::Markdown — the "before"
-  # baseline for asserting where the patched renderer diverges and
-  # where it matches.
-  def raw(src)
-    TTY::Markdown.parse(src, width: width).split("\n")
   end
 
   context 'loose bulleted lists' do
@@ -32,18 +28,27 @@ RSpec.describe PikuriTui::MarkdownRenderer do
       assert_equal ['● foo', '● bar'], render("* foo\n* bar")
     end
 
-    it 'preserves a tight pair inside a mixed loose/tight list' do
-      # * foo (tight) * bar (loose) * baz
-      assert_equal ['● foo', '● bar', '', '● baz'], render("* foo\n* bar\n\n* baz")
+    it 'renders a mixed loose/tight list uniformly loose (CommonMark list-level rule)' do
+      # One blank anywhere between items makes the whole list loose.
+      # (The retired tty-markdown-era pre-pass could only split at the
+      # blank-separated pair, leaving "foo"/"bar" tight — the parse-tree
+      # renderer applies the spec rule instead.)
+      assert_equal ['● foo', '', '● bar', '', '● baz'], render("* foo\n* bar\n\n* baz")
+    end
+
+    it 'keeps a multi-paragraph item aligned under its marker' do
+      assert_equal ['● first para', '', '  second para', '', '● next item'],
+                   render("* first para\n\n  second para\n\n* next item")
     end
   end
 
   context 'numbered (ordered) lists' do
-    it 'does NOT split blank-separated numbered items — preserves numbering' do
-      # Splitting would renumber both items to "1.", so we leave ordered
-      # lists tight. Acceptable trade-off (numbered loose lists are rare
-      # in LLM output; broken numbering would be a worse regression).
-      assert_equal ['1. one', '2. two'], render("1. one\n\n2. two")
+    it 'renders blank-separated numbered items loose, numbering intact' do
+      # The tty-markdown-era renderer had to leave these tight because
+      # its split-the-list workaround reset numbering. Rendering the
+      # list from the parse tree keeps both the blank line and the
+      # numbers.
+      assert_equal ['1. one', '', '2. two'], render("1. one\n\n2. two")
     end
 
     it 'leaves tight numbered lists alone' do
@@ -51,37 +56,39 @@ RSpec.describe PikuriTui::MarkdownRenderer do
     end
   end
 
-  context 'non-list content is unchanged' do
-    it 'paragraphs render identically to TTY::Markdown directly' do
-      src = "para one.\n\npara two."
-      assert_equal raw(src), render(src)
+  context 'nested lists' do
+    it 'indents nested items under the parent item text' do
+      assert_equal ['● a', '  ● a1', '  ● a2', '● b'], render("* a\n  * a1\n  * a2\n* b")
+    end
+  end
+
+  context 'block structure' do
+    it 'separates paragraphs with one blank line' do
+      assert_equal ['para one.', '', 'para two.'], render("para one.\n\npara two.")
     end
 
-    it 'fenced code blocks are unchanged' do
-      src = "```ruby\ndef hi\n  :hi\nend\n```"
-      assert_equal raw(src), render(src)
+    it 'renders a top-level heading flush left with its body unindented' do
+      assert_equal ['heading', '', 'paragraph.'], render("# heading\n\nparagraph.")
     end
 
-    it 'tables are unchanged' do
-      src = "| a | b |\n|---|---|\n| 1 | 2 |"
-      assert_equal raw(src), render(src)
+    it 'indents content under an H2 by one step' do
+      assert_equal ['  heading', '', '  paragraph.'], render("## heading\n\nparagraph.")
     end
 
-    it 'headings are unchanged' do
-      src = "# heading\n\nparagraph."
-      assert_equal raw(src), render(src)
+    it 'renders fenced code blocks verbatim' do
+      assert_equal ['def hi', '  :hi', 'end'], render("```ruby\ndef hi\n  :hi\nend\n```")
     end
 
-    it 'paragraph-then-list is unchanged (no false-positive injection)' do
-      # The boundary regex requires a list-marker line on BOTH sides;
-      # a paragraph ending into a list must not trigger an injection.
-      src = "intro.\n\n* foo\n* bar"
-      assert_equal raw(src), render(src)
+    it 'prefixes blockquote lines with the quote bar' do
+      assert_equal ['┃  quoted more'], render("> quoted\n> more")
     end
 
-    it 'list-then-paragraph is unchanged' do
-      src = "* foo\n* bar\n\nafter."
-      assert_equal raw(src), render(src)
+    it 'wraps paragraphs at the requested width' do
+      lines = described_class.render("#{'word ' * 30}end", width: 40).split("\n")
+      assert lines.size > 1, 'expected the paragraph to wrap'
+      lines.each do |line|
+        assert line.length <= 40, "line over width: #{line.inspect}"
+      end
     end
   end
 
@@ -91,72 +98,59 @@ RSpec.describe PikuriTui::MarkdownRenderer do
     # the whole table falls back to prose with literal pipes. We rewrite
     # the dashes to ASCII before parsing so the table renders.
 
+    def well_formed_table
+      render("| a | b |\n|---|---|\n| 1 | 2 |")
+    end
+
+    it 'renders a properly-formed separator row as a boxed table' do
+      assert_equal ['┌───┬───┐', '│ a │ b │', '├───┼───┤', '│ 1 │ 2 │', '└───┴───┘'],
+                   well_formed_table
+    end
+
     it 'rewrites em-dash separator rows so the table renders' do
-      bad  = "| a | b |\n|—-|—-|\n| 1 | 2 |"
-      good = "| a | b |\n|---|---|\n| 1 | 2 |"
-      assert_equal raw(good), render(bad)
+      assert_equal well_formed_table, render("| a | b |\n|—-|—-|\n| 1 | 2 |")
     end
 
     it 'rewrites en-dash separator rows so the table renders' do
-      bad  = "| a | b |\n|–-|–-|\n| 1 | 2 |"
-      good = "| a | b |\n|---|---|\n| 1 | 2 |"
-      assert_equal raw(good), render(bad)
+      assert_equal well_formed_table, render("| a | b |\n|–-|–-|\n| 1 | 2 |")
     end
 
     it 'rewrites a separator row made entirely of em-dashes' do
-      bad  = "| a | b |\n|———|———|\n| 1 | 2 |"
-      good = "| a | b |\n|---|---|\n| 1 | 2 |"
-      assert_equal raw(good), render(bad)
+      assert_equal well_formed_table, render("| a | b |\n|———|———|\n| 1 | 2 |")
     end
 
     it 'rewrites single-em-dash cells in a separator row' do
       # Bare "|—|—|—|" — one em-dash per cell, no hyphens at all.
-      bad  = "| a | b | c |\n|—|—|—|\n| 1 | 2 | 3 |"
-      good = "| a | b | c |\n|-|-|-|\n| 1 | 2 | 3 |"
-      assert_equal raw(good), render(bad)
+      good = render("| a | b | c |\n|-|-|-|\n| 1 | 2 | 3 |")
+      assert_equal good, render("| a | b | c |\n|—|—|—|\n| 1 | 2 | 3 |")
     end
 
     it 'leaves prose containing em-dashes alone' do
       # The interior-pipe requirement protects prose: "foo — bar" has
       # no pipes, so the pattern doesn't match.
-      src = "foo — bar\n\nbaz — quux"
-      assert_equal raw(src), render(src)
+      assert_equal ['foo — bar', '', 'baz — quux'], render("foo — bar\n\nbaz — quux")
     end
 
-    it 'leaves a properly-formed separator row untouched' do
-      src = "| a | b |\n|---|---|\n| 1 | 2 |"
-      assert_equal raw(src), render(src)
-    end
-
-    it 'leaves a horizontal rule of em-dashes alone (no interior pipe)' do
-      # "———" alone is not a separator row candidate — no pipe — so we
-      # don't rewrite it.
-      src = "before\n\n———\n\nafter"
-      assert_equal raw(src), render(src)
+    it 'leaves a run of em-dashes without pipes alone (not a separator row)' do
+      # "———" alone has no pipe, so we don't rewrite it into "---"
+      # (which kramdown would then render as a horizontal rule).
+      assert_equal ['before', '', '———', '', 'after'], render("before\n\n———\n\nafter")
     end
   end
 
-  context 'blank-run collapse' do
-    it 'collapses adjacent blank lines down to one' do
-      assert_equal ['a', '', 'b'], described_class.collapse_blank_runs("a\n\n\n\nb").split("\n")
-    end
-
-    it 'is a no-op when there are no adjacent blanks' do
-      assert_equal ['a', '', 'b', '', 'c'], described_class.collapse_blank_runs("a\n\nb\n\nc").split("\n")
-    end
-
-    it 'is a no-op on stock TTY::Markdown output' do
-      sources = [
-        "# heading\n\nparagraph.",
-        "para one.\n\npara two.",
-        "```\ncode\n```\n\npara.",
-        "intro\n\n* a\n* b\n\noutro",
-      ]
-      sources.each do |src|
-        ansi = TTY::Markdown.parse(src, width: width)
-        assert_equal ansi, described_class.collapse_blank_runs(ansi),
-                     "collapse changed stock TTY::Markdown output for: #{src.inspect}"
+  context 'diagnostics' do
+    it 'forwards converter warnings to Tuile.logger, not the output' do
+      captured = StringIO.new
+      original = Tuile.logger
+      Tuile.logger = Logger.new(captured)
+      begin
+        out = described_class.render('before <marquee>zip</marquee> after', width: width)
+      ensure
+        Tuile.logger = original
       end
+      assert_includes captured.string, 'marquee'
+      assert_includes out, 'zip'
+      refute_includes out, 'marquee'
     end
   end
 end

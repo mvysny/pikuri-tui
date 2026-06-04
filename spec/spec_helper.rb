@@ -2,14 +2,11 @@
 
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 
-# Disable ANSI colorisation in +TTY::Markdown+ (via +Pastel+ / +tty-color+)
+# Disable ANSI colorisation in +PikuriTui::MarkdownRenderer::AnsiConverter+
 # for the suite. Spec assertions about Markdown output target *structure*
 # — bullet markers, blank-line placement, table-separator rewriting —
-# not the surrounding ANSI styling. Colour bytes vary by terminal and by
-# +tty-color+'s auto-detection (TTY vs piped), which would make the same
-# spec pass in CI and fail interactively. Pin both ends to the no-colour
-# branch so the suite is deterministic everywhere. Must be set before
-# +tty-markdown+ is loaded so +Pastel.new+ sees it.
+# not the surrounding ANSI styling. Specs that *are* about styling
+# (ansi_converter_spec.rb) re-enable color per render.
 ENV['NO_COLOR'] = '1'
 
 require 'rspec/core'

@@ -96,10 +96,23 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   Shared by `Chat::App` and the planned `Code::App`.
 - `lib/pikuri_tui/markdown_renderer.rb` —
   `PikuriTui::MarkdownRenderer`, the single entry point for
-  turning Markdown into ANSI for the conversation pane. Wraps
-  `TTY::Markdown` and patches around its loose-vs-tight list
-  collapsing. Both the non-streaming `Assistant` path and the
-  streaming buffer render through it.
+  turning Markdown into ANSI for the conversation pane. Parses
+  with kramdown (GFM dialect via `kramdown-parser-gfm`, with an
+  LLM-typo table-separator repair pre-pass) and renders through
+  `AnsiConverter`. Both the non-streaming `Assistant` path and
+  the streaming buffer render through it.
+- `lib/pikuri_tui/markdown_renderer/ansi_converter.rb` —
+  `PikuriTui::MarkdownRenderer::AnsiConverter`, this project's
+  own `Kramdown::Converter::Base` subclass: parse tree → ANSI.
+  Replaced `tty-markdown` (whose stale pins on `strings` and
+  `rouge` blocked dependency updates) and natively fixes what the
+  old renderer needed hacks for — loose lists render loose,
+  ordered-list numbering survives, paragraphs wrap as a whole
+  with inline styles flowing across lines. Emits only the SGR
+  alphabet `Tuile::StyledString` models, since the thinking pane
+  round-trips its output through `AnsiGrayscale`. Syntax
+  highlighting via rouge; honors `NO_COLOR` (the spec suite
+  relies on that).
 - `lib/pikuri_tui/streaming_markdown_buffer.rb` —
   `PikuriTui::StreamingMarkdownBuffer`, stateful buffer that
   turns a stream of Markdown deltas into in-place rewrites of a
@@ -114,7 +127,7 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   Markdown render and the block-cutter entirely — the accumulated
   source is split on `\n` and passed through to the sink as-is. For
   streams whose payload is already in display form (plain text,
-  pre-formatted output) where `TTY::Markdown` would corrupt or
+  pre-formatted output) where the Markdown renderer would corrupt or
   re-style it.
 - `lib/pikuri_tui/ansi_grayscale.rb` — `PikuriTui::AnsiGrayscale`,
   repaints an ANSI-colored string as a single muted-gray fg with
@@ -202,7 +215,7 @@ Planned, not yet present:
   unexpected internal state in *this project's* code raises with
   the offending data included — silent fallbacks hide what
   actually happened. Exceptions thrown by libraries we depend on
-  (pikuri, ruby_llm, Tuile, Faraday, tty-markdown, everything we
+  (pikuri, ruby_llm, Tuile, Faraday, kramdown, rouge, everything we
   didn't write) are caught at the call site, logged as `error`
   through the internal logger (so they surface in the `LogWindow`
   diagnostic pane), and the surrounding code returns to a safe

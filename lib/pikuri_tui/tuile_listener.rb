@@ -32,7 +32,7 @@ module PikuriTui
   #    instead of being silent. The CLI's reasoning ("the user just typed
   #    this") doesn't apply here — submitting clears the input area, so
   #    without an echo the user's message vanishes.
-  # 2. Library failures during rendering (+tty-markdown+ choking on
+  # 2. Library failures during rendering (kramdown / rouge choking on
   #    assistant output) are caught and logged through {Tuile.logger}
   #    instead of bubbling out — an uncaught raise on the worker thread
   #    would silently kill the agent loop. Same "library exceptions are
@@ -62,7 +62,7 @@ module PikuriTui
   # The Markdown render is gated on a +markdown:+ ctor flag (default
   # +true+). When the host wires +markdown: false+, the assistant
   # streaming path uses {PassthroughBuffer} and the non-streaming
-  # assistant path skips +TTY::Markdown+ — content goes to the +TextView+
+  # assistant path skips {MarkdownRenderer} — content goes to the +TextView+
   # verbatim. The thinking pane's grayscale repaint is independent of
   # the toggle: a +markdown: false+ thinking buffer is still a
   # {StreamingMarkdownBuffer} but with a recolor-only render function,
@@ -92,12 +92,12 @@ module PikuriTui
     #   inject a {Tuile::FakeScreen} without having to install it as the
     #   singleton at construction time.
     # @param markdown [Boolean] when +true+ (the default), assistant
-    #   content is rendered through +TTY::Markdown+. When +false+, the
+    #   content is rendered through {MarkdownRenderer}. When +false+, the
     #   listener skips Markdown rendering for the assistant path —
     #   non-streaming events echo their content verbatim and the streaming
     #   path uses {PassthroughBuffer}. The thinking path always recolors
     #   to gray and so always goes through a {StreamingMarkdownBuffer}
-    #   (with the renderer set to +TTY::Markdown+→recolor or
+    #   (with the renderer set to {MarkdownRenderer}→recolor or
     #   recolor-only, depending on the flag).
     # @param dump_events [Boolean] when +true+, every event handed to
     #   {#on_event} is also +inspect+-ed and appended to
@@ -235,7 +235,7 @@ module PikuriTui
     end
 
     # Twin of {#make_buffer} for the reasoning pane. Always returns a
-    # {StreamingMarkdownBuffer}: the renderer is +TTY::Markdown+→recolor
+    # {StreamingMarkdownBuffer}: the renderer is {MarkdownRenderer}→recolor
     # when Markdown is on, recolor-only when it's off. Going through the
     # streaming buffer in both cases gives us the same lifecycle (one
     # buffer per thinking block, finalize at bookend) and keeps the gray
@@ -272,7 +272,7 @@ module PikuriTui
     #   the +TextView+'s current rect and reserves two columns for the
     #   scrollbar gutter / any future padding; floors at 1 so a
     #   not-yet-laid-out view doesn't pass a non-positive width to
-    #   +TTY::Markdown+.
+    #   {MarkdownRenderer}.
     def buffer_width
       [@text_view.rect.width - 2, 1].max
     end
@@ -316,9 +316,9 @@ module PikuriTui
     end
 
     # Render assistant Markdown for the conversation pane, degrading to
-    # the raw string when the renderer raises. +tty-markdown+ has known
-    # issues around ANSI inside tables (+Strings::Wrap.insert_ansi+
-    # raising +IndexError+); on a long-running TUI we'd rather show ugly
+    # the raw string when the renderer raises — LLM output is arbitrary
+    # and a kramdown / rouge surprise shouldn't be fatal; on a
+    # long-running TUI we'd rather show ugly
     # Markdown than abort an in-flight conversation. Used on the
     # non-streaming +Assistant+ / +Thinking+ paths; the streaming path
     # lets the buffer do its own catch-and-log.

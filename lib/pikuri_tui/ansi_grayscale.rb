@@ -6,7 +6,7 @@ module PikuriTui
   # Turns an ANSI-colored string into the same string repainted as a
   # single muted-gray fg, with structural attributes (bold, italic,
   # underline) preserved. Used by {TuileListener} on the thinking-pane
-  # path: +TTY::Markdown+ produces full-color ANSI for reasoning blocks,
+  # path: {MarkdownRenderer} produces full-color ANSI for reasoning blocks,
   # but reasoning needs to read as visually distinct from the assistant's
   # final answer — one gray tone with structure intact strikes that
   # balance without giving up Markdown legibility.
@@ -16,9 +16,10 @@ module PikuriTui
   # attributes pass through untouched), then +#to_ansi+ to rebuild the
   # line. {Tuile::StyledString.parse} is strict — it raises
   # {Tuile::StyledString::ParseError} on SGR codes it doesn't model
-  # (+dim+, +reverse+, +strike+, …). +TTY::Markdown+'s default theme
-  # uses Pastel and sticks to fg/bold/italic so the happy path is
-  # fine; if a theme tweak ever emits an unsupported code we log
+  # (+dim+, +reverse+, +strike+, …). {MarkdownRenderer::AnsiConverter}
+  # deliberately emits only that supported alphabet (see its "Output
+  # contract" doc) so the happy path is fine; if a styling tweak ever
+  # emits an unsupported code we log
   # through {Tuile.logger} and return the input unrecolored rather
   # than tearing down the agent loop with an uncaught raise on the
   # worker thread. The expected fix when the log fires is to add the

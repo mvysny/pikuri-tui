@@ -15,6 +15,21 @@ gem 'tuile', '~> 0.5.0'
 # its path without per-file require_relative ceremony.
 gem 'zeitwerk', '~> 2.7'
 
+# Markdown parser for the conversation pane. PikuriTui::MarkdownRenderer
+# parses with kramdown (GFM dialect, via kramdown-parser-gfm) and renders
+# the parse tree to ANSI with its own Kramdown::Converter subclass —
+# replacing tty-markdown, whose stale pins (strings ~> 0.2.0, rouge < 5)
+# were blocking dependency updates. (tty-markdown remains in the lockfile
+# transitively via pikuri-core until pikuri drops it too.)
+gem 'kramdown', '~> 2.4'
+gem 'kramdown-parser-gfm', '~> 1.1'
+
+# Syntax highlighting for fenced code blocks in the conversation pane.
+# Used by PikuriTui::MarkdownRenderer::AnsiConverter. The upper bound
+# stays wide on purpose — pinning tightly here is how tty-markdown got
+# us stuck.
+gem 'rouge', '>= 4.0', '< 6'
+
 # The pikuri-core gem — Agent, Tool, prompts, listeners. The lean
 # foundation of pikuri's seven-gem monorepo split (the +pikuri+
 # metagem also exists and pulls in every sibling; we only need

@@ -12,7 +12,7 @@ module PikuriTui
   #
   # Use this where the streamed content is already in its final display
   # form (plain text, pre-formatted output, ANSI from elsewhere) and the
-  # +TTY::Markdown+ trip through {StreamingMarkdownBuffer} would either
+  # {MarkdownRenderer} trip through {StreamingMarkdownBuffer} would either
   # corrupt the text or add unwanted styling.
   #
   # == Lifecycle and threading

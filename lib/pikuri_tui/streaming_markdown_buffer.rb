@@ -22,7 +22,7 @@ module PikuriTui
   # == Why re-render-on-each-token
   #
   # Markdown rendering isn't streamable in any usable Ruby library:
-  # +TTY::Markdown+ batches over +kramdown+, +CommonMarker+ batches over
+  # {MarkdownRenderer} batches over +kramdown+, +CommonMarker+ batches over
   # +cmark+. Worse, Markdown is retroactively reformattable — a closing
   # +```+ turns earlier text into a code block; a new table row with a
   # wider cell re-pads every previous row. So the cheapest correct
@@ -96,17 +96,16 @@ module PikuriTui
     # probe output are the natural rendered form of the committed source
     # right up to the boundary with whatever block comes next. Using
     # the renderer's own answer avoids hand-coding "does this block
-    # type leave a blank trailing line before that one?" rules (tty-
-    # markdown notably *doesn't* put a blank between a fenced code
-    # block and a following paragraph; trying to reproduce those
-    # quirks by hand is a losing game).
+    # type leave a blank trailing line before that one?" rules —
+    # trying to reproduce a renderer's spacing quirks by hand is a
+    # losing game.
     #
     # The marker is a single Private-Use-Area Unicode codepoint
     # (+U+E000+). Unicode reserves the PUA for application-specific
     # use, so no spec assigns it a meaning, no LLM trained on natural
     # text emits it, and Markdown has nothing to do with it (an
     # earlier ASCII +_PKBND_+ marker got stripped to +PKBND+ because
-    # tty-markdown treated the surrounding underscores as italics —
+    # the Markdown renderer treated the surrounding underscores as italics —
     # a U+E000 has no such risk). It passes through any sane Markdown
     # renderer unchanged.
     COMMIT_PROBE_SENTINEL = ""
