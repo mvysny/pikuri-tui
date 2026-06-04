@@ -19,8 +19,8 @@ gem 'zeitwerk', '~> 2.7'
 # parses with kramdown (GFM dialect, via kramdown-parser-gfm) and renders
 # the parse tree to ANSI with its own Kramdown::Converter subclass —
 # replacing tty-markdown, whose stale pins (strings ~> 0.2.0, rouge < 5)
-# were blocking dependency updates. (tty-markdown remains in the lockfile
-# transitively via pikuri-core until pikuri drops it too.)
+# were blocking dependency updates. (pikuri-core dropped its own
+# tty-markdown dependency in 0.0.6, so it's gone from the lockfile too.)
 gem 'kramdown', '~> 2.4'
 gem 'kramdown-parser-gfm', '~> 1.1'
 
