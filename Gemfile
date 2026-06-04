@@ -35,7 +35,8 @@ gem 'rouge', '>= 4.0', '< 6'
 # metagem also exists and pulls in every sibling; we only need
 # core for the chat shell). Bundled bin scripts in this repo wire
 # +Pikuri::Agent+ + +Pikuri::Tool::*+ into Tuile TUIs.
-gem 'pikuri-core', '~> 0.0.4'
+gem 'pikuri-core', '~> 0.0.6'
+gem 'pikuri-pdf', '~> 0.0.6'
 
 group :test do
   # Test runner. We use the rspec-core describe/it harness but write
