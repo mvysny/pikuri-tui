@@ -4,7 +4,7 @@
 
 A pair of Tuile-based TUI front-ends on a shared core, wrapping the
 [pikuri](https://codeberg.org/mvysny/pikuri) library:
-`bin/pikuri-tui-chat` (general-purpose chat) and `bin/pikuri-code`
+`bin/pikuri-tui-chat` (general-purpose chat) and `bin/pikuri-tui-code`
 (in-repo coding agent). Both bind the same `Pikuri::Agent` and the
 same `Pikuri::Tool` set as pikuri's own demo scripts; they differ
 only in their system prompt and which tools they register.
@@ -19,8 +19,12 @@ shell only.
 
 ## Status
 
-Scaffold. `Gemfile` and the Zeitwerk-wired `lib/pikuri_tui.rb` boot
-file are in; no bin scripts yet, no Tuile listener yet.
+The chat shell is functional: `bin/pikuri-tui-chat` runs the full
+Tuile UI — conversation pane with streamed Markdown, diagnostic
+log popup (`Ctrl+L`), input field, footer spinner + token status —
+against a local llama.cpp server, with specs and Woodpecker CI in
+place. The code shell (`bin/pikuri-tui-code` and the
+`PikuriTui::Code` namespace) is not started.
 
 ## Scope decisions
 
@@ -62,11 +66,14 @@ file are in; no bin scripts yet, no Tuile listener yet.
   Tuile UI methods raise `"UI lock not held"` if you violate it,
   and the ones that don't will silently corrupt the repaint set.
 
-- **Streaming, mid-loop input, multi-window layouts beyond log +
-  input — out of scope until there's a concrete need.** Pikuri
-  exposes `Control::Interloper` for mid-loop user injection;
-  wiring it through is a real feature, not a 5-minute add, so it
-  waits.
+- **Mid-loop input and multi-window layouts beyond log + input —
+  out of scope until there's a concrete need.** Pikuri exposes
+  `Control::Interloper` for mid-loop user injection; wiring it
+  through is a real feature, not a 5-minute add, so it waits.
+  (Streaming used to sit on this list; it has since landed — the
+  chat agent runs with `streaming: true` and deltas reach the
+  listener through a 15 fps `Listener::RateLimited` coalescer
+  into `StreamingMarkdownBuffer`.)
 
 ## Layout
 
@@ -83,6 +90,18 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   conversation pane). The equivalent of pikuri's
   `Pikuri::Agent::Listener::Terminal`, retargeted at the TUI.
   Shared by `Chat::App` and the planned `Code::App`.
+- `lib/pikuri_tui/markdown_renderer.rb` —
+  `PikuriTui::MarkdownRenderer`, the single entry point for
+  turning Markdown into ANSI for the conversation pane. Wraps
+  `TTY::Markdown` and patches around its loose-vs-tight list
+  collapsing. Both the non-streaming `Assistant` path and the
+  streaming buffer render through it.
+- `lib/pikuri_tui/streaming_markdown_buffer.rb` —
+  `PikuriTui::StreamingMarkdownBuffer`, stateful buffer that
+  turns a stream of Markdown deltas into in-place rewrites of a
+  `Tuile::Component::TextView::Region`, with a block-cutter that
+  bounds per-token re-render cost to the currently-open block.
+  Must be driven from the UI thread.
 - `lib/pikuri_tui/passthrough_buffer.rb` —
   `PikuriTui::PassthroughBuffer`, API-compatible variant of
   `StreamingMarkdownBuffer` (same `#append` / `#finalize` /
@@ -93,6 +112,11 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   streams whose payload is already in display form (plain text,
   pre-formatted output) where `TTY::Markdown` would corrupt or
   re-style it.
+- `lib/pikuri_tui/ansi_grayscale.rb` — `PikuriTui::AnsiGrayscale`,
+  repaints an ANSI-colored string as a single muted-gray fg with
+  structural attributes (bold, italic, underline) preserved. Used
+  on the thinking-pane path so reasoning reads as visually
+  distinct from the assistant's final answer.
 - `lib/pikuri_tui/counting_log_io.rb` — `PikuriTui::CountingLogIO`,
   the `IO`-shaped sink that forwards every line to the diagnostic
   `LogWindow` and counts error-class writes so the `Ctrl+L`
@@ -110,10 +134,21 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   the vertical-split root layout (conversation top, input bottom).
 - `lib/pikuri_tui/chat/input.rb` — `PikuriTui::Chat::Input`, the
   `TextArea` subclass that rebinds Enter to submit-and-clear.
+- `lib/pikuri_tui/chat/footer_label.rb` —
+  `PikuriTui::Chat::FooterLabel`, the conversation-window footer
+  label: ticks a spinner while the agent is mid-turn and renders
+  the main agent's context-window snapshot off a
+  `Pikuri::Agent::Listener::TokenLog`.
 - `bin/pikuri-tui-chat` — boot script for the chat agent: configures
-  `RubyLLM` for the local llama.cpp server, builds a
-  `Pikuri::Agent` wired with the web/calc tools and a
+  `RubyLLM` for the local llama.cpp server, builds a streaming
+  `Pikuri::Agent` wired with the web/calc tools (search, scrape,
+  fetch, calculator), a `TokenLog`, and a rate-limited
   `PikuriTui::TuileListener`, hands it to `PikuriTui::Chat::App`.
+- `bin/setup` — `bundle install` wrapper.
+- `bin/install` / `bin/uninstall` — symlink `bin/pikuri-tui-chat`
+  into `$PREFIX` (default `~/.local/bin`) and remove it again.
+  Uninstall only removes symlinks that point back into this
+  checkout.
 
 Planned, not yet present:
 
