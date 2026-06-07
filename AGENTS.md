@@ -157,7 +157,11 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   "N queued" count while the agent's `Control::Interloper` holds
   pending mid-turn injections, and renders the main agent's
   context-window snapshot off a
-  `Pikuri::Agent::Listener::TokenLog`. Painted in the current
+  `Pikuri::Agent::Listener::TokenLog` — claiming the log's
+  `on_status_line` observer slot so each fresh line repaints the
+  footer the moment the `Tokens` event lands (sub-agent pushes,
+  which inherit the observer, are filtered out by their non-empty
+  id). Painted in the current
   theme's `hint_color` (the footer is status-hint chrome), read at
   paint time per Tuile's theming rule so OS light/dark appearance
   flips restyle it.

@@ -20,12 +20,35 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
   end
 
   it "reflects the TokenLog's status_line once an event has been processed" do
+    # Event fired before the label exists (the lazy let hasn't constructed
+    # it, so the on_status_line observer isn't installed yet) — asserts
+    # the poll path: refresh reads TokenLog#status_line directly.
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
-    # FooterLabel doesn't subscribe to events itself — the App drives the
-    # idle text via start_animation/stop_animation; in idle mode we trigger
-    # a refresh explicitly to assert the read path.
     label.send(:refresh)
     assert_includes label.text.to_s, 'msg #1: ctx=11.0k'
+  end
+
+  it 'refreshes immediately when the TokenLog pushes a new status line (no tick needed)' do
+    label # construct first so the on_status_line observer is installed
+    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    assert_includes label.text.to_s, 'msg #1: ctx=11.0k'
+  end
+
+  it 'keeps the current spinner glyph when a push lands between ticks' do
+    label.start_animation
+    event_queue.tick_once
+    glyph = label.text.to_s
+    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    assert_equal "#{glyph} msg #1: ctx=11.0k  Δ+11.0k  ↑1.0k  ↓1.0k", label.text.to_s
+  ensure
+    label.stop_animation
+  end
+
+  it "ignores sub-agent pushes (inherited observer, non-empty id) — the footer is the main agent's" do
+    label # construct first so the on_status_line observer is installed
+    sub_log = token_log.for_sub_agent(id: 'researcher 0')
+    sub_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    assert_equal '', label.text.to_s
   end
 
   it 'shows a spinner glyph + status after a tick lands' do

@@ -29,10 +29,18 @@ module PikuriTui
     # construction. The host wires the same instance into the agent's
     # +ListenerList+ so the listener accumulates per-turn snapshots and
     # this label renders the cached +status_line+ — no second event
-    # subscription, no duplicated formatting. Restricting the source to
-    # one instance is how "main agent only" is enforced: sub-agents get
-    # their own +TokenLog+ via +#for_sub_agent+ and never write into
-    # this one.
+    # subscription, no duplicated formatting.
+    #
+    # The constructor also claims the log's +on_status_line+ observer
+    # slot (it's a single-callable accessor, so the label owns it):
+    # every freshly formatted line triggers a {#refresh} the moment the
+    # +Tokens+ event lands, instead of waiting up to {FRAME_INTERVAL_S}
+    # for the next spinner tick to poll it. "Main agent only" is
+    # enforced by the observer's +id+ parameter: sub-agents derived via
+    # +#for_sub_agent+ inherit the observer by reference, so their
+    # pushes arrive here too — with their non-empty id — and are
+    # dropped; their context windows are theirs, not the
+    # conversation's.
     #
     # == Theming
     #
@@ -54,6 +62,11 @@ module PikuriTui
     # +TokenLog#status_line+ is documented as safe to read from any
     # thread (single instance-var read), so reading it from the tick
     # block costs nothing extra.
+    #
+    # The +on_status_line+ push is the one off-thread entry point: the
+    # observer fires on whatever thread runs the agent loop (the App's
+    # worker), so {#on_status_line} marshals the {#refresh} back via
+    # +event_queue.submit+ and touches nothing itself.
     #
     # {#start_animation} and {#stop_animation} themselves must be called
     # on the UI thread — they touch +@ticker+ and (in +stop+) call
@@ -92,19 +105,27 @@ module PikuriTui
       # @param screen [Tuile::Screen] screen whose +event_queue+ drives
       #   the spinner ticker.
       # @param token_log [Pikuri::Agent::Listener::TokenLog] main
-      #   agent's token log; +#status_line+ is read on every refresh.
+      #   agent's token log; +#status_line+ is read on every refresh,
+      #   and its +on_status_line+ observer slot is claimed so each new
+      #   line refreshes the footer immediately (see the class docs).
       def initialize(screen:, token_log:)
         super()
         @screen = screen
         @token_log = token_log
         @interloper = nil
         @ticker = nil
+        @spinner_frame = nil
+        token_log.on_status_line = method(:on_status_line)
         refresh
       end
 
       # Start the spinner ticker (idempotent — calling twice keeps the
-      # existing ticker). Each tick reads {SPINNER}'s next frame and
-      # calls +refresh(spinner_frame:)+ on the event-loop thread.
+      # existing ticker). Each tick advances {@spinner_frame} to
+      # {SPINNER}'s next glyph and calls {#refresh} on the event-loop
+      # thread. The frame lives in an ivar (rather than being passed
+      # into +refresh+) so a refresh triggered between ticks — the
+      # +on_status_line+ push — repaints with the current glyph instead
+      # of blanking the spinner until the next frame.
       #
       # Must be called on the UI thread.
       #
@@ -113,7 +134,8 @@ module PikuriTui
         return if @ticker
 
         @ticker = @screen.event_queue.tick(1.0 / FRAME_INTERVAL_S) do |tick|
-          refresh(spinner_frame: SPINNER[tick % SPINNER.length])
+          @spinner_frame = SPINNER[tick % SPINNER.length]
+          refresh
         end
       end
 
@@ -131,6 +153,7 @@ module PikuriTui
       def stop_animation
         ticker = @ticker
         @ticker = nil
+        @spinner_frame = nil
         return if ticker.nil?
 
         ticker.cancel
@@ -161,10 +184,30 @@ module PikuriTui
 
       private
 
-      # @param spinner_frame [String, nil] one glyph from {SPINNER} when
-      #   a turn is in progress; +nil+ when idle.
+      # +TokenLog#on_status_line+ observer: a fresh status line was
+      # formatted. Fires on the agent-loop thread, so the actual
+      # {#refresh} marshals to the UI thread via +submit+. Lines pushed
+      # by sub-agent +TokenLog+s (which inherit this observer through
+      # +#for_sub_agent+) arrive with a non-empty +id+ and are dropped —
+      # the footer tracks the main agent's context window only.
+      #
+      # @param id [String] owning agent's id; +""+ for the main agent.
+      # @param _status_line [String] the freshly formatted line
+      #   (unused — {#refresh} re-reads +TokenLog#status_line+, which
+      #   is documented as safe from any thread).
       # @return [void]
-      def refresh(spinner_frame: nil)
+      def on_status_line(id, _status_line)
+        return unless id.empty?
+
+        @screen.event_queue.submit { refresh }
+      end
+
+      # Recompute the label text from the current spinner frame, the
+      # interloper's pending count, and the token log's status line.
+      # Must run on the UI thread.
+      #
+      # @return [void]
+      def refresh
         segments = []
         pending = @interloper ? @interloper.size : 0
         segments << "#{pending} queued" if pending.positive?
@@ -172,12 +215,12 @@ module PikuriTui
         segments << status unless status.empty?
         tail = segments.join(' · ')
         self.text =
-          if spinner_frame.nil?
+          if @spinner_frame.nil?
             tail
           elsif tail.empty?
-            spinner_frame
+            @spinner_frame
           else
-            "#{spinner_frame} #{tail}"
+            "#{@spinner_frame} #{tail}"
           end
       end
     end
