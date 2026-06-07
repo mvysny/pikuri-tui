@@ -34,6 +34,17 @@ module PikuriTui
     # their own +TokenLog+ via +#for_sub_agent+ and never write into
     # this one.
     #
+    # == Theming
+    #
+    # The footer paints in the current theme's
+    # +Tuile::Theme#hint_color+ — its content (spinner, queued count,
+    # token status) is status-hint chrome, the same family as the
+    # status bar's "^L logs" hints — on the terminal-default
+    # background, matching Tuile's "tokens cover only accents;
+    # everything else inherits the terminal" strategy. Per Tuile's
+    # theming rule the color is read at paint time, never cached: see
+    # {#repaint}.
+    #
     # == Threading
     #
     # The animation rides Tuile's +EventQueue#tick+: every {FRAME_INTERVAL_S}
@@ -88,7 +99,6 @@ module PikuriTui
         @token_log = token_log
         @interloper = nil
         @ticker = nil
-        self.bg = 236
         refresh
       end
 
@@ -125,6 +135,28 @@ module PikuriTui
 
         ticker.cancel
         refresh
+      end
+
+      # Paints the footer, first overlaying the *current* theme's
+      # +hint_color+ onto the text.
+      #
+      # The theme must be read here, at paint time, not cached at
+      # construction: +Tuile::Screen#theme=+ (fired on OS light/dark
+      # appearance flips) restyles the UI by invalidating the whole
+      # tree, and a color baked in earlier would survive that repaint
+      # with the wrong palette. {#refresh} therefore writes plain text
+      # only; this override re-derives the styled variant on every
+      # paint.
+      #
+      # Convergent: +with_fg+ overlays every span uniformly, so once
+      # the theme is stable the assignment is a no-op (+text=+ compares
+      # first), and mid-pass the echo +invalidate+ from a real change
+      # is suppressed by the screen's repainting guard.
+      #
+      # @return [void]
+      def repaint
+        self.text = text.with_fg(@screen.theme.hint_color)
+        super
       end
 
       private

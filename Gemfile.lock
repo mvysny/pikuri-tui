@@ -1,3 +1,33 @@
+PATH
+  remote: ../pikuri/pikuri-core
+  specs:
+    pikuri-core (0.0.6)
+      faraday (~> 2.9)
+      nokogiri (~> 1.19)
+      rainbow (~> 3.1)
+      reverse_markdown (~> 3.0)
+      ruby-readability (~> 0.7)
+      ruby_llm (~> 1.15)
+      zeitwerk (~> 2.7)
+
+PATH
+  remote: ../pikuri/pikuri-pdf
+  specs:
+    pikuri-pdf (0.0.6)
+      pdf-reader (~> 2.15)
+      pikuri-core (= 0.0.6)
+
+PATH
+  remote: ../tuile
+  specs:
+    tuile (0.5.0)
+      concurrent-ruby (~> 1.3)
+      logger (~> 1.7)
+      tty-cursor (~> 0.7)
+      tty-screen (~> 0.8)
+      unicode-display_width (>= 2.6, < 4.0)
+      zeitwerk (~> 2.7)
+
 GEM
   remote: https://rubygems.org/
   specs:
@@ -55,17 +85,6 @@ GEM
       hashery (~> 2.0)
       ruby-rc4
       ttfunk
-    pikuri-core (0.0.6)
-      faraday (~> 2.9)
-      nokogiri (~> 1.19)
-      rainbow (~> 3.1)
-      reverse_markdown (~> 3.0)
-      ruby-readability (~> 0.7)
-      ruby_llm (~> 1.15)
-      zeitwerk (~> 2.7)
-    pikuri-pdf (0.0.6)
-      pdf-reader (~> 2.15)
-      pikuri-core (= 0.0.6)
     prism (1.9.0)
     racc (1.8.1)
     rainbow (3.1.1)
@@ -97,14 +116,6 @@ GEM
       bigdecimal (~> 3.1)
     tty-cursor (0.7.1)
     tty-screen (0.8.2)
-    tuile (0.5.0)
-      concurrent-ruby (~> 1.3)
-      logger (~> 1.7)
-      rainbow (~> 3.1)
-      tty-cursor (~> 0.7)
-      tty-screen (~> 0.8)
-      unicode-display_width (>= 2.6, < 4.0)
-      zeitwerk (~> 2.7)
     unicode-display_width (3.2.0)
       unicode-emoji (~> 4.1)
     unicode-emoji (4.2.0)
@@ -125,11 +136,11 @@ DEPENDENCIES
   kramdown (~> 2.4)
   kramdown-parser-gfm (~> 1.1)
   minitest (~> 6.0)
-  pikuri-core (~> 0.0.6)
-  pikuri-pdf (~> 0.0.6)
+  pikuri-core!
+  pikuri-pdf!
   rouge (>= 4.0, < 6)
   rspec-core (~> 3.13)
-  tuile (~> 0.5.0)
+  tuile!
   zeitwerk (~> 2.7)
 
 CHECKSUMS
@@ -163,8 +174,8 @@ CHECKSUMS
   nokogiri (1.19.3-x86_64-linux-gnu) sha256=2f5078620fe12e83669b5b17311b32532a8153d02eee7ad06948b926d6080976
   nokogiri (1.19.3-x86_64-linux-musl) sha256=248c906d2166eca5efb56d52fdee5f9a1f51d69a72e2b64fdac647b4ce39ea3f
   pdf-reader (2.15.1) sha256=18c6a986a84a3117fa49f4279fc2de51f5d2399b71833df5d2bccd595c7068ce
-  pikuri-core (0.0.6) sha256=555726e2471816d916f9a91dca5e0103861748cc7760bfe20650e3ca90868027
-  pikuri-pdf (0.0.6) sha256=eff00f574aca4dcbb003ca434fe6b784aa9c85bea7dec2f9ae4a0b65880eb9fe
+  pikuri-core (0.0.6)
+  pikuri-pdf (0.0.6)
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
   racc (1.8.1) sha256=4a7f6929691dbec8b5209a0b373bc2614882b55fc5d2e447a21aaa691303d62f
   rainbow (3.1.1) sha256=039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a
@@ -181,7 +192,7 @@ CHECKSUMS
   ttfunk (1.8.0) sha256=a7cbc7e489cc46e979dde04d34b5b9e4f5c8f1ee5fc6b1a7be39b829919d20ca
   tty-cursor (0.7.1) sha256=79534185e6a777888d88628b14b6a1fdf5154a603f285f80b1753e1908e0bf48
   tty-screen (0.8.2) sha256=c090652115beae764336c28802d633f204fb84da93c6a968aa5d8e319e819b50
-  tuile (0.5.0) sha256=c919a3c206fafc323d097d47fac3e3410240c60c3f9e3b28ceef18a1b8d33e7b
+  tuile (0.5.0)
   unicode-display_width (3.2.0) sha256=0cdd96b5681a5949cdbc2c55e7b420facae74c4aaf9a9815eee1087cb1853c42
   unicode-emoji (4.2.0) sha256=519e69150f75652e40bf736106cfbc8f0f73aa3fb6a65afe62fefa7f80b0f80f
   uri (1.1.1) sha256=379fa58d27ffb1387eaada68c749d1426738bd0f654d812fcc07e7568f5c57c6

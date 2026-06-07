@@ -157,7 +157,10 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   "N queued" count while the agent's `Control::Interloper` holds
   pending mid-turn injections, and renders the main agent's
   context-window snapshot off a
-  `Pikuri::Agent::Listener::TokenLog`.
+  `Pikuri::Agent::Listener::TokenLog`. Painted in the current
+  theme's `hint_color` (the footer is status-hint chrome), read at
+  paint time per Tuile's theming rule so OS light/dark appearance
+  flips restyle it.
 - `bin/pikuri-tui-chat` — boot script for the chat agent: configures
   `RubyLLM` for the local llama.cpp server, builds a streaming
   `Pikuri::Agent` wired with the web/calc tools (search, scrape,

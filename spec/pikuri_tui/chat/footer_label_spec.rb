@@ -120,4 +120,27 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
     event_queue.tick_once # no-op; would otherwise advance frame
     assert_equal '', label.text.to_s
   end
+
+  it 'paints in the current theme hint_color (footer text is status-hint chrome)' do
+    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    label.send(:refresh)
+    label.repaint
+    hint = Tuile::Screen.instance.theme.hint_color
+    refute_empty label.text.spans
+    assert(label.text.spans.all? { |span| span.style.fg == hint })
+  end
+
+  it 'restyles on the next repaint after a theme flip (theme read at paint time, not cached)' do
+    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    label.send(:refresh)
+    label.repaint # bakes the FakeScreen default (DARK) hint color in
+
+    Tuile::Screen.instance.theme = Tuile::Theme::LIGHT
+    label.repaint
+    assert(label.text.spans.all? { |span| span.style.fg == Tuile::Theme::LIGHT.hint_color })
+  end
+
+  it 'paints on the terminal-default background (no hardcoded bar)' do
+    assert_nil label.bg
+  end
 end
