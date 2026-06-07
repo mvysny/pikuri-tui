@@ -144,23 +144,28 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
     assert_equal '', label.text.to_s
   end
 
-  it 'paints in the current theme hint_color (footer text is status-hint chrome)' do
+  it 'bakes the current theme hint_color into the text (footer text is status-hint chrome)' do
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
     label.send(:refresh)
-    label.repaint
     hint = Tuile::Screen.instance.theme.hint_color
     refute_empty label.text.spans
     assert(label.text.spans.all? { |span| span.style.fg == hint })
   end
 
-  it 'restyles on the next repaint after a theme flip (theme read at paint time, not cached)' do
+  it 'restyles when on_theme_changed fires after a theme flip (baked color does not survive)' do
+    label # construct first: refresh bakes the FakeScreen default (DARK) hint color in
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
-    label.send(:refresh)
-    label.repaint # bakes the FakeScreen default (DARK) hint color in
 
     Tuile::Screen.instance.theme = Tuile::Theme::LIGHT
-    label.repaint
+    label.on_theme_changed # Screen#theme= fires this tree-wide; the label is detached here
     assert(label.text.spans.all? { |span| span.style.fg == Tuile::Theme::LIGHT.hint_color })
+  end
+
+  it 'keeps an assigned on_theme_changed listener firing (the override calls super)' do
+    fired = false
+    label.on_theme_changed = -> { fired = true }
+    label.on_theme_changed
+    assert fired
   end
 
   it 'paints on the terminal-default background (no hardcoded bar)' do

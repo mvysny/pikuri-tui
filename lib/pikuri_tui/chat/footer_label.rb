@@ -49,9 +49,11 @@ module PikuriTui
     # token status) is status-hint chrome, the same family as the
     # status bar's "^L logs" hints — on the terminal-default
     # background, matching Tuile's "tokens cover only accents;
-    # everything else inherits the terminal" strategy. Per Tuile's
-    # theming rule the color is read at paint time, never cached: see
-    # {#repaint}.
+    # everything else inherits the terminal" strategy. {#refresh}
+    # bakes the color in when it rebuilds the text, and
+    # {#on_theme_changed} re-runs it on OS light/dark appearance
+    # flips (+Tuile::Screen#theme=+ fires the hook tree-wide), so a
+    # baked-in color never survives a palette change.
     #
     # == Threading
     #
@@ -160,26 +162,18 @@ module PikuriTui
         refresh
       end
 
-      # Paints the footer, first overlaying the *current* theme's
-      # +hint_color+ onto the text.
-      #
-      # The theme must be read here, at paint time, not cached at
-      # construction: +Tuile::Screen#theme=+ (fired on OS light/dark
-      # appearance flips) restyles the UI by invalidating the whole
-      # tree, and a color baked in earlier would survive that repaint
-      # with the wrong palette. {#refresh} therefore writes plain text
-      # only; this override re-derives the styled variant on every
-      # paint.
-      #
-      # Convergent: +with_fg+ overlays every span uniformly, so once
-      # the theme is stable the assignment is a no-op (+text=+ compares
-      # first), and mid-pass the echo +invalidate+ from a real change
-      # is suppressed by the screen's repainting guard.
+      # Theme changed (+Tuile::Screen#theme=+, fired on OS light/dark
+      # appearance flips, dispatches this tree-wide): re-run {#refresh}
+      # so the text is re-baked in the *new* theme's +hint_color+ —
+      # the baked-in color is exactly the "content styled from the old
+      # theme" case this hook exists for. +super+ keeps any assigned
+      # +on_theme_changed=+ listener firing, per the base-class
+      # contract.
       #
       # @return [void]
-      def repaint
-        self.text = text.with_fg(@screen.theme.hint_color)
+      def on_theme_changed
         super
+        refresh
       end
 
       private
@@ -203,8 +197,9 @@ module PikuriTui
       end
 
       # Recompute the label text from the current spinner frame, the
-      # interloper's pending count, and the token log's status line.
-      # Must run on the UI thread.
+      # interloper's pending count, and the token log's status line,
+      # baked in the current theme's +hint_color+ (re-derived on theme
+      # flips by {#on_theme_changed}). Must run on the UI thread.
       #
       # @return [void]
       def refresh
@@ -214,7 +209,7 @@ module PikuriTui
         status = @token_log.status_line
         segments << status unless status.empty?
         tail = segments.join(' · ')
-        self.text =
+        plain =
           if @spinner_frame.nil?
             tail
           elsif tail.empty?
@@ -222,6 +217,7 @@ module PikuriTui
           else
             "#{@spinner_frame} #{tail}"
           end
+        self.text = Tuile::StyledString.plain(plain).with_fg(@screen.theme.hint_color)
       end
     end
   end

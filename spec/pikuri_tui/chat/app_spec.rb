@@ -107,6 +107,11 @@ RSpec.describe PikuriTui::Chat::App do
     assert_kind_of PikuriTui::Chat::FooterLabel, app.screen.pane.content.conversation.footer
   end
 
+  it 'sizes the footer wrap_content so the unused border stays drawn' do
+    app
+    assert_equal Tuile::Sizing::WRAP_CONTENT, app.screen.pane.content.conversation.footer_sizing
+  end
+
   it "hands the agent's interloper to the FooterLabel for the queued-count display" do
     footer = app.screen.pane.content.conversation.footer
     assert_same app.agent.interloper, footer.interloper
