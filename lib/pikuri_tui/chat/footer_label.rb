@@ -217,6 +217,9 @@ module PikuriTui
           else
             "#{@spinner_frame} #{tail}"
           end
+        # Pad non-empty text with a space on each side so it doesn't butt
+        # up against the border dashes the wrap-content footer sits in.
+        plain = " #{plain} " unless plain.empty?
         self.text = Tuile::StyledString.plain(plain).with_fg(@screen.theme.hint_color)
       end
     end

@@ -28,6 +28,12 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
     assert_includes label.text.to_s, 'msg #1: ctx=11.0k'
   end
 
+  it 'pads non-empty text with one space on each side (breathing room against the border)' do
+    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    label.send(:refresh)
+    assert_match(/\A \S.*\S \z/, label.text.to_s)
+  end
+
   it 'refreshes immediately when the TokenLog pushes a new status line (no tick needed)' do
     label # construct first so the on_status_line observer is installed
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
@@ -37,9 +43,9 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
   it 'keeps the current spinner glyph when a push lands between ticks' do
     label.start_animation
     event_queue.tick_once
-    glyph = label.text.to_s
+    glyph = label.text.to_s.strip
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
-    assert_equal "#{glyph} msg #1: ctx=11.0k  Δ+11.0k  ↑1.0k  ↓1.0k", label.text.to_s
+    assert_equal " #{glyph} msg #1: ctx=11.0k  Δ+11.0k  ↑1.0k  ↓1.0k ", label.text.to_s
   ensure
     label.stop_animation
   end
@@ -55,7 +61,7 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
     label.start_animation
     event_queue.tick_once
-    assert_match(/\A[#{described_class::SPINNER.join}] msg #1: ctx=11\.0k/, label.text.to_s)
+    assert_match(/\A [#{described_class::SPINNER.join}] msg #1: ctx=11\.0k/, label.text.to_s)
   ensure
     label.stop_animation
   end
@@ -64,7 +70,7 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
     label.start_animation
     described_class::SPINNER.each do |expected_glyph|
       event_queue.tick_once
-      assert_equal expected_glyph, label.text.to_s
+      assert_equal " #{expected_glyph} ", label.text.to_s
     end
   ensure
     label.stop_animation
@@ -75,14 +81,14 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
     label.start_animation
     event_queue.tick_once
     label.stop_animation
-    refute_match(/\A[#{described_class::SPINNER.join}]/, label.text.to_s)
+    refute_match(/[#{described_class::SPINNER.join}]/, label.text.to_s)
     assert_includes label.text.to_s, 'msg #1: ctx=11.0k'
   end
 
   it 'shows just the spinner (no token text) when running but TokenLog is still empty' do
     label.start_animation
     event_queue.tick_once
-    assert_match(/\A[#{described_class::SPINNER.join}]\z/, label.text.to_s)
+    assert_match(/\A [#{described_class::SPINNER.join}] \z/, label.text.to_s)
   ensure
     label.stop_animation
   end
@@ -93,7 +99,7 @@ RSpec.describe PikuriTui::Chat::FooterLabel do
     interloper.inject_user_message('hold this')
     label.start_animation
     event_queue.tick_once
-    assert_match(/\A[#{described_class::SPINNER.join}] 1 queued\z/, label.text.to_s)
+    assert_match(/\A [#{described_class::SPINNER.join}] 1 queued \z/, label.text.to_s)
   ensure
     label.stop_animation
   end
