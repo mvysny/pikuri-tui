@@ -223,7 +223,7 @@ Tuile::Screen.instance.theme_def = PikuriTui::AppTheme::THEME_DEF
 # the Agent's ListenerList see the same TokenLog instance.
 token_log = Pikuri::Agent::Listener::TokenLog.new
 
-app = PikuriTui::Code::App.new(token_log: token_log) do |listener, confirmer_popup, task_listener|
+app = PikuriTui::Code::App.new(token_log: token_log, project_root: workspace.project_root) do |listener, confirmer_popup, task_listener|
   # The Tuile modal confirmer for writes + bash, unless confirmations are
   # disabled (--no-confirm / --yolo), in which case approve everything.
   confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE

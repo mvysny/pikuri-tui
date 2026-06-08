@@ -95,6 +95,9 @@ module PikuriTui
       #   per-conversation token log whose +status_line+ feeds the footer.
       #   The host is responsible for wiring the same instance into the
       #   agent's +ListenerList+. Defaults to a fresh instance.
+      # @param project_root [Pathname, String] the workspace root shown
+      #   as the conversation window title. Defaults to the current
+      #   working directory.
       # @param markdown [Boolean] forwarded to {TuileListener}'s
       #   +markdown:+ flag (default +true+).
       # @param capture_mouse [Boolean] forwarded to
@@ -116,11 +119,12 @@ module PikuriTui
       #   +Pikuri::Tasks::Extension+ that emits the events it renders).
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given.
-      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, markdown: true, capture_mouse: true, &build_agent)
+      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, project_root: Dir.pwd, markdown: true, capture_mouse: true, &build_agent)
         raise LocalJumpError, 'Code::App requires a block that builds the Pikuri::Agent' unless block_given?
 
         @screen = Tuile::Screen.instance
         @token_log = token_log
+        @project_root = project_root
         @markdown = markdown
         @capture_mouse = capture_mouse
         @error_count = 0
@@ -168,7 +172,7 @@ module PikuriTui
         @conversation_view = Tuile::Component::TextView.new
         @conversation_view.auto_scroll = true
 
-        @conversation_window = Tuile::Component::Window.new('Conversation')
+        @conversation_window = Tuile::Component::Window.new(@project_root.to_s)
         @conversation_window.content = @conversation_view
         @conversation_window.scrollbar = true
         @footer_label = FooterLabel.new(screen: @screen, token_log: @token_log)
