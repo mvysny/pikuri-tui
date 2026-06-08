@@ -2,8 +2,9 @@
 
 RSpec.describe PikuriTui::Code::App do
   # Minimal +Pikuri::Agent+ stand-in — same shape as the chat spec's, but
-  # the Code::App build block yields TWO args (listener, confirmer), so
-  # StubAgent ignores the confirmer (the real agent's tools would take it).
+  # the Code::App build block yields THREE args (listener, confirmer,
+  # task_listener), so StubAgent ignores the confirmer and task listener
+  # (the real agent's tools / ListenerList would take them).
   class StubAgent
     attr_reader :cancellable, :interloper, :listener, :messages
 
@@ -27,9 +28,10 @@ RSpec.describe PikuriTui::Code::App do
   end
 
   let(:app) do
-    described_class.new do |listener, confirmer|
+    described_class.new do |listener, confirmer, task_listener|
       @listener = listener
       @confirmer = confirmer
+      @task_listener = task_listener
       StubAgent.new(listener)
     end
   end
@@ -37,11 +39,18 @@ RSpec.describe PikuriTui::Code::App do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  it 'mounts a Code::Layout as the screen content with conversation + input panes' do
+  it 'mounts a Code::Layout as the screen content with all four panes' do
     layout = app.screen.pane.content
     assert_kind_of PikuriTui::Code::Layout, layout
     assert_kind_of Tuile::Component::Window, layout.conversation
     assert_kind_of Tuile::Component::Window, layout.input
+    assert_kind_of Tuile::Component::Window, layout.tasks
+    assert_kind_of Tuile::Component::Window, layout.git
+  end
+
+  it 'hands the TaskListener to the build block as the third arg' do
+    app # force construction
+    assert_kind_of PikuriTui::Code::TaskListener, @task_listener
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do

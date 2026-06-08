@@ -223,7 +223,7 @@ Tuile::Screen.instance.theme_def = PikuriTui::AppTheme::THEME_DEF
 # the Agent's ListenerList see the same TokenLog instance.
 token_log = Pikuri::Agent::Listener::TokenLog.new
 
-app = PikuriTui::Code::App.new(token_log: token_log) do |listener, confirmer_popup|
+app = PikuriTui::Code::App.new(token_log: token_log) do |listener, confirmer_popup, task_listener|
   # The Tuile modal confirmer for writes + bash, unless confirmations are
   # disabled (--no-confirm / --yolo), in which case approve everything.
   confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE
@@ -256,6 +256,10 @@ app = PikuriTui::Code::App.new(token_log: token_log) do |listener, confirmer_pop
   ) do |c|
     c.add_listener rate_limited_listener
     c.add_listener token_log
+    # Renders the Pikuri::Tasks::Extension list into the sidebar task
+    # pane. Not rate-limited — task mutations are rare and each snapshot
+    # is authoritative.
+    c.add_listener task_listener
     # File/shell tools first (declaration order biases some models toward
     # earlier tools); calculator last as auxiliary. Network tools go on
     # the sub-agent-only pool so untrusted web content lands in a child

@@ -64,6 +64,15 @@ module PikuriTui
       #   it through the {TuileListener}.
       attr_reader :conversation_view
 
+      # @return [Tuile::Component::TextView] the sidebar task-list pane.
+      #   Exposed for tests; production code reaches it through the
+      #   {TaskListener}.
+      attr_reader :tasks_view
+
+      # @return [TaskListener] the task-pane listener handed to the build
+      #   block; the host wires it into the agent's +ListenerList+.
+      attr_reader :task_listener
+
       # @return [Tuile::Component::LogWindow] the eager-constructed
       #   diagnostic window.
       attr_reader :log_window
@@ -85,16 +94,21 @@ module PikuriTui
       #   +markdown:+ flag (default +true+).
       # @param capture_mouse [Boolean] forwarded to
       #   {Tuile::Screen#run_event_loop} (default +true+).
-      # @yield [listener, confirmer] one-shot factory invoked exactly once
-      #   during construction. Receives the {TuileListener} bound to this
-      #   app's conversation pane and the {ConfirmerPopup}; must return a
-      #   constructed +Pikuri::Agent+ whose +ListenerList+ includes that
-      #   listener and the +token_log+ exposed at {#token_log}, with the
-      #   confirmer wired into its write/bash tools.
+      # @yield [listener, confirmer, task_listener] one-shot factory
+      #   invoked exactly once during construction. Receives the
+      #   {TuileListener} bound to this app's conversation pane, the
+      #   {ConfirmerPopup}, and the {TaskListener} bound to the sidebar
+      #   task pane; must return a constructed +Pikuri::Agent+ whose
+      #   +ListenerList+ includes both listeners and the +token_log+
+      #   exposed at {#token_log}, with the confirmer wired into its
+      #   write/bash tools.
       # @yieldparam listener [TuileListener] the conversation-pane
       #   listener; include it in the agent's +ListenerList+.
       # @yieldparam confirmer [ConfirmerPopup] the modal confirmer; pass
       #   it to the +Write+ / +Pikuri::Code::Bash+ tools.
+      # @yieldparam task_listener [TaskListener] the task-pane listener;
+      #   include it in the agent's +ListenerList+ (alongside the
+      #   +Pikuri::Tasks::Extension+ that emits the events it renders).
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given.
       def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, markdown: true, capture_mouse: true, &build_agent)
@@ -109,7 +123,7 @@ module PikuriTui
 
         build_components
         wire_logging
-        @agent = build_agent.call(@listener, @confirmer)
+        @agent = build_agent.call(@listener, @confirmer, @task_listener)
         # The footer renders a "N queued" segment off the interloper's
         # +peek+ while mid-turn injections are pending. Installed here
         # (rather than at FooterLabel construction) because the agent —
@@ -159,12 +173,30 @@ module PikuriTui
         @input_window = Tuile::Component::Window.new('You')
         @input_window.content = @input
 
+        # Sidebar top: the agent's task list, fed by the TaskListener off
+        # the Pikuri::Tasks::ListChanged stream.
+        @tasks_view = Tuile::Component::TextView.new
+        @tasks_window = Tuile::Component::Window.new('Tasks')
+        @tasks_window.content = @tasks_view
+        @tasks_window.scrollbar = true
+
+        # Sidebar bottom: the git-diff pane. Empty for now — a later
+        # session fills its content; the window exists so the layout is
+        # real from the start.
+        @git_view = Tuile::Component::TextView.new
+        @git_window = Tuile::Component::Window.new('Git diff')
+        @git_window.content = @git_view
+        @git_window.scrollbar = true
+
         @listener = TuileListener.new(text_view: @conversation_view, screen: @screen, markdown: @markdown)
         @confirmer = ConfirmerPopup.new(screen: @screen)
+        @task_listener = TaskListener.new(text_view: @tasks_view, screen: @screen)
 
         @layout = Layout.new(
           conversation: @conversation_window,
-          input: @input_window
+          input: @input_window,
+          tasks: @tasks_window,
+          git: @git_window
         )
       end
 

@@ -198,12 +198,32 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   rationale for the parallel `Code::*` copies.
 - `lib/pikuri_tui/code/app.rb` — `PikuriTui::Code::App`, the Tuile
   shell for `bin/pikuri-tui-code`. A parallel copy of `Chat::App`
-  that additionally owns a `Code::ConfirmerPopup` and yields it to
-  the build block alongside the listener.
-- `lib/pikuri_tui/code/layout.rb` / `code/input.rb` /
-  `code/footer_label.rb` — parallel copies of the `Chat::`
-  equivalents (vertical-split layout, Enter-submits input, footer
-  spinner + queued-count + token status).
+  that additionally owns a `Code::ConfirmerPopup`, the sidebar task
+  + git windows, and a `Code::TaskListener`, and yields the
+  confirmer and the task listener to the build block alongside the
+  conversation listener.
+- `lib/pikuri_tui/code/layout.rb` — `PikuriTui::Code::Layout`, the
+  coding shell's dual-pane root layout: a 60/40 width split with the
+  conversation pane over a fixed-height input strip on the left and
+  a full-height sidebar (a fixed `TASK_HEIGHT` task window over the
+  git-diff window) on the right. Collapses the sidebar to zero width
+  on terminals too narrow to read it. Diverges from `Chat::Layout`'s
+  simple top/bottom split (the coding shell duplicates rather than
+  shares — see `code.rb`).
+- `lib/pikuri_tui/code/task_listener.rb` —
+  `PikuriTui::Code::TaskListener`, a `Pikuri::Agent::Listener::Base`
+  subclass that renders the agent's task list into the sidebar task
+  window. Consumes the `Pikuri::Tasks::ListChanged` events
+  `Pikuri::Tasks::Extension` emits after every mutation (each
+  carries a frozen, cross-thread-safe `items` snapshot), rewriting
+  the `TextView` last-wins with a status glyph per item toned via
+  `AppTheme` (`:notice` for `in_progress`, `:detail` for
+  `completed`). The companion to `TuileListener`: same
+  worker-thread-to-UI-thread marshaling, a much smaller slice of the
+  event stream. Not rate-limited (task mutations are rare).
+- `lib/pikuri_tui/code/input.rb` / `code/footer_label.rb` —
+  parallel copies of the `Chat::` equivalents (Enter-submits input,
+  footer spinner + queued-count + token status).
 - `lib/pikuri_tui/code/confirmer_popup.rb` —
   `PikuriTui::Code::ConfirmerPopup`, a `Pikuri::Workspace::Confirmer`
   rendered as a modal Tuile popup instead of stdin. `confirm?` is
@@ -230,8 +250,11 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   (the `Write` / `Bash` tools taking the `Code::ConfirmerPopup` the
   `App` yields, or `AUTO_APPROVE` under `--no-confirm`/`--yolo`),
   sub-agent-only network tools, and the skill / task / MCP /
-  sub-agent extensions. Hands it to `PikuriTui::Code::App`. Ports
-  pikuri's own `bin/pikuri-code` demo onto the Tuile shell.
+  sub-agent extensions. Wires the `App`-yielded `Code::TaskListener`
+  into the agent's `ListenerList` so the `Pikuri::Tasks::Extension`
+  list mutations reach the sidebar task pane. Hands it to
+  `PikuriTui::Code::App`. Ports pikuri's own `bin/pikuri-code` demo
+  onto the Tuile shell.
 - `bin/setup` — `bundle install` wrapper.
 - `bin/install` / `bin/uninstall` — symlink `bin/pikuri-tui-chat`
   and `bin/pikuri-tui-code` into `$PREFIX` (default `~/.local/bin`)
