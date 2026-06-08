@@ -80,13 +80,15 @@ module PikuriTui
     # The custom tokens tuned for light terminal backgrounds: the bright
     # named accents are swapped for darker palette siblings (yellow in
     # particular is illegible on white), and the gray tones step darker so
-    # they read against a light "paper" background.
+    # they read against a light "paper" background — +:thinking+ kept a
+    # touch lighter than +:detail+ so reasoning reads as muted secondary
+    # text without disappearing.
     # @return [Hash{Symbol => Tuile::Color}]
     LIGHT_CUSTOM = {
       tool:     Tuile::Color::DARK_CYAN,
       notice:   Tuile::Color::DARK_ORANGE3,
       error:    Tuile::Color::RED3,
-      thinking: Tuile::Color::GREY35,
+      thinking: Tuile::Color::GREY46,
       detail:   Tuile::Color::GREY35
     }.freeze
 
