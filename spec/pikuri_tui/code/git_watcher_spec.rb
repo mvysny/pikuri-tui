@@ -68,6 +68,34 @@ RSpec.describe PikuriTui::Code::GitWatcher do
     end
   end
 
+  describe 'the summary status colors' do
+    let(:theme) { Tuile::Screen.instance.theme }
+
+    # The label "XY path" is one styled span (uniform color); the +/- count
+    # markers are separate spans. Find the span carrying the path.
+    def label_color(substr)
+      summary_view.text.spans.find { |span| span.text.include?(substr) }&.style&.fg
+    end
+
+    it 'tones new files green' do
+      write('fresh.txt', "x\n")
+      watcher.poll_once
+      assert_equal theme[:added], label_color('fresh.txt')
+    end
+
+    it 'tones deleted files red' do
+      File.delete(File.join(@repo, 'tracked.txt'))
+      watcher.poll_once
+      assert_equal theme[:removed], label_color('tracked.txt')
+    end
+
+    it 'tones modified files yellow' do
+      write('tracked.txt', "l1\nCHANGED\nl3\n")
+      watcher.poll_once
+      assert_equal theme[:notice], label_color('tracked.txt')
+    end
+  end
+
   describe 'the full diff pane' do
     it 'renders the hunk for a modified tracked file' do
       write('tracked.txt', "l1\nCHANGED\nl3\n")

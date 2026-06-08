@@ -225,9 +225,10 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 - `lib/pikuri_tui/code/git_watcher.rb` —
   `PikuriTui::Code::GitWatcher`, the background poller feeding two views:
   a compact change summary in the sidebar (one `XY path  +N -N` line per
-  changed file, from `git status --porcelain` + `--numstat`, the `+N`/`-N`
-  toned via `AppTheme`'s `:added`/`:removed`) and the full colored diff in
-  the `GitDiffPopup`. Polls on its own thread every `POLL_INTERVAL`
+  changed file, from `git status --porcelain` + `--numstat`; each file's
+  label toned by kind via `AppTheme` — new green, deleted red, modified
+  yellow — and its `+N`/`-N` markers green/red) and the full colored diff
+  in the `GitDiffPopup`. Polls on its own thread every `POLL_INTERVAL`
   seconds and, only when the capture changes, rewrites both `TextView`s
   (marshaled onto the UI thread). The diff is `git diff HEAD` (tracked,
   staged + unstaged) plus each untracked file diffed against `/dev/null`

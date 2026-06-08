@@ -44,7 +44,9 @@ module PikuriTui
     # reverse-video whitespace-error highlight), {#render_diff} logs and
     # falls back to ANSI-stripped plain text rather than tearing down the
     # screen — the "library breakage is logged, we degrade" rule from
-    # CLAUDE.md. The summary's +/- markers are colored by us via {AppTheme}.
+    # CLAUDE.md. The summary's coloring is ours via {AppTheme}: each file's
+    # label is toned by change kind (new green, deleted red, modified
+    # yellow — see {#colorize_label}) and its +/- markers green/red.
     #
     # == Threading
     #
@@ -259,8 +261,28 @@ module PikuriTui
         markers = []
         markers << @screen.theme.added("+#{added}") if added.positive?
         markers << @screen.theme.removed("-#{deleted}") if deleted.positive?
-        line = "#{entry.code} #{entry.path}"
-        markers.empty? ? line : "#{line}  #{markers.join(' ')}"
+        label = colorize_label("#{entry.code} #{entry.path}", entry.code)
+        markers.empty? ? label : "#{label}  #{markers.join(' ')}"
+      end
+
+      # Tones a summary line's +"XY path"+ label by change kind so the list
+      # scans at a glance: new files green (+:added+), deletions red
+      # (+:removed+), modifications yellow (+:notice+). The two-letter
+      # porcelain code drives the choice — a +D+ in either column is a
+      # deletion, an +A+ or the untracked +??+ is new, everything else
+      # (+M+, +MM+, …) is a modification.
+      #
+      # @param label [String] the +"XY path"+ text to color.
+      # @param code [String] the two-letter porcelain status code.
+      # @return [String]
+      def colorize_label(label, code)
+        if code.include?('D')
+          @screen.theme.removed(label)
+        elsif code == UNTRACKED_CODE || code.include?('A')
+          @screen.theme.added(label)
+        else
+          @screen.theme.notice(label)
+        end
       end
 
       # @return [Hash{String => Array(Integer, Integer)}] tracked path =>
