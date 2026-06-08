@@ -154,6 +154,18 @@ RSpec.describe PikuriTui::Code::App do
     refute_includes status_bar_text, '⚠'
   end
 
+  it 'opens the git diff popup on Ctrl+G' do
+    popup = app.instance_variable_get(:@git_diff_popup)
+    refute popup.open?
+    app.screen.send(:handle_key, Tuile::Keys::CTRL_G)
+    assert popup.open?, 'Ctrl+G should open the git diff popup'
+  end
+
+  it 'advertises the ^G diff hint in the status bar' do
+    app
+    assert_includes status_bar_text, '^G'
+  end
+
   it 'mounts a FooterLabel as the conversation Window footer' do
     app
     assert_kind_of PikuriTui::Code::FooterLabel, app.screen.pane.content.conversation.footer

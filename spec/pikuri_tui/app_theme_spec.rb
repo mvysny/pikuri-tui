@@ -14,7 +14,7 @@ RSpec.describe PikuriTui::AppTheme do
     end
 
     it 'carries exactly the tokens the app paints' do
-      assert_equal %i[detail error notice thinking tool user],
+      assert_equal %i[added detail error notice removed thinking tool user],
                    described_class::DARK.custom.keys.sort
     end
 
@@ -28,7 +28,8 @@ RSpec.describe PikuriTui::AppTheme do
     let(:theme) { described_class::DARK }
 
     it 'wraps text in the matching custom token foreground, ending with a reset' do
-      { tool: :tool, notice: :notice, error: :error, detail: :detail, user: :user }.each do |helper, token|
+      { tool: :tool, notice: :notice, error: :error, detail: :detail, user: :user,
+        added: :added, removed: :removed }.each do |helper, token|
         out = theme.public_send(helper, 'x')
         assert_equal "#{theme[token].to_ansi(:fg)}x#{Tuile::Ansi::RESET}", out
       end

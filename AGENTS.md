@@ -105,7 +105,7 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 - `lib/pikuri_tui/app_theme.rb` — `PikuriTui::AppTheme`, a
   `Tuile::Theme` subclass carrying the app's own color tokens
   (`:tool` / `:notice` / `:error` / `:thinking` / `:detail` /
-  `:user`) on top
+  `:user` / `:added` / `:removed`) on top
   of the built-in accents, with one coloring helper per token, plus
   `DARK` / `LIGHT` and the `THEME_DEF` pair the bins install via
   `screen.theme_def=` (and `spec_helper` via `ThemeDef.default=`).
@@ -199,14 +199,15 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 - `lib/pikuri_tui/code/app.rb` — `PikuriTui::Code::App`, the Tuile
   shell for `bin/pikuri-tui-code`. A parallel copy of `Chat::App`
   that additionally owns a `Code::ConfirmerPopup`, the sidebar task
-  + git windows, and a `Code::TaskListener`, and yields the
-  confirmer and the task listener to the build block alongside the
-  conversation listener.
+  + git-change-summary windows, the `Code::GitDiffPopup` (full diff on
+  `Ctrl+G`) + its `Code::GitWatcher`, and a `Code::TaskListener`, and
+  yields the confirmer and the task listener to the build block
+  alongside the conversation listener.
 - `lib/pikuri_tui/code/layout.rb` — `PikuriTui::Code::Layout`, the
   coding shell's dual-pane root layout: a 60/40 width split with the
   conversation pane over a fixed-height input strip on the left and
   a full-height sidebar (a fixed `TASK_HEIGHT` task window over the
-  git-diff window) on the right. Collapses the sidebar to zero width
+  git change-summary window) on the right. Collapses the sidebar to zero width
   on terminals too narrow to read it. Diverges from `Chat::Layout`'s
   simple top/bottom split (the coding shell duplicates rather than
   shares — see `code.rb`).
@@ -221,6 +222,27 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `completed`). The companion to `TuileListener`: same
   worker-thread-to-UI-thread marshaling, a much smaller slice of the
   event stream. Not rate-limited (task mutations are rare).
+- `lib/pikuri_tui/code/git_watcher.rb` —
+  `PikuriTui::Code::GitWatcher`, the background poller feeding two views:
+  a compact change summary in the sidebar (one `XY path  +N -N` line per
+  changed file, from `git status --porcelain` + `--numstat`, the `+N`/`-N`
+  toned via `AppTheme`'s `:added`/`:removed`) and the full colored diff in
+  the `GitDiffPopup`. Polls on its own thread every `POLL_INTERVAL`
+  seconds and, only when the capture changes, rewrites both `TextView`s
+  (marshaled onto the UI thread). The diff is `git diff HEAD` (tracked,
+  staged + unstaged) plus each untracked file diffed against `/dev/null`
+  with `diff --no-index` (a synthetic "new file" diff — surfacing
+  brand-new files without `git add -N` mutating the index). Not a listener
+  — the working tree changes without an agent event to subscribe to. git's
+  forced ANSI coloring carries through `TextView`'s `StyledString.parse`;
+  an unsupported SGR code degrades to ANSI-stripped plain text.
+  Started/stopped by `App#run`.
+- `lib/pikuri_tui/code/git_diff_popup.rb` —
+  `PikuriTui::Code::GitDiffPopup`, the `Tuile::Component::Popup` wrapping
+  the long-lived "Git diff" window (the full, colored, scrollable diff
+  `GitWatcher` keeps current). Opened near-fullscreen on `Ctrl+G`;
+  overrides `max_height` to the screen height so the base 12-row cap
+  doesn't crop the diff. Same eager-window/reopen pattern as `LogPopup`.
 - `lib/pikuri_tui/code/input.rb` / `code/footer_label.rb` —
   parallel copies of the `Chat::` equivalents (Enter-submits input,
   footer spinner + queued-count + token status).

@@ -73,6 +73,11 @@ module PikuriTui
       #   block; the host wires it into the agent's +ListenerList+.
       attr_reader :task_listener
 
+      # @return [GitWatcher] the background poller that keeps the sidebar
+      #   change summary and the {GitDiffPopup} diff current; started/stopped
+      #   by {#run}. Exposed for tests.
+      attr_reader :git_watcher
+
       # @return [Tuile::Component::LogWindow] the eager-constructed
       #   diagnostic window.
       attr_reader :log_window
@@ -138,15 +143,18 @@ module PikuriTui
       end
 
       # Runs the Tuile event loop, blocking the calling thread until the
-      # user quits or the loop is otherwise stopped. The +ensure+ pairs
-      # +run_event_loop+ with +Tuile::Screen#close+ so the terminal is
-      # cleared and the screen singleton is unset regardless of how the
-      # loop exits.
+      # user quits or the loop is otherwise stopped. Starts the
+      # {GitWatcher}'s background poll before the loop and stops it in the
+      # +ensure+, which also pairs +run_event_loop+ with
+      # +Tuile::Screen#close+ so the terminal is cleared and the screen
+      # singleton is unset regardless of how the loop exits.
       #
       # @return [void]
       def run
+        @git_watcher.start
         @screen.run_event_loop(capture_mouse: @capture_mouse)
       ensure
+        @git_watcher.stop
         @screen.close
       end
 
@@ -180,17 +188,31 @@ module PikuriTui
         @tasks_window.content = @tasks_view
         @tasks_window.scrollbar = true
 
-        # Sidebar bottom: the git-diff pane. Empty for now — a later
-        # session fills its content; the window exists so the layout is
-        # real from the start.
-        @git_view = Tuile::Component::TextView.new
-        @git_window = Tuile::Component::Window.new('Git diff')
-        @git_window.content = @git_view
+        # Sidebar bottom: the change summary (one "XY path +N -N" line per
+        # changed file), kept current by a {GitWatcher} polling git off the
+        # UI thread (started in {#run}). The window exists from the start so
+        # the layout is real before the first poll lands.
+        @git_summary_view = Tuile::Component::TextView.new
+        @git_window = Tuile::Component::Window.new('Changes')
+        @git_window.content = @git_summary_view
         @git_window.scrollbar = true
+
+        # The full colored diff is too wide for the sidebar, so it lives in a
+        # near-fullscreen popup opened on Ctrl+G. Built eagerly (like the
+        # diagnostic LogWindow) so the watcher can write the latest diff into
+        # it every poll whether or not the popup is currently shown.
+        @git_diff_view = Tuile::Component::TextView.new
+        @git_diff_window = Tuile::Component::Window.new('Git diff')
+        @git_diff_window.content = @git_diff_view
+        @git_diff_window.scrollbar = true
+        @git_diff_popup = GitDiffPopup.new(diff_window: @git_diff_window)
 
         @listener = TuileListener.new(text_view: @conversation_view, screen: @screen, markdown: @markdown)
         @confirmer = ConfirmerPopup.new(screen: @screen)
         @task_listener = TaskListener.new(text_view: @tasks_view, screen: @screen)
+        @git_watcher = GitWatcher.new(
+          summary_view: @git_summary_view, diff_view: @git_diff_view, screen: @screen
+        )
 
         @layout = Layout.new(
           conversation: @conversation_window,
@@ -205,6 +227,9 @@ module PikuriTui
       # {Input} swallow them, and both surface a hint in the status bar.
       #
       # - +Ctrl+L+ opens the log popup (suppressed while a popup is open).
+      # - +Ctrl+G+ opens the {GitDiffPopup} with the full colored diff. Like
+      #   Ctrl+L it registers +over_popups: false+, so it never stacks a
+      #   second popup over an open one.
       # - +Ctrl+C+ runs the {#on_interrupt} escalation (cancel turn ->
       #   unfocus -> quit). Also +over_popups: false+: a popup means the
       #   user isn't interacting with the LLM, so Ctrl+C is the popup's
@@ -216,6 +241,10 @@ module PikuriTui
       # @return [void]
       def register_shortcuts
         install_log_shortcut
+        @screen.register_global_shortcut(
+          Tuile::Keys::CTRL_G,
+          hint: "^G #{@screen.theme.hint('diff')}"
+        ) { open_git_diff_popup }
         @screen.register_global_shortcut(
           Tuile::Keys::CTRL_C,
           hint: "^C #{@screen.theme.error('cancel')}"
@@ -327,6 +356,17 @@ module PikuriTui
         return if @log_popup.open?
 
         @log_popup.open
+      end
+
+      # Opens the {GitDiffPopup} with the latest full diff (already kept
+      # current by {GitWatcher}). A no-op if it is already open. Runs on the
+      # event-loop thread (global-shortcut dispatch).
+      #
+      # @return [void]
+      def open_git_diff_popup
+        return if @git_diff_popup.open?
+
+        @git_diff_popup.open
       end
 
       # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven

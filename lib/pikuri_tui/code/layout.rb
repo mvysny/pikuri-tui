@@ -10,7 +10,7 @@ module PikuriTui
     #
     #   +-- conversation -----+-- tasks ----+
     #   |                     +-------------+
-    #   |                     |   git diff  |
+    #   |                     |  changes    |
     #   +-- input ------------+             |
     #   |                     |             |
     #   +---------------------+-------------+
@@ -19,15 +19,16 @@ module PikuriTui
     # is the conversation pane over a fixed-height input strip (the same
     # stacking {Chat::Layout} uses, but only as wide as the left column);
     # the right column is the full-height sidebar, a fixed {TASK_HEIGHT}
-    # task window over the (currently empty) git-diff window. A parallel
-    # copy / extension of {Chat::Layout} (see {Code} for why the coding
-    # shell duplicates rather than shares).
+    # task window over the git change-summary window (the full diff is a
+    # Ctrl+G popup, not part of this layout). A parallel copy / extension of
+    # {Chat::Layout} (see {Code} for why the coding shell duplicates rather
+    # than shares).
     #
-    # Layout only — global keybindings (Ctrl+L, Ctrl+C) are installed by
-    # {App} via {Tuile::Screen#register_global_shortcut}, which bypasses
+    # Layout only — global keybindings (Ctrl+L, Ctrl+G, Ctrl+C) are installed
+    # by {App} via {Tuile::Screen#register_global_shortcut}, which bypasses
     # the cursor-owner suppression that would otherwise let the focused
-    # {Tuile::Component::TextArea} swallow them. The confirmation popup is
-    # a modal overlay, not part of this layout.
+    # {Tuile::Component::TextArea} swallow them. The confirmation and git-diff
+    # popups are modal overlays, not part of this layout.
     class Layout < Tuile::Component::Layout
       # Number of rows the bottom input pane occupies: 3 lines of editable
       # text + 2 rows of {Tuile::Component::Window} frame.
@@ -37,7 +38,7 @@ module PikuriTui
 
       # Number of rows the task window (top of the sidebar) occupies: ~4
       # task lines + 2 rows of {Tuile::Component::Window} frame. The
-      # git-diff window below it takes whatever sidebar rows remain.
+      # git change-summary window below it takes whatever sidebar rows remain.
       #
       # @return [Integer]
       TASK_HEIGHT = 6
@@ -69,9 +70,9 @@ module PikuriTui
       #   (bottom-left). Same lifecycle as +conversation+.
       # @param tasks [Tuile::Component::Window] the framed task-list pane
       #   (top of the sidebar). Same lifecycle.
-      # @param git [Tuile::Component::Window] the framed git-diff pane
-      #   (rest of the sidebar; empty until a later session fills it).
-      #   Same lifecycle.
+      # @param git [Tuile::Component::Window] the framed git change-summary
+      #   pane (rest of the sidebar), kept current by {GitWatcher}. Same
+      #   lifecycle.
       def initialize(conversation:, input:, tasks:, git:)
         super()
         @conversation = conversation
@@ -101,7 +102,7 @@ module PikuriTui
       # column ({#sidebar_width}); the conversation column stacks the
       # conversation pane over a fixed {INPUT_HEIGHT} input strip; the
       # sidebar column stacks a fixed {TASK_HEIGHT} task pane over the
-      # git-diff pane. When the terminal is too narrow for a readable
+      # git change-summary pane. When the terminal is too narrow for a readable
       # sidebar, {#sidebar_width} returns +0+ and the sidebar windows take
       # empty rects ({Tuile::Component} treats a zero-area rect as
       # invisible), leaving the conversation column full width.
