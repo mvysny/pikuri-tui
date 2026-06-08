@@ -88,6 +88,45 @@ RSpec.describe PikuriTui::Code::App do
     assert_includes status_bar_text, '^C cancel'
   end
 
+  it 'cancels the in-flight turn when Ctrl+C arrives mid-turn' do
+    agent = app.agent
+    agent.block_turns!
+    app.send(:submit_message, 'work')
+    wait_until { agent.messages.size == 1 }
+
+    press_ctrl_c
+    assert agent.cancellable.cancelled?
+  ensure
+    agent.finish_turn!
+    wait_until { !app.instance_variable_get(:@turn_in_progress) }
+  end
+
+  it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
+    app
+    assert_kind_of PikuriTui::Code::Input, app.screen.focused
+    press_ctrl_c
+    assert_nil app.screen.focused
+  end
+
+  it 'stops the event loop on Ctrl+C when idle and nothing is focused (second press)' do
+    app
+    app.screen.focused = nil
+    stopped = spy_on_stop
+    press_ctrl_c
+    assert stopped.call, 'expected the event loop to be stopped'
+  end
+
+  it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
+    app
+    app.instance_variable_get(:@log_popup).open
+    stopped = spy_on_stop
+
+    press_ctrl_c
+
+    assert app.instance_variable_get(:@log_popup).open?, 'popup should stay open'
+    refute stopped.call, 'the event loop must not stop while a popup is open'
+  end
+
   it 'shows "^L ⚠ logs (N)" when an error is logged through Tuile.logger' do
     app
     Tuile.logger.error('boom')
@@ -217,6 +256,22 @@ RSpec.describe PikuriTui::Code::App do
 
   def status_bar_text
     app.screen.pane.status_bar.text.to_s
+  end
+
+  # Dispatch Ctrl+C through the screen's real key handler (private in the
+  # release gem) so the test exercises the full chain: global-shortcut
+  # lookup, the +over_popups: false+ gate, then {Code::App#on_interrupt}.
+  def press_ctrl_c
+    app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+  end
+
+  # Replaces the (no-op) FakeEventQueue#stop with a recorder and returns a
+  # callable that reports whether it has fired — the only observable effect
+  # of the quit branch, since the fake queue runs no loop to actually stop.
+  def spy_on_stop
+    stopped = false
+    app.screen.event_queue.define_singleton_method(:stop) { stopped = true }
+    -> { stopped }
   end
 
   def wait_until(timeout: 2)

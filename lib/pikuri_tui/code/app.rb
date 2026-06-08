@@ -205,18 +205,21 @@ module PikuriTui
       # {Input} swallow them, and both surface a hint in the status bar.
       #
       # - +Ctrl+L+ opens the log popup (suppressed while a popup is open).
-      # - +Ctrl+C+ cancels the in-flight agent turn (+over_popups: true+
-      #   so "stop what you're doing" works even with a popup open — and
-      #   it lets the user bail out of a confirmation prompt's turn).
+      # - +Ctrl+C+ runs the {#on_interrupt} escalation (cancel turn ->
+      #   unfocus -> quit). Also +over_popups: false+: a popup means the
+      #   user isn't interacting with the LLM, so Ctrl+C is the popup's
+      #   business, not ours. The trade-off is that you can't cancel a
+      #   running turn while the log popup happens to be open — close it
+      #   (ESC/q) first — and that a {ConfirmerPopup} is dismissed by
+      #   declining (ESC/q), not by Ctrl+C.
       #
       # @return [void]
       def register_shortcuts
         install_log_shortcut
         @screen.register_global_shortcut(
           Tuile::Keys::CTRL_C,
-          over_popups: true,
           hint: "^C #{@screen.theme.error('cancel')}"
-        ) { cancel_turn }
+        ) { on_interrupt }
       end
 
       # (Re-)registers the +Ctrl+L+ global shortcut with a status-bar hint
@@ -326,11 +329,39 @@ module PikuriTui
         @log_popup.open
       end
 
+      # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven
+      # explicitly because a global shortcut fires before the pane and so
+      # never "falls through" to the loop's unhandled-key quit the way ESC
+      # does. Three states, in priority order:
+      #
+      # 1. A turn is running -> cancel it (the historical behavior). The
+      #    {TuileListener} renders the +Cancelled+ event; the worker's
+      #    +ensure+ clears {@turn_in_progress}.
+      # 2. Nothing running but something is focused (normally the {Input})
+      #    -> drop focus, the same visible effect as ESC on the input.
+      # 3. Nothing running and nothing focused -> stop the event loop, which
+      #    unwinds {#run} into +Screen#close+. This is exactly what an
+      #    unhandled ESC does (+EventQueue#stop+).
+      #
+      # Registered +over_popups: false+, so this never runs while a popup is
+      # open — no need to guard the unfocus/quit steps against orphaning a
+      # modal popup's focus or quitting out from under it. In particular a
+      # {ConfirmerPopup} (always open mid-turn) is dismissed by declining
+      # (ESC/q), not by Ctrl+C.
+      #
+      # Runs on the UI thread (global-shortcut blocks dispatch from the event
+      # loop), so touching +focused=+ / +event_queue.stop+ and reading
+      # {@turn_in_progress} are all safe.
+      #
       # @return [void]
-      def cancel_turn
-        return unless @turn_in_progress
-
-        @agent.cancellable&.cancel!
+      def on_interrupt
+        if @turn_in_progress
+          @agent.cancellable&.cancel!
+        elsif @screen.focused
+          @screen.focused = nil
+        else
+          @screen.event_queue.stop
+        end
       end
 
       # Called by {CountingLogIO} on every error-class log write. The
