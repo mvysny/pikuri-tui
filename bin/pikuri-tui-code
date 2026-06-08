@@ -241,9 +241,9 @@ interloper = Pikuri::Agent::Control::Interloper.new
 # layer where Pikuri::* references are allowed (see Config's class header).
 mcp_entries = config.mcp.map do |m|
   if m.stdio?
-    Pikuri::Mcp::Registry::StdioEntry.new(id: m.id, command: m.command)
+    Pikuri::Mcp::Registry::StdioEntry.new(id: m.id, command: m.command, env: m.env)
   else
-    Pikuri::Mcp::Registry::HttpEntry.new(id: m.id, url: m.url)
+    Pikuri::Mcp::Registry::HttpEntry.new(id: m.id, url: m.url, headers: m.headers)
   end
 end
 mcp_registry = Pikuri::Mcp::Registry.new(entries: mcp_entries)

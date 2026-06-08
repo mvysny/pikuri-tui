@@ -126,7 +126,12 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   surface as plain `Config::McpServer` value objects whose field
   names match `Pikuri::Mcp::Registry`'s entries 1:1, and the coding
   bin does the trivial pass-through into `Registry::StdioEntry` /
-  `HttpEntry`. An LLM API key is stored **literally** in `[[llm]]`'s
+  `HttpEntry`. HTTP MCP auth rides `HttpEntry`'s `headers`: an entry's
+  `bearer_token` / `basic_auth` (username+password) conveniences are
+  folded into the `headers` hash at load time alongside any raw custom
+  `headers`. A stdio entry's `env` table passes straight through to
+  `StdioEntry`'s `env` (subprocess environment overrides). An LLM API
+  key is stored **literally** in `[[llm]]`'s
   `api_key` (never an env var name, never a CLI flag, and with no
   project-local config layer): the environment is inherited by every
   subprocess pikuri spawns — sandboxed bash, stdio MCP — so a key

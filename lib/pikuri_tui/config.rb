@@ -34,10 +34,13 @@ module PikuriTui
   # whose +Bundler.setup(:default)+ never puts +pikuri-mcp+ on the load
   # path. So {Config} stays free of every +Pikuri::*+ reference: MCP
   # servers surface as plain {McpServer} value objects whose field names
-  # ({McpServer#id} / +command+ / +url+) match +Pikuri::Mcp::Registry+'s
-  # entries 1:1, and the coding bin does the trivial pass-through into
-  # +Registry::StdioEntry+ / +Registry::HttpEntry+. Translation lives in
-  # the wiring layer where +Pikuri::*+ is allowed, not here.
+  # ({McpServer#id} / +command+ / +url+ / +headers+) match
+  # +Pikuri::Mcp::Registry+'s entries 1:1, and the coding bin does the
+  # trivial pass-through into +Registry::StdioEntry+ / +Registry::HttpEntry+.
+  # The +bearer_token+ / +basic_auth+ HTTP-auth conveniences are resolved
+  # here into {McpServer#headers} so that pass-through stays trivial.
+  # Translation lives in the wiring layer where +Pikuri::*+ is allowed, not
+  # here.
   #
   # == Errors
   #
@@ -77,6 +80,11 @@ module PikuriTui
     # non-nil. Mirrors +Pikuri::Mcp::Registry+'s two entry types without
     # naming them — see the class header's "Pikuri seam" note.
     #
+    # The convenience +bearer_token+ / +basic_auth+ TOML keys are not fields
+    # here: they are sugar that {.build_mcp_headers} folds into {#headers} at
+    # load time, so this value object exposes only the single +headers+ hash
+    # that +Pikuri::Mcp::Registry::HttpEntry+ consumes 1:1.
+    #
     # @!attribute [r] id
     #   @return [String] unique id the LLM uses to call +mcp_connect+.
     # @!attribute [r] command
@@ -85,7 +93,19 @@ module PikuriTui
     # @!attribute [r] url
     #   @return [String, nil] endpoint URL of an HTTP server, or +nil+ for
     #     a stdio server.
-    McpServer = Data.define(:id, :command, :url) do
+    # @!attribute [r] headers
+    #   @return [Hash{String => String}] HTTP headers sent on every request
+    #     to an HTTP server (auth + custom), frozen. Always empty for a
+    #     stdio server.
+    # @!attribute [r] env
+    #   @return [Hash{String => String}] extra environment variables for a
+    #     stdio server's subprocess (merged over the inherited environment),
+    #     frozen. Always empty for an HTTP server.
+    McpServer = Data.define(:id, :command, :url, :headers, :env) do
+      def initialize(id:, command: nil, url: nil, headers: {}, env: {})
+        super(id: id, command: command, url: url, headers: headers.freeze, env: env.freeze)
+      end
+
       # @return [Boolean] true for a local-subprocess (stdio) server.
       def stdio? = !command.nil?
 
@@ -239,13 +259,19 @@ module PikuriTui
     end
 
     # @return [Boolean] true when the parsed file carries any literal secret
-    #   (an +[[llm]]+ +api_key+ or a +[search]+ +brave_key+/+exa_key+).
+    #   (an +[[llm]]+ +api_key+, a +[search]+ +brave_key+/+exa_key+, or an
+    #   +[[code.mcp]]+ +bearer_token+/+basic_auth+/+headers+/+env+).
     def self.holds_secret?(parsed)
       llms = parsed['llm']
       return true if llms.is_a?(Array) && llms.any? { |e| e.is_a?(Hash) && e['api_key'] }
 
       search = parsed['search']
-      search.is_a?(Hash) && (search['brave_key'] || search['exa_key'])
+      return true if search.is_a?(Hash) && (search['brave_key'] || search['exa_key'])
+
+      mcp = parsed.dig('code', 'mcp')
+      mcp.is_a?(Array) && mcp.any? do |e|
+        e.is_a?(Hash) && (e['bearer_token'] || e['basic_auth'] || e['headers'] || e['env'])
+      end
     end
 
     # Parse one file, wrapping any failure (read error, TOML syntax) in
@@ -328,12 +354,7 @@ module PikuriTui
     def self.build_mcp(hash, index)
       raise Error, "code.mcp[#{index}] must be a table" unless hash.is_a?(Hash)
 
-      forbidden = hash.keys & %w[headers env]
-      unless forbidden.empty?
-        raise Error, "code.mcp[#{index}]: `#{forbidden.join('`, `')}` is not supported in this version " \
-                     '(no MCP auth headers / stdio env yet)'
-      end
-      unknown = hash.keys - %w[id command url]
+      unknown = hash.keys - %w[id command url bearer_token basic_auth headers env]
       raise Error, "code.mcp[#{index}]: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
 
       id = hash['id']
@@ -349,7 +370,109 @@ module PikuriTui
       end
       raise Error, "code.mcp #{id.inspect}: `url` must be a non-empty string" if url && !non_empty_string?(url)
 
-      McpServer.new(id: id, command: command, url: url)
+      auth_keys = hash.keys & %w[bearer_token basic_auth headers]
+      if command && !auth_keys.empty?
+        raise Error, "code.mcp #{id.inspect}: #{auth_keys.map { |k| "`#{k}`" }.join(', ')} apply only to " \
+                     'HTTP servers (set `url`, not `command`)'
+      end
+      if url && hash.key?('env')
+        raise Error, "code.mcp #{id.inspect}: `env` applies only to stdio servers (set `command`, not `url`)"
+      end
+
+      McpServer.new(
+        id:      id,
+        command: command,
+        url:     url,
+        headers: build_mcp_headers(hash, id),
+        env:     build_mcp_env(hash, id)
+      )
+    end
+
+    # Validate and return a stdio MCP entry's +env+ table (a
+    # +Hash{String => String}+ merged over the subprocess's inherited
+    # environment), or +{}+ when absent.
+    #
+    # @param hash [Hash] the raw +[[code.mcp]]+ table.
+    # @param id [String] the entry id, for error messages.
+    # @return [Hash{String => String}] the env overrides (empty when none).
+    # @raise [Error] when +env+ is not a table of string => string.
+    def self.build_mcp_env(hash, id)
+      env = hash['env']
+      return {} if env.nil?
+      unless env.is_a?(Hash) && env.all? { |k, v| k.is_a?(String) && v.is_a?(String) }
+        raise Error, "code.mcp #{id.inspect}: `env` must be a table of string => string"
+      end
+
+      env
+    end
+
+    # Resolve an HTTP MCP entry's auth/custom keys into the single
+    # +Hash{String => String}+ +HttpEntry+ consumes. +bearer_token+ and
+    # +basic_auth+ are convenience sugar that both yield an +Authorization+
+    # header, so they are mutually exclusive and also conflict with an
+    # explicit +Authorization+ inside +headers+; the +headers+ table carries
+    # arbitrary extras verbatim.
+    #
+    # @param hash [Hash] the raw +[[code.mcp]]+ table.
+    # @param id [String] the entry id, for error messages.
+    # @return [Hash{String => String}] the merged headers (empty when none).
+    # @raise [Error] on a malformed +headers+/+bearer_token+/+basic_auth+
+    #   value or an +Authorization+ conflict.
+    def self.build_mcp_headers(hash, id)
+      headers = {}
+
+      custom = hash['headers']
+      unless custom.nil?
+        unless custom.is_a?(Hash) && custom.all? { |k, v| k.is_a?(String) && v.is_a?(String) }
+          raise Error, "code.mcp #{id.inspect}: `headers` must be a table of string => string"
+        end
+        headers.merge!(custom)
+      end
+
+      bearer = hash['bearer_token']
+      basic  = hash['basic_auth']
+      raise Error, "code.mcp #{id.inspect}: set at most one of `bearer_token` or `basic_auth`" if bearer && basic
+
+      auth =
+        if bearer
+          raise Error, "code.mcp #{id.inspect}: `bearer_token` must be a non-empty string" unless non_empty_string?(bearer)
+
+          "Bearer #{bearer}"
+        elsif basic
+          build_basic_auth(basic, id)
+        end
+      return headers unless auth
+
+      if headers.keys.any? { |k| k.casecmp?('Authorization') }
+        raise Error, "code.mcp #{id.inspect}: `bearer_token`/`basic_auth` conflicts with an `Authorization` " \
+                     'entry in `headers` — set only one'
+      end
+      headers['Authorization'] = auth
+      headers
+    end
+
+    # Build the +Authorization: Basic+ value from a +basic_auth+ table.
+    # Encodes +username:password+ with strict (newline-free) Base64 via
+    # +Array#pack+ so no +base64+ require is needed.
+    #
+    # @param basic [Object] the raw +basic_auth+ value (expected a table).
+    # @param id [String] the entry id, for error messages.
+    # @return [String] the full +"Basic <base64>"+ header value.
+    # @raise [Error] when +basic_auth+ is not a table with a non-empty
+    #   +username+ and a +password+ string.
+    def self.build_basic_auth(basic, id)
+      raise Error, "code.mcp #{id.inspect}: `basic_auth` must be a table" unless basic.is_a?(Hash)
+
+      unknown = basic.keys - %w[username password]
+      raise Error, "code.mcp #{id.inspect}: basic_auth unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
+
+      username = basic['username']
+      password = basic['password']
+      unless non_empty_string?(username) && password.is_a?(String)
+        raise Error, "code.mcp #{id.inspect}: `basic_auth` needs a non-empty `username` and a `password` string"
+      end
+
+      "Basic #{["#{username}:#{password}"].pack('m0')}"
     end
 
     # Overlay the primary-connection CLI overrides. A +nil+ override keeps
@@ -381,7 +504,8 @@ module PikuriTui
     def self.non_empty_string?(value) = value.is_a?(String) && !value.strip.empty?
 
     private_class_method :candidate_paths, :warn_loose_perms, :holds_secret?, :parse_file, :deep_merge,
-                         :validate_top!, :validate_code!, :build_llm, :build_mcp, :build_search,
-                         :apply_llm_overrides, :default_llm, :pick, :check_unique!, :non_empty_string?
+                         :validate_top!, :validate_code!, :build_llm, :build_mcp, :build_mcp_headers,
+                         :build_basic_auth, :build_mcp_env, :build_search, :apply_llm_overrides, :default_llm,
+                         :pick, :check_unique!, :non_empty_string?
   end
 end

@@ -122,6 +122,72 @@ describe PikuriTui::Config do
         assert_equal %w[docker run -i --rm mcp/playwright], c.mcp[0].command
         assert c.mcp[1].http?
         assert_equal 'https://mcp.example.com/v1', c.mcp[1].url
+        assert_empty c.mcp[0].headers
+        assert_empty c.mcp[1].headers
+        assert_empty c.mcp[0].env
+        assert_empty c.mcp[1].env
+      end
+    end
+
+    it 'reads an env table for a stdio MCP server' do
+      with_dirs do |home, _|
+        write_config(home, <<~TOML)
+          [[code.mcp]]
+          id = "github"
+          command = ["github-mcp"]
+          [code.mcp.env]
+          GITHUB_TOKEN = "ghp-123"
+        TOML
+        c = described_class.load(env: env_for(home))
+        assert_equal({ 'GITHUB_TOKEN' => 'ghp-123' }, c.mcp[0].env)
+      end
+    end
+
+    it 'turns a bearer_token into an Authorization header' do
+      with_dirs do |home, _|
+        write_config(home, "[[code.mcp]]\nid = \"remote\"\nurl = \"https://x\"\nbearer_token = \"sk-123\"")
+        c = described_class.load(env: env_for(home))
+        assert_equal({ 'Authorization' => 'Bearer sk-123' }, c.mcp[0].headers)
+      end
+    end
+
+    it 'turns basic_auth into a base64 Authorization header' do
+      with_dirs do |home, _|
+        write_config(home, <<~TOML)
+          [[code.mcp]]
+          id = "remote"
+          url = "https://x"
+          [code.mcp.basic_auth]
+          username = "user"
+          password = "pass"
+        TOML
+        c = described_class.load(env: env_for(home))
+        # base64("user:pass") == "dXNlcjpwYXNz"
+        assert_equal({ 'Authorization' => 'Basic dXNlcjpwYXNz' }, c.mcp[0].headers)
+      end
+    end
+
+    it 'merges custom headers alongside auth' do
+      with_dirs do |home, _|
+        write_config(home, <<~TOML)
+          [[code.mcp]]
+          id = "remote"
+          url = "https://x"
+          bearer_token = "t"
+          [code.mcp.headers]
+          "X-Api-Key" = "abc"
+        TOML
+        c = described_class.load(env: env_for(home))
+        assert_equal({ 'X-Api-Key' => 'abc', 'Authorization' => 'Bearer t' }, c.mcp[0].headers)
+      end
+    end
+
+    it 'warns about loose perms when an MCP entry carries a secret' do
+      with_dirs do |home, _|
+        path = write_config(home, "[[code.mcp]]\nid = \"remote\"\nurl = \"https://x\"\nbearer_token = \"t\"")
+        File.chmod(0o644, path)
+        c = described_class.load(env: env_for(home))
+        assert(c.warnings.any? { |w| w.include?('chmod 600') })
       end
     end
 
@@ -225,9 +291,36 @@ describe PikuriTui::Config do
       end
     end
 
-    it 'rejects unsupported MCP auth headers' do
-      e = expect_error("[[code.mcp]]\nid = \"x\"\nurl = \"u\"\nheaders = { a = \"b\" }")
-      assert_includes e.message, 'not supported'
+    it 'rejects env on an HTTP MCP server' do
+      e = expect_error("[[code.mcp]]\nid = \"x\"\nurl = \"u\"\nenv = { A = \"b\" }")
+      assert_includes e.message, 'stdio servers'
+    end
+
+    it 'rejects a non-string env value' do
+      e = expect_error("[[code.mcp]]\nid = \"x\"\ncommand = [\"a\"]\nenv = { A = 1 }")
+      assert_includes e.message, '`env` must be a table'
+    end
+
+    it 'rejects auth/headers keys on a stdio MCP server' do
+      e = expect_error("[[code.mcp]]\nid = \"x\"\ncommand = [\"a\"]\nbearer_token = \"t\"")
+      assert_includes e.message, 'HTTP servers'
+    end
+
+    it 'rejects both bearer_token and basic_auth on one server' do
+      e = expect_error("[[code.mcp]]\nid = \"x\"\nurl = \"u\"\nbearer_token = \"t\"\n" \
+                       "[code.mcp.basic_auth]\nusername = \"u\"\npassword = \"p\"")
+      assert_includes e.message, 'at most one'
+    end
+
+    it 'rejects a bearer_token that also sets Authorization via headers' do
+      e = expect_error("[[code.mcp]]\nid = \"x\"\nurl = \"u\"\nbearer_token = \"t\"\n" \
+                       "[code.mcp.headers]\nAuthorization = \"Bearer other\"")
+      assert_includes e.message, 'conflicts'
+    end
+
+    it 'rejects basic_auth without a username' do
+      e = expect_error("[[code.mcp]]\nid = \"x\"\nurl = \"u\"\n[code.mcp.basic_auth]\npassword = \"p\"")
+      assert_includes e.message, 'username'
     end
 
     it 'rejects an MCP entry with both command and url' do

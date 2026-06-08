@@ -101,10 +101,42 @@ confirm = true   # y/n prompt before writes + bash;  --no-confirm / --yolo force
 id      = "playwright"
 command = ["docker", "run", "-i", "--rm", "mcr.microsoft.com/playwright/mcp"]
 
+# A stdio server may also set `env` — environment variables merged over the
+# inherited environment of the subprocess (the natural home for its tokens,
+# kept out of pikuri-tui's own environment). stdio only.
+[[code.mcp]]
+id      = "github"
+command = ["github-mcp"]
+[code.mcp.env]
+GITHUB_TOKEN = "ghp-..."
+
+# A remote HTTP server may authenticate three ways (HTTP only). All resolve
+# into the headers sent on every request; pick at most one of bearer_token /
+# basic_auth (both set Authorization), and add custom headers as needed.
+#
+#   bearer_token →  Authorization: Bearer <token>
+#   basic_auth   →  Authorization: Basic  base64("<username>:<password>")
+#   headers      →  arbitrary extra headers, sent verbatim
+[[code.mcp]]
+id           = "example-bearer"
+url          = "https://mcp.example.com/v1"
+bearer_token = "sk-..."
+
 # [[code.mcp]]
-# id  = "example-remote"
+# id  = "example-basic"
 # url = "https://mcp.example.com/v1"
+# basic_auth = { username = "user", password = "pass" }   # or a [code.mcp.basic_auth] sub-table
+
+# [[code.mcp]]
+# id  = "example-headers"
+# url = "https://mcp.example.com/v1"
+# headers = { "X-Api-Key" = "abc" }                        # or a [code.mcp.headers] sub-table
 ```
+
+Secrets in the config file — `api_key`, the `[search]` keys, and any MCP
+`bearer_token` / `basic_auth` / `headers` / `env` value — should be kept
+private; pikuri-tui prints a `chmod 600` advisory to the diagnostic log
+(`Ctrl+L`) when a file holding one is group- or world-readable.
 
 ## Layout
 
