@@ -17,6 +17,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # symlink with the same name in $PREFIX is left alone).
 declare -A BINARIES=(
   [pikuri-tui-chat]="$ROOT/bin/pikuri-tui-chat"
+  [pikuri-tui-code]="$ROOT/bin/pikuri-tui-code"
 )
 
 for name in "${!BINARIES[@]}"; do

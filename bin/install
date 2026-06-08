@@ -14,6 +14,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 declare -A BINARIES=(
   [pikuri-tui-chat]="$ROOT/bin/pikuri-tui-chat"
+  [pikuri-tui-code]="$ROOT/bin/pikuri-tui-code"
 )
 
 mkdir -p "$DEST"

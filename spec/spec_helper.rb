@@ -14,6 +14,19 @@ require 'minitest'
 require 'minitest/assertions'
 
 require 'pikuri-core'
+
+# Load the :code-group gems too, BEFORE pikuri_tui, so its loader sees
+# the :code runtime and eager-loads the PikuriTui::Code subtree (see the
+# gate in lib/pikuri_tui.rb) — the suite exercises both shells. +bundle
+# exec+ puts these on the load path; the production chat bin, which runs
+# +Bundler.setup(:default)+, never loads them.
+require 'pikuri-workspace'
+require 'pikuri-code'
+require 'pikuri-tasks'
+require 'pikuri-skills'
+require 'pikuri-mcp'
+require 'pikuri-subagents'
+
 require 'pikuri_tui'
 
 # Silence pikuri's default $stderr logging during the suite so production

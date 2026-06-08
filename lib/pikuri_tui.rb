@@ -17,6 +17,24 @@ module PikuriTui
   # the mapping has to spell the full word — segment-only rules like
   # +'io' => 'IO'+ aren't consulted.
   loader.inflector.inflect('counting_log_io' => 'CountingLogIO')
+
+  # The coding shell ({PikuriTui::Code}) depends on the :code-group
+  # pikuri gems — pikuri-workspace defines +Pikuri::Workspace::Confirmer+
+  # (the {Code::ConfirmerPopup} superclass), and pikuri-code / -tasks /
+  # -subagents back the rest of the boot wiring. The chat shell runs
+  # +Bundler.setup(:default)+ and never loads those gems, so eager-loading
+  # the code subtree there would raise at class-definition time (NameError
+  # on +Pikuri::Workspace+). Gate it on the :code runtime being present —
+  # true iff the bin (or spec_helper) required those gems *before*
+  # requiring pikuri_tui. When absent, ignore the subtree so the lean chat
+  # process neither autoloads nor eager-loads it; when present, it
+  # participates normally and the fail-fast eager-load guarantee still
+  # holds for it.
+  unless defined?(Pikuri::Workspace)
+    loader.ignore("#{__dir__}/pikuri_tui/code.rb")
+    loader.ignore("#{__dir__}/pikuri_tui/code")
+  end
+
   loader.setup
   loader.eager_load
 end

@@ -1,0 +1,317 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Entry point for the Tuile coding TUI built on Pikuri::Agent — the
+# in-repo coding agent. Same shape as bin/pikuri-tui-chat, but wired with
+# the six file/shell tools, a project-rooted workspace, the bubblewrap
+# sandbox, and a Tuile modal confirmer instead of the stdin one. The
+# pikuri-side wiring is ported from pikuri's own bin/pikuri-code demo;
+# everything Tuile is PikuriTui::Code::App's job.
+#
+# Pin Bundler to this project's Gemfile so locked dependency versions win
+# and the script works when invoked via a symlink (e.g.
+# ~/.local/bin/pikuri-tui-code) from any working directory. `__dir__`
+# resolves through symlinks, so this points at the real checkout.
+ENV['BUNDLE_GEMFILE'] ||= File.expand_path('../Gemfile', __dir__)
+
+# Activate :default + :code — the coding shell needs the heavier pikuri
+# gems (workspace/code/tasks/skills/mcp/subagents) that the chat shell
+# does not. The explicit +Bundler.setup+ form (not +require
+# 'bundler/setup'+, which activates every group) keeps the :test group
+# off this process's load path.
+require 'bundler'
+Bundler.setup(:default, :code)
+require 'optparse'
+
+# pikuri-tui has no published gemspec yet — wired only as a path
+# dependency from this Gemfile — so its +lib/+ is not on Bundler's load
+# path. Adding it here lets +require 'pikuri_tui'+ resolve through
+# Zeitwerk. The :code gems are required BEFORE pikuri_tui so its loader
+# sees the :code runtime and eager-loads the PikuriTui::Code subtree (see
+# lib/pikuri_tui.rb).
+$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+
+require 'pikuri-core'
+require 'pikuri-pdf'
+require 'pikuri-workspace'
+require 'pikuri-code'
+require 'pikuri-tasks'
+require 'pikuri-skills'
+require 'pikuri-mcp'
+require 'pikuri-subagents'
+require 'pikuri_tui'
+
+sandbox_enabled = true
+confirm_enabled = true
+yolo = false
+extra_readable = []
+extra_writable = []
+server = 'http://localhost:8080'
+model  = 'unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M'
+api_key_env = 'OPENAI_API_KEY'
+
+parser = OptionParser.new do |opts|
+  opts.banner = 'Usage: pikuri-tui-code [options]'
+  opts.separator ''
+  opts.separator 'Options:'
+  opts.on('--no-sandbox', 'Disable the bubblewrap sandbox around bash commands.') { sandbox_enabled = false }
+  # Expanded eagerly (the handler runs at parse!, before the chdir to the
+  # discovered project root below) so relative paths and ~ resolve
+  # against where the user launched, not where the project lives.
+  opts.on('--readable PATH', 'Additional read-only directory (repeatable).') do |v|
+    extra_readable << File.expand_path(v)
+  end
+  opts.on('--writable PATH', 'Additional read+write directory (repeatable).') do |v|
+    extra_writable << File.expand_path(v)
+  end
+  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n popup for writes + bash).') { confirm_enabled = false }
+  opts.on('--yolo', 'Combines --no-sandbox + --no-confirm + opens the filesystem ' \
+                    '(credential denylist only). Use only inside a container.') do
+    sandbox_enabled = false
+    confirm_enabled = false
+    yolo = true
+  end
+  opts.on('--server URL', "LLM server base URL (default: #{server})") { |v| server = v }
+  opts.on('--model NAME', "Model identifier (default: #{model})") { |v| model = v }
+  opts.on('--api-key-env VAR', "Env var holding the API key (default: #{api_key_env})") { |v| api_key_env = v }
+  opts.on('-h', '--help', 'Print this help and exit') do
+    puts opts
+    exit
+  end
+end
+
+begin
+  parser.parse!
+rescue OptionParser::InvalidOption, OptionParser::MissingArgument => e
+  warn e.message
+  warn parser
+  exit 2
+end
+
+# Fail fast with a readable message — Filesystem.new realpath's its
+# readable:/writable: entries and a missing one raises a bare
+# Errno::ENOENT much later, mid-construction. This is boot-time, before
+# the screen is up, so a plain warn + exit is correct.
+(extra_readable + extra_writable).each do |path|
+  next if File.directory?(path)
+
+  warn "no such directory: #{path}"
+  exit 2
+end
+
+# Climb from the launch directory to the project root (a VCS marker:
+# .git / .hg / .svn), and chdir the whole process to it so the file
+# tools, Bash, Grep, Glob all operate against one anchor — see
+# Pikuri::Workspace::ProjectRoot. Falls back to the launch dir.
+launch_cwd   = Pathname.new(Dir.pwd)
+project_root = Pikuri::Workspace::ProjectRoot.find(cwd: launch_cwd) || launch_cwd
+chdir_notice = ("Changing working directory to project root: #{project_root}" if Dir.pwd != project_root.to_s)
+Dir.chdir(project_root.to_s) if chdir_notice
+
+# Skill catalog: project root + Dir.home as search bases (project beats
+# global). Catalog roots are folded into the workspace's readable set so
+# the skill tool's sidecar +read+ flow works.
+skill_catalog = Pikuri::Skill::Catalog::Bundled.new(
+  search_bases: [project_root, Dir.home]
+)
+
+# Toolchain caches (~/.gradle, ~/.m2/repository, ~/.cargo/registry, ...):
+# readable by the file tools AND mounted as ephemeral overlays in the
+# bubblewrap sandbox (writes vanish at exit). See
+# Pikuri::Code::ToolchainPaths.
+toolchain_overlay = Pikuri::Code::ToolchainPaths.ephemeral_overlay
+
+# Workspace: project_root is the writable ceiling, the bind root, the
+# relative-path base. temp: true mints an ephemeral writable scratch dir.
+# --yolo swaps in AllowAll (everything but the credential denylist).
+workspace = if yolo
+              warn '--readable/--writable ignored under --yolo (filesystem is ALLOW_ALL).' \
+                unless extra_readable.empty? && extra_writable.empty?
+              Pikuri::Workspace::Filesystem::AllowAll.new(
+                project_root:      project_root,
+                temp:              true,
+                alias_tmp_to_temp: sandbox_enabled
+              )
+            else
+              Pikuri::Workspace::Filesystem.new(
+                project_root:      project_root,
+                readable:          Pikuri::Code::ToolchainPaths.readable +
+                                   toolchain_overlay +
+                                   skill_catalog.roots +
+                                   extra_readable,
+                writable:          extra_writable,
+                temp:              true,
+                alias_tmp_to_temp: sandbox_enabled
+              )
+            end
+
+# Bubblewrap sandbox wraps every Bash subprocess. Probes `bwrap` at
+# construction and raises if it isn't installed / the kernel lacks
+# user-namespace support — fail-loud. Boot-time, before the screen is up,
+# so the raise prints a backtrace to a normal terminal. Disable with
+# --no-sandbox / --yolo.
+sandbox = if sandbox_enabled
+            Pikuri::Code::Bash::Sandbox::Bubblewrap.new(
+              workspace:         workspace,
+              ephemeral_overlay: toolchain_overlay
+            )
+          else
+            Pikuri::Code::Bash::Sandbox::NONE
+          end
+
+# Build the system prompt: static base + optional project context +
+# footer. AGENTS.md wins over CLAUDE.md when both exist.
+system_prompt = Pikuri.prompt(:'coding-system-prompt')
+md_path = ['AGENTS.md', 'CLAUDE.md'].map { |f| workspace.project_root.join(f) }.find(&:file?)
+system_prompt += "\n\n# Project Context\n\n#{File.read(md_path)}" if md_path
+system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
+system_prompt += "\nProject root: #{workspace.project_root}"
+unless yolo || extra_writable.empty?
+  system_prompt += "\nAdditional writable paths: #{extra_writable.join(', ')}"
+end
+system_prompt += if sandbox_enabled
+                   "\nScratch space: /tmp — persistent across all bash and tool calls; " \
+                     'use for downloads, clones, unpacks. Cleared on exit.'
+                 else
+                   "\nScratch space: #{workspace.temp} — persistent across tool calls, " \
+                     'cleared on exit. Prefer it over /tmp for downloads, clones, unpacks ' \
+                     "(keeps the host's /tmp clean)."
+                 end
+
+server = server.chomp('/')
+openai_api_base = "#{server}/v1"
+
+api_key = ENV[api_key_env]
+api_key_missing = api_key.nil? || api_key.strip.empty?
+api_key = 'not-needed' if api_key_missing
+
+Pikuri::Extractors::PDF.register
+
+RubyLLM.configure do |c|
+  c.openai_api_base = openai_api_base
+  c.openai_api_key  = api_key
+end
+
+# llama.cpp exposes the server's launched +n_ctx+ at +/props+ on the base
+# host (not under +/v1+). Hand the derived URL to
+# +Pikuri::Agent::ContextWindowDetector+ so the cap is resolved against
+# the local server, which is unknown to ruby_llm's bundled model registry.
+llama_probe_url = "#{server}/props"
+
+cancel_flag = Pikuri::Agent::Control::Cancellable.new
+
+# Mid-loop input channel: PikuriTui::Code::App injects messages submitted
+# while a turn is in flight; the agent drains the queue at every
+# after_tool_result boundary, and App delivers any leftovers as a fresh
+# turn when the loop ends.
+interloper = Pikuri::Agent::Control::Interloper.new
+
+# MCP servers available to the assistant. Empty by default — the coding
+# shell behaves identically with no MCP wiring until an entry is added
+# here. (Empty registry ⇒ Mcp::Extension's boot-time synthesize/verify
+# LLM calls are no-ops, so Agent construction stays offline.)
+mcp_registry = Pikuri::Mcp::Registry.new(entries: [])
+
+Tuile::Screen.new
+
+# Constructed up front so both the App (for the footer's status line) and
+# the Agent's ListenerList see the same TokenLog instance.
+token_log = Pikuri::Agent::Listener::TokenLog.new
+
+app = PikuriTui::Code::App.new(token_log: token_log) do |listener, confirmer_popup|
+  # The Tuile modal confirmer for writes + bash, unless confirmations are
+  # disabled (--no-confirm / --yolo), in which case approve everything.
+  confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE
+
+  # Coalesce streaming delta chunks at 15 fps before they reach the
+  # Markdown-rendering TuileListener (see bin/pikuri-tui-chat for the
+  # rationale). flush_pending_on_non_delta: false because the bookend
+  # Assistant / Thinking events re-render the authoritative final content.
+  rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
+    listener,
+    fps: 15,
+    flush_pending_on_non_delta: false
+  )
+
+  Pikuri::Agent.new(
+    transport: Pikuri::Agent::ChatTransport.new(
+      model: model,
+      provider: :openai,
+      assume_model_exists: true
+    ),
+    system_prompt: system_prompt,
+    # Default :raise policy, deliberately NOT :synthesize — a coding turn
+    # ends in a changed working tree, not an answer. On exhaustion the
+    # turn stops; the chat history survives and "continue" just works.
+    step_limit: Pikuri::Agent::Control::StepLimit.new(max: 40),
+    cancellable: cancel_flag,
+    interloper: interloper,
+    llama_probe_url: llama_probe_url,
+    streaming: true
+  ) do |c|
+    c.add_listener rate_limited_listener
+    c.add_listener token_log
+    # File/shell tools first (declaration order biases some models toward
+    # earlier tools); calculator last as auxiliary. Network tools go on
+    # the sub-agent-only pool so untrusted web content lands in a child
+    # context with no file read/write/bash to hijack — see pikuri's
+    # SECURITY.md "capability boundaries via sub-agents".
+    c.add_tool Pikuri::Workspace::Read.new(workspace: workspace)
+    c.add_tool Pikuri::Workspace::Grep.new(workspace: workspace)
+    c.add_tool Pikuri::Workspace::Glob.new(workspace: workspace)
+    c.add_tool Pikuri::Workspace::Edit.new(workspace: workspace)
+    c.add_tool Pikuri::Workspace::Write.new(workspace: workspace, confirmer: confirmer)
+    c.add_tool Pikuri::Code::Bash.new(workspace: workspace, confirmer: confirmer, sandbox: sandbox)
+    c.add_tool Pikuri::Tool::CALCULATOR
+    c.add_sub_agent_tool Pikuri::Tool::WEB_SEARCH
+    c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
+    c.add_sub_agent_tool Pikuri::Tool::FETCH
+    c.add_sub_agent_tool Pikuri::Code::GitClone.new(workspace: workspace)
+    c.add_extension Pikuri::Skill::Extension.new(catalog: skill_catalog)
+    c.add_extension Pikuri::Tasks::Extension.new
+    c.add_extension Pikuri::Mcp::Extension.new(
+      registry: mcp_registry,
+      synthesize_descriptions: true,
+      verify_mcp_servers: true
+    )
+    # Privilege-separated read-only sub-agents: FILE_MINER (read/grep/glob)
+    # for code/fs lookups, RESEARCHER (web_search/scrape/fetch) for
+    # external docs, GIT_REPO_RESEARCHER for cloning + mining other repos.
+    c.add_extension Pikuri::SubAgent::Extension.new(
+      personas: [
+        Pikuri::SubAgent::FILE_MINER,
+        Pikuri::SubAgent::RESEARCHER,
+        Pikuri::Code::GIT_REPO_RESEARCHER
+      ]
+    )
+  end
+end
+
+# Boot diagnostics into the LogWindow (App.new has wired Tuile.logger to
+# it by now). The conversation pane is not a log sink (AGENTS.md), so
+# project-root / skill / safety notices go to the diagnostic pane the
+# user opens with Ctrl+L. Safety-reductions are logged at warn so they
+# stand out among the info noise.
+Tuile.logger.warn(chdir_notice) if chdir_notice
+Tuile.logger.info("Working in #{workspace.project_root}")
+Tuile.logger.info("Loaded project context from #{md_path}") if md_path
+unless skill_catalog.empty?
+  names = skill_catalog.list.map(&:name).sort.join(', ')
+  Tuile.logger.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
+end
+if api_key_missing
+  Tuile.logger.warn(
+    "API key env var #{api_key_env} is blank or unset; falling back to \"not-needed\" " \
+    '(fine for local llama.cpp, will fail against authenticated remotes)'
+  )
+end
+safety = []
+safety << 'Sandbox: DISABLED.' unless sandbox_enabled
+safety << 'Confirmer: AUTO-APPROVE.' unless confirm_enabled
+safety << 'Filesystem: ALLOW_ALL (credential denylist only).' if yolo
+unless safety.empty?
+  safety << 'Use only with an outer sandbox (docker / dev-container) or in a throwaway environment.'
+  Tuile.logger.warn(safety.join(' '))
+end
+
+app.run

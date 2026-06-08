@@ -9,7 +9,15 @@
 # points at the real checkout.
 ENV['BUNDLE_GEMFILE'] ||= File.expand_path('../Gemfile', __dir__)
 
-require 'bundler/setup'
+# Activate only the shared :default group — NOT the :code group, whose
+# six extra pikuri gems (workspace/code/tasks/skills/mcp/subagents) the
+# chat shell never touches. The explicit +Bundler.setup+ form (rather
+# than +require 'bundler/setup'+, which activates every group) keeps
+# those off this process's load path. The chat shell has no group of
+# its own — its deps (tuile, kramdown, rouge, pikuri-core, pikuri-pdf)
+# all live in :default.
+require 'bundler'
+Bundler.setup(:default)
 require 'optparse'
 
 # pikuri-tui has no published gemspec yet — wired only as a path dependency

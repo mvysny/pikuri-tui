@@ -19,12 +19,26 @@ shell only.
 
 ## Status
 
-The chat shell is functional: `bin/pikuri-tui-chat` runs the full
+Both shells are functional. `bin/pikuri-tui-chat` runs the full
 Tuile UI — conversation pane with streamed Markdown, diagnostic
 log popup (`Ctrl+L`), input field, footer spinner + token status —
 against a local llama.cpp server, with specs and Woodpecker CI in
-place. The code shell (`bin/pikuri-tui-code` and the
-`PikuriTui::Code` namespace) is not started.
+place. `bin/pikuri-tui-code` (the `PikuriTui::Code` namespace) is
+the in-repo coding shell: the same Tuile UI plus a project-rooted
+workspace, the bubblewrap sandbox, the six file/shell tools wired
+with a modal y/n confirmer (`Code::ConfirmerPopup`) on writes and
+bash, sub-agent-only network tools, and the skill / task / MCP /
+sub-agent extensions — all ported from pikuri's `bin/pikuri-code`
+demo onto the Tuile shell.
+
+The two shells share their UI machinery as deliberate parallel
+copies, not a common base (see `lib/pikuri_tui/code.rb`), and their
+dependencies are split across Bundler groups: `bin/pikuri-tui-chat`
+runs `Bundler.setup(:default)`, `bin/pikuri-tui-code` runs
+`Bundler.setup(:default, :code)`, so the heavier coding gems stay
+off the chat process's load path. `lib/pikuri_tui.rb` ignores the
+`PikuriTui::Code` subtree entirely when the `:code` gems aren't
+loaded.
 
 ## Scope decisions
 
@@ -165,29 +179,49 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   theme's `hint_color` (the footer is status-hint chrome), read at
   paint time per Tuile's theming rule so OS light/dark appearance
   flips restyle it.
-- `bin/pikuri-tui-chat` — boot script for the chat agent: configures
-  `RubyLLM` for the local llama.cpp server, builds a streaming
-  `Pikuri::Agent` wired with the web/calc tools (search, scrape,
-  fetch, calculator), a `TokenLog`, a `Control::Interloper` (for
-  mid-turn message injection), and a rate-limited
-  `PikuriTui::TuileListener`, hands it to `PikuriTui::Chat::App`.
+- `lib/pikuri_tui/code.rb` — `PikuriTui::Code` namespace shell for
+  the coding front-end, and the home of the duplicate-don't-share
+  rationale for the parallel `Code::*` copies.
+- `lib/pikuri_tui/code/app.rb` — `PikuriTui::Code::App`, the Tuile
+  shell for `bin/pikuri-tui-code`. A parallel copy of `Chat::App`
+  that additionally owns a `Code::ConfirmerPopup` and yields it to
+  the build block alongside the listener.
+- `lib/pikuri_tui/code/layout.rb` / `code/input.rb` /
+  `code/footer_label.rb` — parallel copies of the `Chat::`
+  equivalents (vertical-split layout, Enter-submits input, footer
+  spinner + queued-count + token status).
+- `lib/pikuri_tui/code/confirmer_popup.rb` —
+  `PikuriTui::Code::ConfirmerPopup`, a `Pikuri::Workspace::Confirmer`
+  rendered as a modal Tuile popup instead of stdin. `confirm?` is
+  called by the `Write` / `Bash` tools on the agent worker thread; it
+  marshals popup construction to the UI thread via
+  `screen.event_queue.submit` and blocks the worker on a `Queue`
+  until a `y`/`n` (or ESC/`q` decline) resolves it. LLM-supplied
+  question/detail pass through `Pikuri::Sanitizer`, whose
+  neutralized text + per-attack-class warnings are rendered in the
+  popup body (bold-yellow warnings, like `Confirmer::Terminal`).
+- `bin/pikuri-tui-chat` — boot script for the chat agent
+  (`Bundler.setup(:default)`): configures `RubyLLM` for the local
+  llama.cpp server, builds a streaming `Pikuri::Agent` wired with
+  the web/calc tools (search, scrape, fetch, calculator), a
+  `TokenLog`, a `Control::Interloper` (for mid-turn message
+  injection), and a rate-limited `PikuriTui::TuileListener`, hands
+  it to `PikuriTui::Chat::App`.
+- `bin/pikuri-tui-code` — boot script for the coding agent
+  (`Bundler.setup(:default, :code)`): discovers the project root
+  (VCS marker) and `chdir`s to it, builds a `Pikuri::Workspace`
+  rooted there + a bubblewrap sandbox + skill catalog, then a
+  streaming `Pikuri::Agent` wired with the six file/shell tools
+  (the `Write` / `Bash` tools taking the `Code::ConfirmerPopup` the
+  `App` yields, or `AUTO_APPROVE` under `--no-confirm`/`--yolo`),
+  sub-agent-only network tools, and the skill / task / MCP /
+  sub-agent extensions. Hands it to `PikuriTui::Code::App`. Ports
+  pikuri's own `bin/pikuri-code` demo onto the Tuile shell.
 - `bin/setup` — `bundle install` wrapper.
 - `bin/install` / `bin/uninstall` — symlink `bin/pikuri-tui-chat`
-  into `$PREFIX` (default `~/.local/bin`) and remove it again.
-  Uninstall only removes symlinks that point back into this
-  checkout.
-
-Planned, not yet present:
-
-- `lib/pikuri_tui/code/…` — sibling `PikuriTui::Code` namespace
-  for the `bin/pikuri-tui-code` shell. Will reuse the shared pieces
-  (`TuileListener`, `CountingLogIO`, `LogPopup`) and add the
-  code-agent-specific composition (Tuile-based confirmer,
-  coding-tool wiring).
-- `bin/pikuri-tui-code` — same shape as `bin/pikuri-tui-chat`, with the
-  six coding tools, a `Pikuri::Tool::Workspace::Cwd` rooted at
-  `Dir.pwd`, and a Tuile-based confirmer instead of
-  `Pikuri::Tool::Confirmer::TERMINAL`.
+  and `bin/pikuri-tui-code` into `$PREFIX` (default `~/.local/bin`)
+  and remove them again. Uninstall only removes symlinks that point
+  back into this checkout.
 
 ## Conventions
 
