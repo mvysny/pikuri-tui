@@ -152,7 +152,7 @@ module PikuriTui
         flush_assistant(:wipe)
         release_thinking
         @thinking_streamed = false
-        add_block("> #{content}")
+        add_block(@screen.theme.user("> #{content}"))
       in Pikuri::Agent::Event::ThinkingDelta(content:)
         flush_assistant(:wipe)
         @thinking_region ||= @text_view.create_region

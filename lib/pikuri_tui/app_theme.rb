@@ -29,6 +29,10 @@ module PikuriTui
   #   via +StyledString#with_fg+.
   # - +:detail+ — the dim secondary text under a confirmer's question
   #   (the sanitized command/diff detail).
+  # - +:user+ — the +> message+ echo of a user turn in the conversation
+  #   pane. Pure black (+#000000+, an explicit RGB rather than the named
+  #   ANSI black the terminal would remap) on light so it reads as solid
+  #   black, solid white on dark so it stands out the same way there.
   #
   # The markdown body palette ({MarkdownRenderer::AnsiConverter}'s header
   # / emphasis / code SGR codes) is deliberately NOT a theme token: that
@@ -62,6 +66,11 @@ module PikuriTui
     # @return [String] ANSI-rendered text, ending with an SGR reset.
     def detail(text) = fg(:detail, text)
 
+    # Renders +text+ in the +:user+ foreground (the user-turn echo).
+    # @param text [String]
+    # @return [String] ANSI-rendered text, ending with an SGR reset.
+    def user(text) = fg(:user, text)
+
     # The custom tokens tuned for dark terminal backgrounds. The accents
     # are the named ANSI colors (terminal-remapped, so they track the
     # user's own palette — the same rationale {Tuile::Theme::DARK} uses
@@ -74,7 +83,8 @@ module PikuriTui
       notice:   Tuile::Color::YELLOW,
       error:    Tuile::Color::RED,
       thinking: Tuile::Color.new([85, 85, 85]),
-      detail:   Tuile::Color::GREY42
+      detail:   Tuile::Color::GREY42,
+      user:     Tuile::Color.new([255, 255, 255])
     }.freeze
 
     # The custom tokens tuned for light terminal backgrounds: the bright
@@ -89,7 +99,8 @@ module PikuriTui
       notice:   Tuile::Color::DARK_ORANGE3,
       error:    Tuile::Color::RED3,
       thinking: Tuile::Color::GREY46,
-      detail:   Tuile::Color::GREY35
+      detail:   Tuile::Color::GREY35,
+      user:     Tuile::Color.new([0, 0, 0])
     }.freeze
 
     # The dark-background app theme: {Tuile::Theme::DARK}'s built-in

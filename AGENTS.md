@@ -104,7 +104,8 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 - `lib/pikuri_tui/version.rb` — `PikuriTui::VERSION`.
 - `lib/pikuri_tui/app_theme.rb` — `PikuriTui::AppTheme`, a
   `Tuile::Theme` subclass carrying the app's own color tokens
-  (`:tool` / `:notice` / `:error` / `:thinking` / `:detail`) on top
+  (`:tool` / `:notice` / `:error` / `:thinking` / `:detail` /
+  `:user`) on top
   of the built-in accents, with one coloring helper per token, plus
   `DARK` / `LIGHT` and the `THEME_DEF` pair the bins install via
   `screen.theme_def=` (and `spec_helper` via `ThemeDef.default=`).
