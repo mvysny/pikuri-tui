@@ -26,27 +26,33 @@ module PikuriTui
   # missing code to {Tuile::StyledString}'s parser, not to grow a
   # parallel ANSI parser here.
   module AnsiGrayscale
-    # The gray fg every recolored span carries. Matches the
-    # +Rainbow.color(85, 85, 85)+ tone the listener used for thinking
-    # text before this module existed — same SGR (+\e[38;2;85;85;85m+),
-    # kept as a constant so any future adjustment lands in one place.
+    # The fallback tone applied when {.recolor} is called without an
+    # explicit +fg:+ — +#555555+, the +Rainbow.color(85, 85, 85)+ tone the
+    # listener used for thinking text before this module existed (same SGR,
+    # +\e[38;2;85;85;85m+). The themed call sites pass
+    # +AppTheme+'s +:thinking+ token instead (the dark variant is this
+    # same color); this default keeps the module usable — and its spec
+    # screen-free — without a {Tuile::Theme} in hand.
     # @return [Tuile::Color]
     GRAY = Tuile::Color.new([85, 85, 85])
 
     class << self
-      # Repaint +ansi+ as one gray tone, preserving bold/italic/underline.
+      # Repaint +ansi+ as one flat tone, preserving bold/italic/underline.
       # Empty input fast-paths to the empty string.
       #
       # @param ansi [String] ANSI/SGR-coded line. May contain no escapes
       #   (treated as one default-styled span), or arbitrarily many
       #   supported SGR runs.
+      # @param fg [Tuile::Color] the foreground every span is repainted to.
+      #   Defaults to {GRAY}; callers with a {Tuile::Screen} pass their
+      #   theme's +:thinking+ token so the tone tracks light/dark.
       # @return [String] same content, repainted. On parse failure (an
       #   SGR code {Tuile::StyledString} doesn't model), returns +ansi+
       #   unchanged and logs through {Tuile.logger}.
-      def recolor(ansi)
+      def recolor(ansi, fg: GRAY)
         return ansi if ansi.nil? || ansi.empty?
 
-        Tuile::StyledString.parse(ansi).with_fg(GRAY).with_bg(nil).to_ansi
+        Tuile::StyledString.parse(ansi).with_fg(fg).with_bg(nil).to_ansi
       rescue Tuile::StyledString::ParseError => e
         Tuile.logger.warn(
           "AnsiGrayscale.recolor: StyledString parse failed " \

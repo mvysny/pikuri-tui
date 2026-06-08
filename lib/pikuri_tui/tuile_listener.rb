@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'pikuri-core'
-require 'rainbow'
 
 module PikuriTui
   # Tuile-targeted equivalent of +Pikuri::Agent::Listener::Terminal+: renders
@@ -165,7 +164,7 @@ module PikuriTui
           @thinking_buffer.finalize(content)
           release_thinking
         elsif !@thinking_streamed
-          add_block(AnsiGrayscale.recolor(render_markdown(content)))
+          add_block(AnsiGrayscale.recolor(render_markdown(content), fg: @screen.theme[:thinking]))
         end
         @thinking_streamed = false
       in Pikuri::Agent::Event::AssistantDelta(content:)
@@ -186,19 +185,19 @@ module PikuriTui
         flush_assistant(:wipe)
         release_thinking
         args = arguments.map { |k, v| "#{k}=#{v.inspect}" }.join(', ')
-        add_block(Rainbow("→ #{name}(#{args})").cyan.to_s)
+        add_block(@screen.theme.tool("→ #{name}(#{args})"))
       in Pikuri::Agent::Event::ToolResult(content:)
         flush_assistant(:wipe)
         release_thinking
-        add_block(Rainbow("= #{truncate_tool_result(content)}").cyan.to_s)
+        add_block(@screen.theme.tool("= #{truncate_tool_result(content)}"))
       in Pikuri::Agent::Event::FallbackNotice(reason:)
         flush_assistant(:wipe)
         release_thinking
-        add_block(Rainbow("! #{reason}").yellow.to_s)
+        add_block(@screen.theme.notice("! #{reason}"))
       in Pikuri::Agent::Event::Cancelled
         flush_assistant(:preserve)
         release_thinking
-        add_block(Rainbow('! cancelled').red.to_s)
+        add_block(@screen.theme.error('! cancelled'))
       else
         # Tokens / ContextCap: silent here. TokenLog handles them if the
         # host registered one.
@@ -249,11 +248,16 @@ module PikuriTui
     # @param region [Tuile::Component::TextView::Region]
     # @return [StreamingMarkdownBuffer]
     def make_thinking_buffer(region)
+      # Snapshot the theme's reasoning tone at build time (one buffer per
+      # thinking block), the same way {#build_markdown_renderer} snapshots
+      # the width — an OS appearance flip mid-block keeps the tone it
+      # started with rather than splicing two tones into one paragraph.
+      thinking = @screen.theme[:thinking]
       render = if @markdown
                  markdown = build_markdown_renderer
-                 ->(md) { AnsiGrayscale.recolor(markdown.call(md)) }
+                 ->(md) { AnsiGrayscale.recolor(markdown.call(md), fg: thinking) }
                else
-                 AnsiGrayscale.method(:recolor)
+                 ->(md) { AnsiGrayscale.recolor(md, fg: thinking) }
                end
       StreamingMarkdownBuffer.new(render: render, region: region)
     end

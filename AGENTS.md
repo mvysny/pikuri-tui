@@ -102,6 +102,17 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 - `lib/pikuri_tui.rb` — Zeitwerk loader + eager-load over
   `lib/pikuri_tui/`; one require for callers.
 - `lib/pikuri_tui/version.rb` — `PikuriTui::VERSION`.
+- `lib/pikuri_tui/app_theme.rb` — `PikuriTui::AppTheme`, a
+  `Tuile::Theme` subclass carrying the app's own color tokens
+  (`:tool` / `:notice` / `:error` / `:thinking` / `:detail`) on top
+  of the built-in accents, with one coloring helper per token, plus
+  `DARK` / `LIGHT` and the `THEME_DEF` pair the bins install via
+  `screen.theme_def=` (and `spec_helper` via `ThemeDef.default=`).
+  The single source of truth for every UI accent both shells paint;
+  the listener, the apps, and the confirmer read these instead of
+  hardcoding Rainbow colors. The markdown body palette
+  (`AnsiConverter`) is deliberately left out — it renders content,
+  not chrome, and runs screen-agnostically in specs.
 - `lib/pikuri_tui/tuile_listener.rb` — `PikuriTui::TuileListener`,
   a `Pikuri::Agent::Listener::Base` subclass that renders the
   event stream into a `Tuile::Component::TextView` (the
@@ -144,10 +155,12 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   pre-formatted output) where the Markdown renderer would corrupt or
   re-style it.
 - `lib/pikuri_tui/ansi_grayscale.rb` — `PikuriTui::AnsiGrayscale`,
-  repaints an ANSI-colored string as a single muted-gray fg with
+  repaints an ANSI-colored string as a single muted fg with
   structural attributes (bold, italic, underline) preserved. Used
   on the thinking-pane path so reasoning reads as visually
-  distinct from the assistant's final answer.
+  distinct from the assistant's final answer. The tone is the
+  `AppTheme` `:thinking` token the listener passes (`fg:`), so it
+  tracks light/dark; the `GRAY` default is the screen-free fallback.
 - `lib/pikuri_tui/counting_log_io.rb` — `PikuriTui::CountingLogIO`,
   the `IO`-shaped sink that forwards every line to the diagnostic
   `LogWindow` and counts error-class writes so the `Ctrl+L`
@@ -199,7 +212,8 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   until a `y`/`n` (or ESC/`q` decline) resolves it. LLM-supplied
   question/detail pass through `Pikuri::Sanitizer`, whose
   neutralized text + per-attack-class warnings are rendered in the
-  popup body (bold-yellow warnings, like `Confirmer::Terminal`).
+  popup body (warnings in the `AppTheme` `:notice` tone + bold,
+  detail in `:detail`, like `Confirmer::Terminal`).
 - `bin/pikuri-tui-chat` — boot script for the chat agent
   (`Bundler.setup(:default)`): configures `RubyLLM` for the local
   llama.cpp server, builds a streaming `Pikuri::Agent` wired with

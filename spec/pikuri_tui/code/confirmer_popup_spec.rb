@@ -63,7 +63,7 @@ RSpec.describe PikuriTui::Code::ConfirmerPopup do
     let(:answer) { Queue.new }
 
     def dialog(req)
-      described_class.new(request: req, answer: answer)
+      described_class.new(request: req, answer: answer, screen: screen)
     end
 
     it 'pushes true exactly once on y, even though resolve also closes' do
@@ -94,7 +94,7 @@ RSpec.describe PikuriTui::Code::ConfirmerPopup do
     it 'accepts uppercase Y/N and the long forms yes/no' do
       %w[Y yes YES].each do |k|
         a = Queue.new
-        d = described_class.new(request: request, answer: a)
+        d = described_class.new(request: request, answer: a, screen: screen)
         d.open
         d.handle_key(k)
         assert_equal true, a.pop

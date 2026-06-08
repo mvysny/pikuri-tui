@@ -213,6 +213,11 @@ interloper = Pikuri::Agent::Control::Interloper.new
 mcp_registry = Pikuri::Mcp::Registry.new(entries: [])
 
 Tuile::Screen.new
+# Install the app's theme pair (built-in accents + pikuri-tui's own
+# tool/notice/error/thinking/detail tokens) durably, so OS light/dark
+# flips re-pick the legible variant instead of falling back to the
+# stock Tuile theme.
+Tuile::Screen.instance.theme_def = PikuriTui::AppTheme::THEME_DEF
 
 # Constructed up front so both the App (for the footer's status line) and
 # the Agent's ListenerList see the same TokenLog instance.

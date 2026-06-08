@@ -2,7 +2,6 @@
 
 require 'pikuri-core'
 require 'pikuri-workspace'
-require 'rainbow'
 require 'tuile'
 
 module PikuriTui
@@ -81,7 +80,7 @@ module PikuriTui
       def confirm?(request:)
         answer = Queue.new
         @screen.event_queue.submit do
-          Dialog.new(request: request, answer: answer).open
+          Dialog.new(request: request, answer: answer, screen: @screen).open
         end
         answer.pop
       end
@@ -100,11 +99,13 @@ module PikuriTui
         # @param request [Pikuri::Workspace::Confirmer::Request]
         # @param answer [Queue] one-shot channel; the resolved Boolean is
         #   pushed exactly once (see {#close}).
-        def initialize(request:, answer:)
+        # @param screen [Tuile::Screen] the screen whose {AppTheme} colors
+        #   the body — read here at build time on the UI thread.
+        def initialize(request:, answer:, screen:)
           @answer = answer
           @resolved = false
           window = Tuile::Component::Window.new('Confirm')
-          window.content = build_body(request)
+          window.content = build_body(request, screen.theme)
           super(content: window)
         end
 
@@ -157,33 +158,36 @@ module PikuriTui
           close
         end
 
-        # Build the body lines: sanitizer warnings (bold-yellow header +
-        # one yellow explanation each) when anything was flagged, then the
-        # sanitized question (bold), the sanitized detail (dim, split per
-        # line) when present, and the y/n cue. Lines are Rainbow-colored
-        # strings — +List+ parses their embedded ANSI via
-        # +StyledString.parse+ — matching +Confirmer::Terminal+'s
-        # rendering and {App}'s own red error line. Rainbow self-disables
-        # on a non-TTY, so the suite sees plain text.
+        # Build the body lines: sanitizer warnings (bold +:notice+ header +
+        # one +:notice+ explanation each) when anything was flagged, then
+        # the sanitized question (bold, default fg), the sanitized detail
+        # (+:detail+ tone, split per line) when present, and the y/n cue.
+        # Colors come from the {AppTheme} +theme+ so they track light/dark;
+        # lines are ANSI strings (built via {Tuile::StyledString}) that
+        # +List+ re-parses via +StyledString.parse+, matching
+        # +Confirmer::Terminal+'s rendering and {App}'s own error line.
         #
         # No blank spacer lines: +List#lines=+ drops empty entries
         # (trailing empties of each split are stripped), so a +''+ would
         # render nothing — the dialog is intentionally compact.
         #
         # @param request [Pikuri::Workspace::Confirmer::Request]
+        # @param theme [AppTheme] the current theme; supplies the +:notice+
+        #   and +:detail+ tones.
         # @return [Tuile::Component::List] the sanitized, multi-line body
-        def build_body(request)
+        def build_body(request, theme)
           question = Pikuri::Sanitizer.sanitize(request.question)
           detail   = request.detail ? Pikuri::Sanitizer.sanitize(request.detail) : nil
           warnings = question.warnings + (detail ? detail.warnings : [])
 
           lines = []
           unless warnings.empty?
-            lines << Rainbow('⚠ Suspicious content detected — read carefully before approving:').yellow.bold.to_s
-            warnings.each { |w| lines << Rainbow("  ! #{w.explanation}").yellow.to_s }
+            lines << Tuile::StyledString.styled('⚠ Suspicious content detected — read carefully before approving:',
+                                                fg: theme[:notice], bold: true).to_ansi
+            warnings.each { |w| lines << theme.notice("  ! #{w.explanation}") }
           end
-          lines << Rainbow(question.text).bold.to_s
-          detail&.text&.split("\n")&.each { |line| lines << Rainbow(line).dimgray.to_s }
+          lines << Tuile::StyledString.styled(question.text, bold: true).to_ansi
+          detail&.text&.split("\n")&.each { |line| lines << theme.detail(line) }
           lines << '(y) yes   (n) no'
 
           list = Tuile::Component::List.new

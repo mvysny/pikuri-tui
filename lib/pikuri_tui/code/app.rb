@@ -2,7 +2,6 @@
 
 require 'logger'
 require 'pikuri-core'
-require 'rainbow'
 require 'tuile'
 
 module PikuriTui
@@ -184,7 +183,7 @@ module PikuriTui
         @screen.register_global_shortcut(
           Tuile::Keys::CTRL_C,
           over_popups: true,
-          hint: "^C #{Rainbow('cancel').red}"
+          hint: "^C #{@screen.theme.error('cancel')}"
         ) { cancel_turn }
       end
 
@@ -259,7 +258,7 @@ module PikuriTui
             "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"
           )
           @screen.event_queue.submit do
-            @conversation_view.add_line(Rainbow("! #{e.class}: #{e.message}").red.to_s)
+            @conversation_view.add_line(@screen.theme.error("! #{e.class}: #{e.message}"))
           end
         ensure
           @screen.event_queue.submit do
@@ -324,17 +323,17 @@ module PikuriTui
         install_log_shortcut
       end
 
-      # The status-bar hint advertised for +Ctrl+L+: plain "logs" in
-      # cadetblue at zero errors, a red "⚠ logs (N)" tally otherwise.
-      # Pure read of {@error_count}; all callers are on the event-loop
-      # thread.
+      # The status-bar hint advertised for +Ctrl+L+: plain "logs" in the
+      # theme's +hint_color+ at zero errors, a +:error+-toned "⚠ logs (N)"
+      # tally otherwise. Pure read of {@error_count}; all callers are on
+      # the event-loop thread.
       #
       # @return [String]
       def log_hint
         if @error_count.zero?
-          "^L #{Rainbow('logs').cadetblue}"
+          "^L #{@screen.theme.hint('logs')}"
         else
-          "^L #{Rainbow("⚠ logs (#{@error_count})").red}"
+          "^L #{@screen.theme.error("⚠ logs (#{@error_count})")}"
         end
       end
 

@@ -29,6 +29,13 @@ require 'pikuri-subagents'
 
 require 'pikuri_tui'
 
+# Point the construction-time theme default at the app's theme pair so
+# every +Tuile::Screen.fake+ a spec builds resolves pikuri-tui's custom
+# tokens (+theme[:tool]+, +theme.error(…)+, …); without this a component
+# reading one would +KeyError+ against the stock Tuile default. Production
+# bins assign +screen.theme_def=+ once at boot instead.
+Tuile::ThemeDef.default = PikuriTui::AppTheme::THEME_DEF
+
 # Silence pikuri's default $stderr logging during the suite so production
 # log lines don't bleed into rspec output. Specs that exercise logging
 # swap +Pikuri.log_io+ to a +StringIO+ or a +CountingLogIO+ wired against
