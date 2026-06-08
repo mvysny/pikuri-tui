@@ -5,11 +5,12 @@ require 'tomlrb'
 module PikuriTui
   # Layered TOML configuration shared by both shells.
   #
-  # Hosts the resolved config values (the model connections, the coding
-  # shell's sandbox / confirm switches, and its MCP server list), loads
-  # them from the XDG config search path, and overlays the command-line
-  # overrides the bins pass in. One {Config} is built once at boot, before
-  # the screen is up, and read from there on.
+  # Hosts the resolved config values (the model connections, the
+  # web-search provider keys, the coding shell's sandbox / confirm
+  # switches, and its MCP server list), loads them from the XDG config
+  # search path, and overlays the command-line overrides the bins pass in.
+  # One {Config} is built once at boot, before the screen is up, and read
+  # from there on.
   #
   # == Precedence
   #
@@ -18,11 +19,14 @@ module PikuriTui
   # +$XDG_CONFIG_HOME/pikuri/config.toml+ (default +~/.config+) → CLI
   # overrides. Files merge deeply (tables key-by-key); arrays — the
   # +[[llm]]+ list and the +[[code.mcp]]+ list — replace wholesale, nearest
-  # file wins. CLI overrides sit on top of all of it.
+  # file wins. CLI overrides sit on top of all of it. The +[search]+ table
+  # merges key-by-key like any table, so a system file can supply
+  # +brave_key+ while the user file adds +exa_key+.
   #
   # There is deliberately no project-local layer: a config file inside the
   # repo would be git-committable and readable by the sandboxed coding
-  # agent — exactly where a literal {Llm#api_key} must not live.
+  # agent — exactly where a literal {Llm#api_key} or {Search} provider key
+  # must not live.
   #
   # == The Pikuri seam
   #
@@ -89,6 +93,25 @@ module PikuriTui
       def http? = !url.nil?
     end
 
+    # The web-search provider keys, shared by both shells (chat wires
+    # +web_search+ as a main tool, the coding shell as a sub-agent-only
+    # tool). Both fields are +nil+ when omitted; pikuri's search cascade
+    # then runs DuckDuckGo-only and the paid provider simply stays out.
+    #
+    # These are secrets and get the same treatment as {Llm#api_key}: stored
+    # literally in this parent-only file (never an env var pikuri would
+    # inherit into the sandboxed bash / stdio MCP subprocesses, never a CLI
+    # flag visible in +ps+), outside the workspace the coding agent reads,
+    # and flagged by {Config#warnings} when the file has loose permissions.
+    # Field names match +Pikuri::Tool::WebSearch.build+'s keyword arguments
+    # 1:1 — the bins pass them straight through (see the "Pikuri seam" note).
+    #
+    # @!attribute [r] brave_key
+    #   @return [String, nil] Brave Search API key, or +nil+ when unset.
+    # @!attribute [r] exa_key
+    #   @return [String, nil] Exa API key, or +nil+ when unset.
+    Search = Data.define(:brave_key, :exa_key)
+
     # @return [String] display name of the synthetic default connection.
     DEFAULT_LLM_NAME = 'Local Qwen 3.6'
     # @return [String] default LLM server base URL (local llama.cpp).
@@ -142,6 +165,7 @@ module PikuriTui
 
       new(
         llms:     apply_llm_overrides(llms, overrides),
+        search:   build_search(merged['search']),
         sandbox:  pick(overrides[:sandbox], code['sandbox'], DEFAULT_SANDBOX),
         confirm:  pick(overrides[:confirm], code['confirm'], DEFAULT_CONFIRM),
         mcp:      mcp,
@@ -150,12 +174,14 @@ module PikuriTui
     end
 
     # @param llms [Array<Llm>] one or more model connections (never empty).
+    # @param search [Search] web-search provider keys (fields may be nil).
     # @param sandbox [Boolean] resolved coding sandbox switch.
     # @param confirm [Boolean] resolved coding confirmer switch.
     # @param mcp [Array<McpServer>] coding-shell MCP servers (may be empty).
     # @param warnings [Array<String>] non-fatal load advisories.
-    def initialize(llms:, sandbox:, confirm:, mcp:, warnings: [])
+    def initialize(llms:, search:, sandbox:, confirm:, mcp:, warnings: [])
       @llms     = llms.freeze
+      @search   = search
       @sandbox  = sandbox
       @confirm  = confirm
       @mcp      = mcp.freeze
@@ -165,6 +191,8 @@ module PikuriTui
 
     # @return [Array<Llm>] all configured connections, declaration order.
     attr_reader :llms
+    # @return [Search] the web-search provider keys (fields may be nil).
+    attr_reader :search
     # @return [Boolean] coding sandbox switch (flag > file > default).
     attr_reader :sandbox
     # @return [Boolean] coding confirmer switch (flag > file > default).
@@ -193,21 +221,31 @@ module PikuriTui
       paths
     end
 
-    # Advise (non-fatally) when a file carrying a literal api_key is
+    # Advise (non-fatally) when a file carrying a literal secret (an
+    # +[[llm]]+ api_key or a +[search]+ provider key) is
     # group/other-accessible — a plaintext secret should be +chmod 600+.
     # Only files that actually contain a secret are checked, so a
     # world-readable but secret-free /etc/xdg config raises no noise.
     def self.warn_loose_perms(path, parsed, warnings)
-      llms = parsed['llm']
-      return unless llms.is_a?(Array) && llms.any? { |e| e.is_a?(Hash) && e['api_key'] }
+      return unless holds_secret?(parsed)
 
       mode = File.stat(path).mode
       return if (mode & 0o077).zero?
 
-      warnings << "#{path} holds a literal api_key but is group/other-accessible " \
+      warnings << "#{path} holds a literal secret but is group/other-accessible " \
                   "(mode #{format('%04o', mode & 0o7777)}); run `chmod 600 #{path}`."
     rescue SystemCallError
       # stat failed (race, odd filesystem) — skip the advisory, never fatal.
+    end
+
+    # @return [Boolean] true when the parsed file carries any literal secret
+    #   (an +[[llm]]+ +api_key+ or a +[search]+ +brave_key+/+exa_key+).
+    def self.holds_secret?(parsed)
+      llms = parsed['llm']
+      return true if llms.is_a?(Array) && llms.any? { |e| e.is_a?(Hash) && e['api_key'] }
+
+      search = parsed['search']
+      search.is_a?(Hash) && (search['brave_key'] || search['exa_key'])
     end
 
     # Parse one file, wrapping any failure (read error, TOML syntax) in
@@ -228,14 +266,31 @@ module PikuriTui
     end
 
     def self.validate_top!(merged)
-      unknown = merged.keys - %w[llm code]
+      unknown = merged.keys - %w[llm search code]
       raise Error, "unknown top-level key(s): #{unknown.join(', ')}" unless unknown.empty?
       if merged.key?('llm') && !merged['llm'].is_a?(Array)
         raise Error, '`llm` must be an array of tables (use [[llm]], not [llm])'
       end
+      if merged.key?('search') && !merged['search'].is_a?(Hash)
+        raise Error, '`search` must be a table ([search])'
+      end
       return unless merged.key?('code') && !merged['code'].is_a?(Hash)
 
       raise Error, '`code` must be a table ([code])'
+    end
+
+    # Build the {Search} value object from the +[search]+ table (or +nil+
+    # when the section is absent — both keys then default to +nil+). Rejects
+    # unknown keys and non-string values.
+    def self.build_search(table)
+      table ||= {}
+      unknown = table.keys - %w[brave_key exa_key]
+      raise Error, "search: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
+      %w[brave_key exa_key].each do |k|
+        raise Error, "search.#{k} must be a string" if table[k] && !table[k].is_a?(String)
+      end
+
+      Search.new(brave_key: table['brave_key'], exa_key: table['exa_key'])
     end
 
     def self.validate_code!(code)
@@ -325,8 +380,8 @@ module PikuriTui
 
     def self.non_empty_string?(value) = value.is_a?(String) && !value.strip.empty?
 
-    private_class_method :candidate_paths, :warn_loose_perms, :parse_file, :deep_merge, :validate_top!,
-                         :validate_code!, :build_llm, :build_mcp, :apply_llm_overrides, :default_llm, :pick,
-                         :check_unique!, :non_empty_string?
+    private_class_method :candidate_paths, :warn_loose_perms, :holds_secret?, :parse_file, :deep_merge,
+                         :validate_top!, :validate_code!, :build_llm, :build_mcp, :build_search,
+                         :apply_llm_overrides, :default_llm, :pick, :check_unique!, :non_empty_string?
   end
 end

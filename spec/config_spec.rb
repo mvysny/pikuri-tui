@@ -56,6 +56,12 @@ describe PikuriTui::Config do
       assert c.confirm
       assert_empty c.mcp
     end
+
+    it 'leaves both search provider keys nil' do
+      c = load_bare
+      assert_nil c.search.brave_key
+      assert_nil c.search.exa_key
+    end
   end
 
   describe 'CLI overrides (highest precedence)' do
@@ -118,6 +124,24 @@ describe PikuriTui::Config do
         assert_equal 'https://mcp.example.com/v1', c.mcp[1].url
       end
     end
+
+    it 'reads the brave/exa keys from a [search] table' do
+      with_dirs do |home, _|
+        write_config(home, "[search]\nbrave_key = \"BSA-123\"\nexa_key = \"exa-456\"")
+        c = described_class.load(env: env_for(home))
+        assert_equal 'BSA-123', c.search.brave_key
+        assert_equal 'exa-456', c.search.exa_key
+      end
+    end
+
+    it 'leaves the unset search key nil when only one provider is configured' do
+      with_dirs do |home, _|
+        write_config(home, "[search]\nbrave_key = \"BSA-123\"")
+        c = described_class.load(env: env_for(home))
+        assert_equal 'BSA-123', c.search.brave_key
+        assert_nil c.search.exa_key
+      end
+    end
   end
 
   describe 'layering (XDG_CONFIG_DIRS < XDG_CONFIG_HOME)' do
@@ -137,6 +161,16 @@ describe PikuriTui::Config do
         write_config(home, "[code]\nconfirm = false\n")
         c = described_class.load(env: env_for(home, dirs: sys))
         refute c.confirm
+      end
+    end
+
+    it 'merges the [search] table key-by-key (system brave + user exa)' do
+      with_dirs do |home, sys|
+        write_config(sys, "[search]\nbrave_key = \"BSA-sys\"\n")
+        write_config(home, "[search]\nexa_key = \"exa-user\"\n")
+        c = described_class.load(env: env_for(home, dirs: sys))
+        assert_equal 'BSA-sys', c.search.brave_key
+        assert_equal 'exa-user', c.search.exa_key
       end
     end
   end
@@ -167,6 +201,16 @@ describe PikuriTui::Config do
         File.chmod(0o644, path)
         c = described_class.load(env: env_for(home))
         assert_empty c.warnings
+      end
+    end
+
+    it 'warns when a file holding a [search] provider key is group/other-accessible' do
+      with_dirs do |home, _|
+        path = write_config(home, "[search]\nbrave_key = \"BSA-secret\"")
+        File.chmod(0o644, path)
+        c = described_class.load(env: env_for(home))
+        assert_equal 1, c.warnings.size
+        assert_includes c.warnings.first, 'chmod 600'
       end
     end
   end
@@ -224,6 +268,21 @@ describe PikuriTui::Config do
     it 'rejects a non-boolean sandbox' do
       e = expect_error("[code]\nsandbox = \"yes\"")
       assert_includes e.message, 'true or false'
+    end
+
+    it 'rejects an unknown key in the [search] table' do
+      e = expect_error("[search]\ngoogle_key = \"g\"")
+      assert_includes e.message, 'unknown key'
+    end
+
+    it 'rejects a non-string search key' do
+      e = expect_error("[search]\nbrave_key = 42")
+      assert_includes e.message, 'must be a string'
+    end
+
+    it 'rejects [search] declared as an array of tables' do
+      e = expect_error("[[search]]\nbrave_key = \"b\"")
+      assert_includes e.message, 'must be a table'
     end
 
     it 'wraps malformed TOML in Config::Error' do
