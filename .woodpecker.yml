@@ -3,7 +3,7 @@ when:
 
 steps:
   - name: test
-    image: ruby:4.0
+    image: ruby:3.3
     environment:
       BUNDLE_PATH: vendor/bundle
       S3_ENDPOINT: https://hel1.your-objectstorage.com
