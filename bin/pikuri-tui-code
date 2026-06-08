@@ -41,20 +41,24 @@ require 'pikuri-mcp'
 require 'pikuri-subagents'
 require 'pikuri_tui'
 
-sandbox_enabled = true
-confirm_enabled = true
+# CLI overrides start nil ("flag not given") so PikuriTui::Config can tell
+# an explicit flag from an absent one. The sandbox/confirm flags only ever
+# force false (there is no --sandbox / --confirm); config sets the baseline.
+# Built-in defaults live in PikuriTui::Config, shown in --help.
 yolo = false
 extra_readable = []
 extra_writable = []
-server = 'http://localhost:8080'
-model  = 'unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M'
-api_key_env = 'OPENAI_API_KEY'
+cli_sandbox = nil
+cli_confirm = nil
+cli_server  = nil
+cli_model   = nil
+cli_api_key_env = nil
 
 parser = OptionParser.new do |opts|
   opts.banner = 'Usage: pikuri-tui-code [options]'
   opts.separator ''
   opts.separator 'Options:'
-  opts.on('--no-sandbox', 'Disable the bubblewrap sandbox around bash commands.') { sandbox_enabled = false }
+  opts.on('--no-sandbox', 'Disable the bubblewrap sandbox around bash commands.') { cli_sandbox = false }
   # Expanded eagerly (the handler runs at parse!, before the chdir to the
   # discovered project root below) so relative paths and ~ resolve
   # against where the user launched, not where the project lives.
@@ -64,16 +68,18 @@ parser = OptionParser.new do |opts|
   opts.on('--writable PATH', 'Additional read+write directory (repeatable).') do |v|
     extra_writable << File.expand_path(v)
   end
-  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n popup for writes + bash).') { confirm_enabled = false }
+  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n popup for writes + bash).') { cli_confirm = false }
   opts.on('--yolo', 'Combines --no-sandbox + --no-confirm + opens the filesystem ' \
                     '(credential denylist only). Use only inside a container.') do
-    sandbox_enabled = false
-    confirm_enabled = false
+    cli_sandbox = false
+    cli_confirm = false
     yolo = true
   end
-  opts.on('--server URL', "LLM server base URL (default: #{server})") { |v| server = v }
-  opts.on('--model NAME', "Model identifier (default: #{model})") { |v| model = v }
-  opts.on('--api-key-env VAR', "Env var holding the API key (default: #{api_key_env})") { |v| api_key_env = v }
+  opts.on('--server URL', "LLM server base URL (default: #{PikuriTui::Config::DEFAULT_SERVER})") { |v| cli_server = v }
+  opts.on('--model NAME', "Model identifier (default: #{PikuriTui::Config::DEFAULT_MODEL})") { |v| cli_model = v }
+  opts.on('--api-key-env VAR', "Env var holding the API key (default: #{PikuriTui::Config::DEFAULT_API_KEY_ENV})") do |v|
+    cli_api_key_env = v
+  end
   opts.on('-h', '--help', 'Print this help and exit') do
     puts opts
     exit
@@ -107,6 +113,29 @@ launch_cwd   = Pathname.new(Dir.pwd)
 project_root = Pikuri::Workspace::ProjectRoot.find(cwd: launch_cwd) || launch_cwd
 chdir_notice = ("Changing working directory to project root: #{project_root}" if Dir.pwd != project_root.to_s)
 Dir.chdir(project_root.to_s) if chdir_notice
+
+# Load the layered config now that we are anchored at the project root — its
+# ./.pikuri/config.toml is the highest file layer. CLI flags overlay it; the
+# sandbox/confirm flags force false. Boot-time, before the screen is up, so a
+# bad file is a plain warn + exit rather than a torn-down TUI.
+begin
+  config = PikuriTui::Config.load(
+    project_dir: project_root.to_s,
+    overrides: {
+      server: cli_server, model: cli_model, api_key_env: cli_api_key_env,
+      sandbox: cli_sandbox, confirm: cli_confirm
+    }
+  )
+rescue PikuriTui::Config::Error => e
+  warn "config error: #{e.message}"
+  exit 2
+end
+
+sandbox_enabled = config.sandbox
+confirm_enabled = config.confirm
+# The first connection is the one both shells use for now (the TUI will
+# switch between PikuriTui::Config#llms by name later).
+llm = config.primary_llm
 
 # Skill catalog: project root + Dir.home as search bases (project beats
 # global). Catalog roots are folded into the workspace's readable set so
@@ -178,12 +207,17 @@ system_prompt += if sandbox_enabled
                      "(keeps the host's /tmp clean)."
                  end
 
-server = server.chomp('/')
+server = llm.server.chomp('/')
+model = llm.model
+api_key_env = llm.api_key_env
 openai_api_base = "#{server}/v1"
 
-api_key = ENV[api_key_env]
-api_key_missing = api_key.nil? || api_key.strip.empty?
-api_key = 'not-needed' if api_key_missing
+# api_key_env is nil when the selected connection omits it — then there is
+# no env var to read and we go straight to the "not-needed" fallback (fine
+# for a local llama.cpp). A named-but-blank var is the warn-worthy case.
+api_key = api_key_env && ENV[api_key_env]
+api_key_blank = api_key.nil? || api_key.strip.empty?
+api_key = 'not-needed' if api_key_blank
 
 Pikuri::Extractors::PDF.register
 
@@ -206,11 +240,21 @@ cancel_flag = Pikuri::Agent::Control::Cancellable.new
 # turn when the loop ends.
 interloper = Pikuri::Agent::Control::Interloper.new
 
-# MCP servers available to the assistant. Empty by default — the coding
-# shell behaves identically with no MCP wiring until an entry is added
-# here. (Empty registry ⇒ Mcp::Extension's boot-time synthesize/verify
-# LLM calls are no-ops, so Agent construction stays offline.)
-mcp_registry = Pikuri::Mcp::Registry.new(entries: [])
+# MCP servers available to the assistant, declared in [[code.mcp]]. Empty
+# by default — the coding shell behaves identically with no MCP wiring
+# until a config entry is added. (Empty registry ⇒ Mcp::Extension's
+# boot-time synthesize/verify LLM calls are no-ops, so Agent construction
+# stays offline.) The translation from PikuriTui::Config's Pikuri-free
+# McpServer value objects into Registry entries lives here, in the wiring
+# layer where Pikuri::* references are allowed (see Config's class header).
+mcp_entries = config.mcp.map do |m|
+  if m.stdio?
+    Pikuri::Mcp::Registry::StdioEntry.new(id: m.id, command: m.command)
+  else
+    Pikuri::Mcp::Registry::HttpEntry.new(id: m.id, url: m.url)
+  end
+end
+mcp_registry = Pikuri::Mcp::Registry.new(entries: mcp_entries)
 
 Tuile::Screen.new
 # Install the app's theme pair (built-in accents + pikuri-tui's own
@@ -322,7 +366,7 @@ unless skill_catalog.empty?
   names = skill_catalog.list.map(&:name).sort.join(', ')
   Tuile.logger.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
 end
-if api_key_missing
+if api_key_env && api_key_blank
   Tuile.logger.warn(
     "API key env var #{api_key_env} is blank or unset; falling back to \"not-needed\" " \
     '(fine for local llama.cpp, will fail against authenticated remotes)'

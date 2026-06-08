@@ -114,6 +114,20 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   hardcoding Rainbow colors. The markdown body palette
   (`AnsiConverter`) is deliberately left out — it renders content,
   not chrome, and runs screen-agnostically in specs.
+- `lib/pikuri_tui/config.rb` — `PikuriTui::Config`, the layered
+  TOML configuration both shells load at boot. Resolves the model
+  connections (`[[llm]]`), the coding shell's `sandbox` / `confirm`
+  switches, and its MCP servers (`[[code.mcp]]`) from the XDG search
+  path (`/etc/xdg` → `$XDG_CONFIG_HOME` → `./.pikuri`, deep-merged,
+  arrays replace) with CLI overrides on top. Parsed with `tomlrb`
+  (parse-only, zero-dep) and validated by hand. Deliberately free of
+  every `Pikuri::*` reference — it is eager-loaded by the chat shell,
+  whose `Bundler.setup(:default)` lacks `pikuri-mcp` — so MCP servers
+  surface as plain `Config::McpServer` value objects whose field
+  names match `Pikuri::Mcp::Registry`'s entries 1:1, and the coding
+  bin does the trivial pass-through into `Registry::StdioEntry` /
+  `HttpEntry`. Hosts the built-in defaults (`DEFAULT_SERVER` /
+  `DEFAULT_MODEL` / …) the bins show in `--help`.
 - `lib/pikuri_tui/tuile_listener.rb` — `PikuriTui::TuileListener`,
   a `Pikuri::Agent::Listener::Base` subclass that renders the
   event stream into a `Tuile::Component::TextView` (the

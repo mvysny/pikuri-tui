@@ -30,6 +30,16 @@ gem 'kramdown-parser-gfm', '~> 1.1'
 # us stuck.
 gem 'rouge', '>= 4.0', '< 6'
 
+# TOML parser for the layered config file (PikuriTui::Config). Pure Ruby,
+# parse-only (we only ever READ config, never serialize), with ZERO runtime
+# dependencies — chosen over toml-rb after vetting: toml-rb pulls in citrus,
+# which was last released in 2015 and ships no license. tomlrb is MIT,
+# actively maintained, and the most-downloaded TOML gem. In :default because
+# BOTH shells read config — the chat shell needs the [[llm]] section, the
+# coding shell that plus [code] / [[code.mcp]]. We parse TOML into a Hash
+# and validate that Hash by hand (the schema is tiny); no JSON Schema gem.
+gem 'tomlrb', '~> 2.0'
+
 # The pikuri-core gem — Agent, Tool, prompts, listeners. The lean
 # foundation of pikuri's seven-gem monorepo split (the +pikuri+
 # metagem also exists and pulls in every sibling; we only need a
