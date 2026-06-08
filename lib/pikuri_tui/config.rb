@@ -15,11 +15,14 @@ module PikuriTui
   #
   # Lowest to highest: built-in defaults → +/etc/xdg/pikuri/config.toml+
   # (each +$XDG_CONFIG_DIRS+ entry, earlier = higher) →
-  # +$XDG_CONFIG_HOME/pikuri/config.toml+ (default +~/.config+) →
-  # +./.pikuri/config.toml+ (project-local) → CLI overrides. Files merge
-  # deeply (tables key-by-key); arrays — the +[[llm]]+ list and the
-  # +[[code.mcp]]+ list — replace wholesale, nearest file wins. CLI
-  # overrides sit on top of all of it.
+  # +$XDG_CONFIG_HOME/pikuri/config.toml+ (default +~/.config+) → CLI
+  # overrides. Files merge deeply (tables key-by-key); arrays — the
+  # +[[llm]]+ list and the +[[code.mcp]]+ list — replace wholesale, nearest
+  # file wins. CLI overrides sit on top of all of it.
+  #
+  # There is deliberately no project-local layer: a config file inside the
+  # repo would be git-committable and readable by the sandboxed coding
+  # agent — exactly where a literal {Llm#api_key} must not live.
   #
   # == The Pikuri seam
   #
@@ -52,11 +55,18 @@ module PikuriTui
     #   @return [String] LLM server base URL (no +/v1+ suffix).
     # @!attribute [r] model
     #   @return [String] model identifier passed to the transport.
-    # @!attribute [r] api_key_env
-    #   @return [String, nil] name of the env var holding the API key, or
-    #     +nil+ when the entry omits it (the bins then fall back to
-    #     +"not-needed"+, fine for a local llama.cpp).
-    Llm = Data.define(:name, :server, :model, :api_key_env)
+    # @!attribute [r] api_key
+    #   @return [String, nil] the API key/token, stored literally, or +nil+
+    #     when the entry omits it (the bins then fall back to +"not-needed"+,
+    #     fine for a local llama.cpp). Kept in this file rather than an env
+    #     var on purpose: the environment is inherited by every subprocess
+    #     pikuri spawns — sandboxed bash, stdio MCP servers — so a key there
+    #     leaks to code the agent runs, whereas this file is read only by the
+    #     parent and never exported. It also lives outside the workspace the
+    #     coding agent can read. Both protections rely on the file sitting in
+    #     the user/system config (see {.load}); project-local files are not
+    #     loaded for exactly this reason.
+    Llm = Data.define(:name, :server, :model, :api_key)
 
     # One MCP server definition (coding shell only). Exactly one of
     # {#command} (local stdio subprocess) / {#url} (remote HTTP) is
@@ -85,42 +95,39 @@ module PikuriTui
     DEFAULT_SERVER = 'http://localhost:8080'
     # @return [String] default model identifier.
     DEFAULT_MODEL = 'unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M'
-    # @return [String] default API-key env var name (preserves the bins'
-    #   historical zero-config behavior; a user-authored entry that omits
-    #   +api_key_env+ resolves to +nil+, not this).
-    DEFAULT_API_KEY_ENV = 'OPENAI_API_KEY'
     # @return [Boolean] sandbox on unless a file or +--no-sandbox+ says otherwise.
     DEFAULT_SANDBOX = true
     # @return [Boolean] confirm on unless a file or +--no-confirm+ says otherwise.
     DEFAULT_CONFIRM = true
 
-    # Config file basename, the per-app subdirectory under each XDG config
-    # root, and the project-local directory.
-    FILENAME        = 'config.toml'
-    XDG_SUBDIR      = 'pikuri'
-    PROJECT_SUBDIR  = '.pikuri'
+    # Config file basename and the per-app subdirectory under each XDG
+    # config root.
+    FILENAME   = 'config.toml'
+    XDG_SUBDIR = 'pikuri'
 
     # Load and resolve the layered configuration.
     #
     # @param overrides [Hash{Symbol => String, Boolean, nil}] CLI
     #   overrides; +nil+ values are ignored (treated as "flag not given").
-    #   Recognized keys: +:server+, +:model+, +:api_key_env+ (each
-    #   overrides the field of the primary {Llm}); +:sandbox+, +:confirm+
-    #   (override the coding switches — pass +false+ for +--no-sandbox+ /
-    #   +--no-confirm+ / +--yolo+).
+    #   Recognized keys: +:server+, +:model+ (each overrides the field of
+    #   the primary {Llm}); +:sandbox+, +:confirm+ (override the coding
+    #   switches — pass +false+ for +--no-sandbox+ / +--no-confirm+ /
+    #   +--yolo+). There is no key override: a secret must never travel on
+    #   the command line (visible in +ps+ and shell history) — it comes
+    #   only from {Llm#api_key} in this file.
     # @param env [#[]] environment consulted for +XDG_CONFIG_HOME+ /
     #   +XDG_CONFIG_DIRS+. Defaults to +ENV+; injectable for tests.
-    # @param project_dir [String] directory whose +./.pikuri/config.toml+
-    #   is the highest-priority file layer. Defaults to +Dir.pwd+ (the
-    #   coding bin chdirs to the project root before calling this).
     # @return [Config] the resolved configuration.
     # @raise [Error] on an unreadable / malformed / schema-invalid file.
-    def self.load(overrides: {}, env: ENV, project_dir: Dir.pwd)
+    def self.load(overrides: {}, env: ENV)
       merged = {}
-      candidate_paths(env, project_dir).each do |path|
+      warnings = []
+      candidate_paths(env).each do |path|
         next unless File.file?(path)
 
-        merged = deep_merge(merged, parse_file(path))
+        parsed = parse_file(path)
+        warn_loose_perms(path, parsed, warnings)
+        merged = deep_merge(merged, parsed)
       end
       validate_top!(merged)
 
@@ -134,10 +141,11 @@ module PikuriTui
       check_unique!(mcp.map(&:id), 'code.mcp id')
 
       new(
-        llms:    apply_llm_overrides(llms, overrides),
-        sandbox: pick(overrides[:sandbox], code['sandbox'], DEFAULT_SANDBOX),
-        confirm: pick(overrides[:confirm], code['confirm'], DEFAULT_CONFIRM),
-        mcp:     mcp
+        llms:     apply_llm_overrides(llms, overrides),
+        sandbox:  pick(overrides[:sandbox], code['sandbox'], DEFAULT_SANDBOX),
+        confirm:  pick(overrides[:confirm], code['confirm'], DEFAULT_CONFIRM),
+        mcp:      mcp,
+        warnings: warnings
       )
     end
 
@@ -145,11 +153,13 @@ module PikuriTui
     # @param sandbox [Boolean] resolved coding sandbox switch.
     # @param confirm [Boolean] resolved coding confirmer switch.
     # @param mcp [Array<McpServer>] coding-shell MCP servers (may be empty).
-    def initialize(llms:, sandbox:, confirm:, mcp:)
-      @llms    = llms.freeze
-      @sandbox = sandbox
-      @confirm = confirm
-      @mcp     = mcp.freeze
+    # @param warnings [Array<String>] non-fatal load advisories.
+    def initialize(llms:, sandbox:, confirm:, mcp:, warnings: [])
+      @llms     = llms.freeze
+      @sandbox  = sandbox
+      @confirm  = confirm
+      @mcp      = mcp.freeze
+      @warnings = warnings.freeze
       freeze
     end
 
@@ -162,21 +172,42 @@ module PikuriTui
     # @return [Array<McpServer>] coding-shell MCP servers, declaration order.
     attr_reader :mcp
 
+    # @return [Array<String>] non-fatal advisories raised while loading
+    #   (e.g. a file holding a literal api_key with loose permissions). The
+    #   bins surface these through the diagnostic log.
+    attr_reader :warnings
+
     # @return [Llm] the connection both shells use for now (the first).
     def primary_llm = @llms.first
 
     # File layers, lowest priority first. +$XDG_CONFIG_DIRS+ (default
     # +/etc/xdg+) is +:+-separated with earlier entries ranking higher, so
     # we append them reversed; +$XDG_CONFIG_HOME+ (default +~/.config+)
-    # outranks all of them; the project-local file outranks everything.
-    def self.candidate_paths(env, project_dir)
+    # outranks all of them. No project-local layer — see the class header.
+    def self.candidate_paths(env)
       paths = []
       dirs = env['XDG_CONFIG_DIRS'].to_s.empty? ? '/etc/xdg' : env['XDG_CONFIG_DIRS']
       dirs.split(':').reverse_each { |d| paths << File.join(d, XDG_SUBDIR, FILENAME) }
       home = env['XDG_CONFIG_HOME'].to_s.empty? ? File.join(Dir.home, '.config') : env['XDG_CONFIG_HOME']
       paths << File.join(home, XDG_SUBDIR, FILENAME)
-      paths << File.join(project_dir, PROJECT_SUBDIR, FILENAME)
       paths
+    end
+
+    # Advise (non-fatally) when a file carrying a literal api_key is
+    # group/other-accessible — a plaintext secret should be +chmod 600+.
+    # Only files that actually contain a secret are checked, so a
+    # world-readable but secret-free /etc/xdg config raises no noise.
+    def self.warn_loose_perms(path, parsed, warnings)
+      llms = parsed['llm']
+      return unless llms.is_a?(Array) && llms.any? { |e| e.is_a?(Hash) && e['api_key'] }
+
+      mode = File.stat(path).mode
+      return if (mode & 0o077).zero?
+
+      warnings << "#{path} holds a literal api_key but is group/other-accessible " \
+                  "(mode #{format('%04o', mode & 0o7777)}); run `chmod 600 #{path}`."
+    rescue SystemCallError
+      # stat failed (race, odd filesystem) — skip the advisory, never fatal.
     end
 
     # Parse one file, wrapping any failure (read error, TOML syntax) in
@@ -221,21 +252,21 @@ module PikuriTui
     def self.build_llm(hash, index)
       raise Error, "llm[#{index}] must be a table" unless hash.is_a?(Hash)
 
-      unknown = hash.keys - %w[name server model api_key_env]
+      unknown = hash.keys - %w[name server model api_key]
       raise Error, "llm[#{index}]: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
 
       name = hash['name']
       raise Error, "llm[#{index}]: `name` is required and must be a non-empty string" unless non_empty_string?(name)
 
-      %w[server model api_key_env].each do |k|
+      %w[server model api_key].each do |k|
         raise Error, "llm #{name.inspect}: `#{k}` must be a string" if hash[k] && !hash[k].is_a?(String)
       end
 
       Llm.new(
-        name:        name,
-        server:      hash['server'] || DEFAULT_SERVER,
-        model:       hash['model'] || DEFAULT_MODEL,
-        api_key_env: hash['api_key_env'] # nil when omitted → "not-needed" at the bin
+        name:    name,
+        server:  hash['server'] || DEFAULT_SERVER,
+        model:   hash['model'] || DEFAULT_MODEL,
+        api_key: hash['api_key'] # nil when omitted → "not-needed" at the bin
       )
     end
 
@@ -270,18 +301,17 @@ module PikuriTui
     # the loaded/default value. Only the first {Llm} is touched — it is the
     # one both shells use today.
     def self.apply_llm_overrides(llms, overrides)
-      return llms unless overrides[:server] || overrides[:model] || overrides[:api_key_env]
+      return llms unless overrides[:server] || overrides[:model]
 
       primary = llms.first.with(
-        server:      overrides[:server] || llms.first.server,
-        model:       overrides[:model] || llms.first.model,
-        api_key_env: overrides[:api_key_env] || llms.first.api_key_env
+        server: overrides[:server] || llms.first.server,
+        model:  overrides[:model] || llms.first.model
       )
       [primary, *llms[1..]]
     end
 
     def self.default_llm
-      Llm.new(name: DEFAULT_LLM_NAME, server: DEFAULT_SERVER, model: DEFAULT_MODEL, api_key_env: DEFAULT_API_KEY_ENV)
+      Llm.new(name: DEFAULT_LLM_NAME, server: DEFAULT_SERVER, model: DEFAULT_MODEL, api_key: nil)
     end
 
     # First non-nil value — precedence resolution that treats +false+ as a
@@ -295,8 +325,8 @@ module PikuriTui
 
     def self.non_empty_string?(value) = value.is_a?(String) && !value.strip.empty?
 
-    private_class_method :candidate_paths, :parse_file, :deep_merge, :validate_top!, :validate_code!,
-                         :build_llm, :build_mcp, :apply_llm_overrides, :default_llm, :pick, :check_unique!,
-                         :non_empty_string?
+    private_class_method :candidate_paths, :warn_loose_perms, :parse_file, :deep_merge, :validate_top!,
+                         :validate_code!, :build_llm, :build_mcp, :apply_llm_overrides, :default_llm, :pick,
+                         :check_unique!, :non_empty_string?
   end
 end

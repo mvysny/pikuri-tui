@@ -42,36 +42,46 @@ them:
 
 1. `/etc/xdg/pikuri/config.toml` (system-wide)
 2. `$XDG_CONFIG_HOME/pikuri/config.toml` (defaults to `~/.config/pikuri/config.toml`)
-3. `./.pikuri/config.toml` (project-local, relative to the project root)
 
 With no file present, the built-in defaults apply (local llama.cpp on
 `http://localhost:8080`), so the config file is entirely optional.
+
+There is deliberately **no project-local config** (e.g. `./.pikuri/`): a file
+inside a repo could be committed to git and is readable by the sandboxed
+coding agent — exactly where an API key must not live.
+
+### API keys / tokens
+
+Put the secret **literally** in this file via `api_key`, and keep the file
+readable only by you (`chmod 600 ~/.config/pikuri/config.toml`). pikuri-tui
+flags loose permissions on a key-bearing file in the diagnostic log.
+
+This is intentional, and *safer* than an environment variable: the process
+environment is inherited by every subprocess pikuri spawns — the sandboxed
+bash tool, stdio MCP servers — so a key in `OPENAI_API_KEY` is readable by any
+command the agent runs. The config file is read only by the parent process,
+never exported to children, and (being outside the project root) is not even
+visible to the sandboxed agent's filesystem.
 
 ```toml
 # Model connections. This is an array of tables — list as many as you like;
 # for now both shells use the FIRST entry. Each `name` must be unique (a
 # future release will let you switch between them by name in the TUI).
 [[llm]]
-name        = "Local Qwen 3.6"
-server      = "http://localhost:8080"
-model       = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
-# api_key_env names the ENVIRONMENT VARIABLE that holds the API key/token —
-# NEVER put the secret itself in this file. The shell reads the variable at
-# startup. Omit this line (as a local llama.cpp needs no key) and it falls
-# back to "not-needed".
-api_key_env = "OPENAI_API_KEY"
+name    = "Local Qwen 3.6"
+server  = "http://localhost:8080"
+model   = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
+# A local llama.cpp needs no key — omit api_key and it falls back to
+# "not-needed".
 
-# A second connection, e.g. an authenticated remote endpoint. Export the
-# token in your shell first:
-#     export OPENROUTER_API_KEY="sk-or-..."
-# and reference the variable name here. Keeping tokens in the environment (or
-# a sourced, git-ignored secrets file) keeps them out of config files, shell
-# history, and version control.
+# A second connection, e.g. an authenticated remote endpoint. The token goes
+# verbatim into api_key (see "API keys / tokens" above — keep this file
+# chmod 600).
 # [[llm]]
-# name        = "OpenRouter Claude"
-# server      = "https://openrouter.ai/api"
-# model       = "anthropic/claude-opus-4-8"
-# api_key_env = "OPENROUTER_API_KEY"
+# name    = "OpenRouter Claude"
+# server  = "https://openrouter.ai/api"
+# model   = "anthropic/claude-opus-4-8"
+# api_key = "sk-or-..."
 
 # Coding-shell settings (bin/pikuri-tui-code only).
 [code]

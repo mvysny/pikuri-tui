@@ -6,37 +6,48 @@ require 'fileutils'
 
 # Specs for the layered TOML config loader. Each example drives
 # PikuriTui::Config.load with an injected env (so XDG vars never touch the
-# host) and temp dirs for the file layers — the same seams the loader
-# exposes for exactly this.
+# host) and temp dirs for the file layers — the same seam the loader exposes
+# for exactly this. There is no project-local layer to test: keys live only
+# in the XDG config, never inside a repo (see Config's class header).
 describe PikuriTui::Config do
-  # Run the block with two empty temp dirs (an XDG_CONFIG_HOME and a
-  # project dir), and a writer that drops TOML into either one.
+  # Run the block with two empty temp dirs to use as config roots (e.g. a
+  # high-priority XDG_CONFIG_HOME and a lower-priority XDG_CONFIG_DIRS entry).
   def with_dirs
-    Dir.mktmpdir do |home|
-      Dir.mktmpdir do |proj|
-        yield(home, proj)
+    Dir.mktmpdir do |a|
+      Dir.mktmpdir do |b|
+        yield(a, b)
       end
     end
   end
 
-  def write_toml(dir, subdir, body)
-    FileUtils.mkdir_p(File.join(dir, subdir))
-    File.write(File.join(dir, subdir, described_class::FILENAME), body)
+  # Write config.toml under dir/pikuri/ (the XDG layout) and return its path.
+  def write_config(dir, body)
+    path = File.join(dir, described_class::XDG_SUBDIR, described_class::FILENAME)
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, body)
+    path
+  end
+
+  # Env that consults ONLY the given dirs — both XDG vars are pinned (to a
+  # nonexistent path by default) so the host's real ~/.config or /etc/xdg can
+  # never perturb a spec.
+  def env_for(home = '/nonexistent', dirs: '/nonexistent')
+    { 'XDG_CONFIG_HOME' => home, 'XDG_CONFIG_DIRS' => dirs }
   end
 
   # Load with no files present and the given overrides.
   def load_bare(**overrides)
-    described_class.load(overrides: overrides, env: {}, project_dir: '/nonexistent')
+    described_class.load(overrides: overrides, env: env_for)
   end
 
   describe 'defaults (no files)' do
-    it 'synthesizes the default Local Qwen connection' do
+    it 'synthesizes the default Local Qwen connection with no key' do
       c = load_bare
       assert_equal 1, c.llms.size
       assert_equal described_class::DEFAULT_LLM_NAME, c.primary_llm.name
       assert_equal described_class::DEFAULT_SERVER, c.primary_llm.server
       assert_equal described_class::DEFAULT_MODEL, c.primary_llm.model
-      assert_equal described_class::DEFAULT_API_KEY_ENV, c.primary_llm.api_key_env
+      assert_nil c.primary_llm.api_key
     end
 
     it 'defaults the coding switches on and the mcp list empty' do
@@ -48,12 +59,11 @@ describe PikuriTui::Config do
   end
 
   describe 'CLI overrides (highest precedence)' do
-    it 'overrides the primary connection fields, leaving others intact' do
+    it 'overrides the primary connection server/model, leaving the key untouched' do
       c = load_bare(server: 'http://host:9', model: 'm2')
       assert_equal 'http://host:9', c.primary_llm.server
       assert_equal 'm2', c.primary_llm.model
-      # untouched fields keep their resolved values
-      assert_equal described_class::DEFAULT_API_KEY_ENV, c.primary_llm.api_key_env
+      assert_nil c.primary_llm.api_key
     end
 
     it 'treats false sandbox/confirm overrides as real values (not "absent")' do
@@ -63,78 +73,110 @@ describe PikuriTui::Config do
     end
 
     it 'wins over a file value' do
-      with_dirs do |home, _proj|
-        write_toml(home, 'pikuri', "[code]\nsandbox = true\n")
-        c = described_class.load(overrides: { sandbox: false }, env: { 'XDG_CONFIG_HOME' => home },
-                                 project_dir: '/nonexistent')
+      with_dirs do |home, _|
+        write_config(home, "[code]\nsandbox = true\n")
+        c = described_class.load(overrides: { sandbox: false }, env: env_for(home))
         refute c.sandbox
       end
     end
   end
 
   describe 'file loading' do
-    it 'reads [[llm]] entries and an absent api_key_env resolves to nil' do
-      with_dirs do |home, _proj|
-        write_toml(home, 'pikuri', <<~TOML)
-          [[llm]]
-          name = "Remote"
-          server = "https://api.example.com"
-          model = "big"
-        TOML
-        c = described_class.load(env: { 'XDG_CONFIG_HOME' => home }, project_dir: '/nonexistent')
+    it 'reads a literal api_key from an [[llm]] entry' do
+      with_dirs do |home, _|
+        write_config(home, "[[llm]]\nname = \"Remote\"\nserver = \"https://x\"\napi_key = \"sk-123\"")
+        c = described_class.load(env: env_for(home))
         assert_equal 'Remote', c.primary_llm.name
-        assert_nil c.primary_llm.api_key_env
+        assert_equal 'sk-123', c.primary_llm.api_key
+      end
+    end
+
+    it 'leaves api_key nil when the entry omits it' do
+      with_dirs do |home, _|
+        write_config(home, "[[llm]]\nname = \"Local\"\nserver = \"http://x\"")
+        c = described_class.load(env: env_for(home))
+        assert_nil c.primary_llm.api_key
       end
     end
 
     it 'builds stdio and http MCP servers' do
-      with_dirs do |home, _proj|
-        write_toml(home, 'pikuri', <<~TOML)
+      with_dirs do |home, _|
+        write_config(home, <<~TOML)
           [[code.mcp]]
           id = "playwright"
-          command = ["npx", "@playwright/mcp@latest"]
+          command = ["docker", "run", "-i", "--rm", "mcp/playwright"]
 
           [[code.mcp]]
           id = "remote"
           url = "https://mcp.example.com/v1"
         TOML
-        c = described_class.load(env: { 'XDG_CONFIG_HOME' => home }, project_dir: '/nonexistent')
+        c = described_class.load(env: env_for(home))
         assert_equal 2, c.mcp.size
         assert c.mcp[0].stdio?
-        assert_equal %w[npx @playwright/mcp@latest], c.mcp[0].command
+        assert_equal %w[docker run -i --rm mcp/playwright], c.mcp[0].command
         assert c.mcp[1].http?
         assert_equal 'https://mcp.example.com/v1', c.mcp[1].url
       end
     end
   end
 
-  describe 'layering' do
-    it 'deep-merges tables so a project file adding mcp keeps the user file sandbox' do
-      with_dirs do |home, proj|
-        write_toml(home, 'pikuri', "[code]\nsandbox = false\n")
-        write_toml(proj, '.pikuri', "[[code.mcp]]\nid = \"x\"\nurl = \"u\"\n")
-        c = described_class.load(env: { 'XDG_CONFIG_HOME' => home }, project_dir: proj)
-        refute c.sandbox            # survives from the user file
-        assert_equal 1, c.mcp.size  # added by the project file
+  describe 'layering (XDG_CONFIG_DIRS < XDG_CONFIG_HOME)' do
+    it 'deep-merges tables so a higher layer adding mcp keeps the lower layer sandbox' do
+      with_dirs do |home, sys|
+        write_config(sys, "[code]\nsandbox = false\n")        # lower priority
+        write_config(home, "[[code.mcp]]\nid = \"x\"\nurl = \"u\"\n") # higher priority
+        c = described_class.load(env: env_for(home, dirs: sys))
+        refute c.sandbox            # survives from the system file
+        assert_equal 1, c.mcp.size  # added by the user file
       end
     end
 
-    it 'lets the project file override a scalar from the user file' do
-      with_dirs do |home, proj|
-        write_toml(home, 'pikuri', "[code]\nconfirm = true\n")
-        write_toml(proj, '.pikuri', "[code]\nconfirm = false\n")
-        c = described_class.load(env: { 'XDG_CONFIG_HOME' => home }, project_dir: proj)
+    it 'lets the higher layer override a scalar from the lower layer' do
+      with_dirs do |home, sys|
+        write_config(sys, "[code]\nconfirm = true\n")
+        write_config(home, "[code]\nconfirm = false\n")
+        c = described_class.load(env: env_for(home, dirs: sys))
         refute c.confirm
+      end
+    end
+  end
+
+  describe 'security advisories' do
+    it 'warns when a file holding a literal api_key is group/other-accessible' do
+      with_dirs do |home, _|
+        path = write_config(home, "[[llm]]\nname = \"a\"\napi_key = \"sk-secret\"")
+        File.chmod(0o644, path)
+        c = described_class.load(env: env_for(home))
+        assert_equal 1, c.warnings.size
+        assert_includes c.warnings.first, 'chmod 600'
+      end
+    end
+
+    it 'stays silent when the secret file is chmod 600' do
+      with_dirs do |home, _|
+        path = write_config(home, "[[llm]]\nname = \"a\"\napi_key = \"sk-secret\"")
+        File.chmod(0o600, path)
+        c = described_class.load(env: env_for(home))
+        assert_empty c.warnings
+      end
+    end
+
+    it 'does not warn about a secret-free file with loose perms' do
+      with_dirs do |home, _|
+        path = write_config(home, "[[llm]]\nname = \"a\"\nserver = \"s\"")
+        File.chmod(0o644, path)
+        c = described_class.load(env: env_for(home))
+        assert_empty c.warnings
       end
     end
   end
 
   describe 'validation' do
     def expect_error(body)
-      with_dirs do |home, _proj|
-        write_toml(home, 'pikuri', body)
+      with_dirs do |home, _|
+        write_config(home, body)
         assert_raises(described_class::Error) do
-          described_class.load(env: { 'XDG_CONFIG_HOME' => home }, project_dir: '/nonexistent')
+          described_class.load(env: env_for(home))
         end
       end
     end
@@ -152,6 +194,11 @@ describe PikuriTui::Config do
     it 'rejects an MCP entry with neither command nor url' do
       e = expect_error("[[code.mcp]]\nid = \"x\"")
       assert_includes e.message, 'exactly one'
+    end
+
+    it 'rejects an unknown llm key (e.g. the dropped api_key_env)' do
+      e = expect_error("[[llm]]\nname = \"a\"\napi_key_env = \"OPENAI_API_KEY\"")
+      assert_includes e.message, 'unknown key'
     end
 
     it 'rejects duplicate llm names' do

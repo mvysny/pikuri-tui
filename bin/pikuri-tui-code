@@ -52,7 +52,6 @@ cli_sandbox = nil
 cli_confirm = nil
 cli_server  = nil
 cli_model   = nil
-cli_api_key_env = nil
 
 parser = OptionParser.new do |opts|
   opts.banner = 'Usage: pikuri-tui-code [options]'
@@ -77,9 +76,6 @@ parser = OptionParser.new do |opts|
   end
   opts.on('--server URL', "LLM server base URL (default: #{PikuriTui::Config::DEFAULT_SERVER})") { |v| cli_server = v }
   opts.on('--model NAME', "Model identifier (default: #{PikuriTui::Config::DEFAULT_MODEL})") { |v| cli_model = v }
-  opts.on('--api-key-env VAR', "Env var holding the API key (default: #{PikuriTui::Config::DEFAULT_API_KEY_ENV})") do |v|
-    cli_api_key_env = v
-  end
   opts.on('-h', '--help', 'Print this help and exit') do
     puts opts
     exit
@@ -114,17 +110,15 @@ project_root = Pikuri::Workspace::ProjectRoot.find(cwd: launch_cwd) || launch_cw
 chdir_notice = ("Changing working directory to project root: #{project_root}" if Dir.pwd != project_root.to_s)
 Dir.chdir(project_root.to_s) if chdir_notice
 
-# Load the layered config now that we are anchored at the project root — its
-# ./.pikuri/config.toml is the highest file layer. CLI flags overlay it; the
-# sandbox/confirm flags force false. Boot-time, before the screen is up, so a
-# bad file is a plain warn + exit rather than a torn-down TUI.
+# Load the layered config (XDG search path only — there is no project-local
+# layer, so a secret-bearing config can never sit inside the repo the agent
+# reads). CLI flags overlay it; the sandbox/confirm flags force false. No
+# --api-key flag: a key must never travel on the command line. Boot-time,
+# before the screen is up, so a bad file is a plain warn + exit rather than a
+# torn-down TUI.
 begin
   config = PikuriTui::Config.load(
-    project_dir: project_root.to_s,
-    overrides: {
-      server: cli_server, model: cli_model, api_key_env: cli_api_key_env,
-      sandbox: cli_sandbox, confirm: cli_confirm
-    }
+    overrides: { server: cli_server, model: cli_model, sandbox: cli_sandbox, confirm: cli_confirm }
   )
 rescue PikuriTui::Config::Error => e
   warn "config error: #{e.message}"
@@ -209,15 +203,13 @@ system_prompt += if sandbox_enabled
 
 server = llm.server.chomp('/')
 model = llm.model
-api_key_env = llm.api_key_env
 openai_api_base = "#{server}/v1"
 
-# api_key_env is nil when the selected connection omits it — then there is
-# no env var to read and we go straight to the "not-needed" fallback (fine
-# for a local llama.cpp). A named-but-blank var is the warn-worthy case.
-api_key = api_key_env && ENV[api_key_env]
-api_key_blank = api_key.nil? || api_key.strip.empty?
-api_key = 'not-needed' if api_key_blank
+# The key is read straight from the config file — never from the environment,
+# which the sandboxed bash tool and every stdio MCP server would inherit. A
+# connection that omits it falls back to "not-needed" (fine for local llama.cpp).
+api_key = llm.api_key
+api_key = 'not-needed' if api_key.nil? || api_key.strip.empty?
 
 Pikuri::Extractors::PDF.register
 
@@ -366,12 +358,9 @@ unless skill_catalog.empty?
   names = skill_catalog.list.map(&:name).sort.join(', ')
   Tuile.logger.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
 end
-if api_key_env && api_key_blank
-  Tuile.logger.warn(
-    "API key env var #{api_key_env} is blank or unset; falling back to \"not-needed\" " \
-    '(fine for local llama.cpp, will fail against authenticated remotes)'
-  )
-end
+# Config-load advisories (e.g. a config file holding a literal api_key with
+# loose permissions).
+config.warnings.each { |w| Tuile.logger.warn(w) }
 safety = []
 safety << 'Sandbox: DISABLED.' unless sandbox_enabled
 safety << 'Confirmer: AUTO-APPROVE.' unless confirm_enabled

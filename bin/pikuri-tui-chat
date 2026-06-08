@@ -35,7 +35,6 @@ require 'pikuri_tui'
 # PikuriTui::Config, the single source of truth shown in --help.
 cli_server = nil
 cli_model  = nil
-cli_api_key_env = nil
 
 parser = OptionParser.new do |opts|
   opts.banner = 'Usage: pikuri-tui-chat [options]'
@@ -43,9 +42,6 @@ parser = OptionParser.new do |opts|
   opts.separator 'Options:'
   opts.on('--server URL', "LLM server base URL (default: #{PikuriTui::Config::DEFAULT_SERVER})") { |v| cli_server = v }
   opts.on('--model NAME', "Model identifier (default: #{PikuriTui::Config::DEFAULT_MODEL})") { |v| cli_model = v }
-  opts.on('--api-key-env VAR', "Env var holding the API key (default: #{PikuriTui::Config::DEFAULT_API_KEY_ENV})") do |v|
-    cli_api_key_env = v
-  end
   opts.on('-h', '--help', 'Print this help and exit') do
     puts opts
     exit
@@ -60,13 +56,13 @@ rescue OptionParser::InvalidOption, OptionParser::MissingArgument => e
   exit 2
 end
 
-# Load the layered config (XDG search path + ./.pikuri) and overlay the CLI
-# flags. Boot-time, before the screen is up, so a bad file is a plain warn +
-# exit, not a torn-down TUI.
+# Load the layered config (XDG search path) and overlay the CLI flags. There
+# is no --api-key flag: a key must never travel on the command line (visible
+# in ps / shell history) — it comes only from the config file. Boot-time,
+# before the screen is up, so a bad file is a plain warn + exit, not a
+# torn-down TUI.
 begin
-  config = PikuriTui::Config.load(
-    overrides: { server: cli_server, model: cli_model, api_key_env: cli_api_key_env }
-  )
+  config = PikuriTui::Config.load(overrides: { server: cli_server, model: cli_model })
 rescue PikuriTui::Config::Error => e
   warn "config error: #{e.message}"
   exit 2
@@ -77,15 +73,13 @@ end
 llm = config.primary_llm
 server = llm.server.chomp('/')
 model = llm.model
-api_key_env = llm.api_key_env
 openai_api_base = "#{server}/v1"
 
-# api_key_env is nil when the selected connection omits it — then there is
-# no env var to read and we go straight to the "not-needed" fallback (fine
-# for a local llama.cpp). A named-but-blank var is the warn-worthy case.
-api_key = api_key_env && ENV[api_key_env]
-api_key_blank = api_key.nil? || api_key.strip.empty?
-api_key = 'not-needed' if api_key_blank
+# The key is read straight from the config file — never from the environment,
+# which pikuri would inherit into every subprocess it spawns. A connection
+# that omits it falls back to "not-needed" (fine for a local llama.cpp).
+api_key = llm.api_key
+api_key = 'not-needed' if api_key.nil? || api_key.strip.empty?
 
 Pikuri::Extractors::PDF.register
 
@@ -158,11 +152,9 @@ app = PikuriTui::Chat::App.new(token_log: token_log) do |listener|
   end
 end
 
-if api_key_env && api_key_blank
-  Tuile.logger.warn(
-    "API key env var #{api_key_env} is blank or unset; falling back to \"not-needed\" " \
-    '(fine for local llama.cpp, will fail against authenticated remotes)'
-  )
-end
+# Surface any config-load advisories (e.g. a config file holding a literal
+# api_key with loose permissions) in the diagnostic pane now that App.new
+# has wired Tuile.logger to it.
+config.warnings.each { |w| Tuile.logger.warn(w) }
 
 app.run
