@@ -100,6 +100,10 @@ module PikuriTui
       #   working directory.
       # @param markdown [Boolean] forwarded to {TuileListener}'s
       #   +markdown:+ flag (default +true+).
+      # @param tool_formatters [Hash{String => Object}] forwarded to
+      #   {TuileListener}'s +tool_formatters:+ — the per-tool diff
+      #   formatters ({EditFormatter} / {WriteFormatter}) the bin wires for
+      #   the +edit+ / +write+ tools. Defaults to +{}+.
       # @param capture_mouse [Boolean] forwarded to
       #   {Tuile::Screen#run_event_loop} (default +true+).
       # @yield [listener, confirmer, task_listener] one-shot factory
@@ -119,13 +123,14 @@ module PikuriTui
       #   +Pikuri::Tasks::Extension+ that emits the events it renders).
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given.
-      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, project_root: Dir.pwd, markdown: true, capture_mouse: true, &build_agent)
+      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, project_root: Dir.pwd, markdown: true, tool_formatters: {}, capture_mouse: true, &build_agent)
         raise LocalJumpError, 'Code::App requires a block that builds the Pikuri::Agent' unless block_given?
 
         @screen = Tuile::Screen.instance
         @token_log = token_log
         @project_root = project_root
         @markdown = markdown
+        @tool_formatters = tool_formatters
         @capture_mouse = capture_mouse
         @error_count = 0
         @turn_in_progress = false
@@ -211,7 +216,10 @@ module PikuriTui
         @git_diff_window.scrollbar = true
         @git_diff_popup = GitDiffPopup.new(diff_window: @git_diff_window)
 
-        @listener = TuileListener.new(text_view: @conversation_view, screen: @screen, markdown: @markdown)
+        @listener = TuileListener.new(
+          text_view: @conversation_view, screen: @screen,
+          markdown: @markdown, tool_formatters: @tool_formatters
+        )
         @confirmer = ConfirmerPopup.new(screen: @screen)
         @task_listener = TaskListener.new(text_view: @tasks_view, screen: @screen)
         @git_watcher = GitWatcher.new(

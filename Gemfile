@@ -64,6 +64,13 @@ gem 'pikuri-pdf', path: '../pikuri/pikuri-pdf'
 # code+ is configured; the grouping buys runtime/load-path selection
 # and documents intent, not separate dependency trees.
 group :code do
+  # Line- and character-level LCS diffing for the conversation-pane diff
+  # view of the edit / write tools (PikuriTui::Code::DiffRenderer). The
+  # de-facto standard Ruby diff library (rspec depends on it too). In
+  # :code because only the coding shell registers those tools — the chat
+  # shell never renders a diff, so this stays off its load path.
+  gem 'diff-lcs', '~> 2.0'
+
   gem 'pikuri-workspace', path: '../pikuri/pikuri-workspace'
   gem 'pikuri-code', path: '../pikuri/pikuri-code'
   gem 'pikuri-tasks', path: '../pikuri/pikuri-tasks'

@@ -37,6 +37,13 @@ module PikuriTui
   #   markers {Code::GitWatcher} paints next to each path in the sidebar
   #   change summary. (The full diff popup uses git's own SGR coloring, not
   #   these — they're only for the summary's hand-rendered counts.)
+  # - +:diff_line_add+ / +:diff_line_del+ / +:diff_span_add+ /
+  #   +:diff_span_del+ — the four *background* tones {Code::DiffRenderer}
+  #   paints for the edit / write tool diff view: a dim whole-line bar
+  #   (+line+) and a brighter changed-character emphasis (+span+), for
+  #   additions and removals. Read as {Tuile::Color}s (the renderer applies
+  #   them as backgrounds via +StyledString+ +bg:+), not via a text helper.
+  #   Distinct from +:added+/+:removed+, which are foreground count markers.
   #
   # The markdown body palette ({MarkdownRenderer::AnsiConverter}'s header
   # / emphasis / code SGR codes) is deliberately NOT a theme token: that
@@ -100,7 +107,11 @@ module PikuriTui
       detail:   Tuile::Color::GREY42,
       user:     Tuile::Color.new([255, 255, 255]),
       added:    Tuile::Color::GREEN,
-      removed:  Tuile::Color::RED
+      removed:  Tuile::Color::RED,
+      diff_line_add: Tuile::Color.rgb(25, 55, 30),
+      diff_line_del: Tuile::Color.rgb(60, 30, 30),
+      diff_span_add: Tuile::Color.rgb(40, 110, 45),
+      diff_span_del: Tuile::Color.rgb(120, 40, 40)
     }.freeze
 
     # The custom tokens tuned for light terminal backgrounds: the bright
@@ -118,7 +129,11 @@ module PikuriTui
       detail:   Tuile::Color::GREY35,
       user:     Tuile::Color.new([0, 0, 0]),
       added:    Tuile::Color::DARK_GREEN,
-      removed:  Tuile::Color::RED3
+      removed:  Tuile::Color::RED3,
+      diff_line_add: Tuile::Color.rgb(225, 250, 228),
+      diff_line_del: Tuile::Color.rgb(255, 228, 230),
+      diff_span_add: Tuile::Color.rgb(170, 230, 175),
+      diff_span_del: Tuile::Color.rgb(250, 180, 185)
     }.freeze
 
     # The dark-background app theme: {Tuile::Theme::DARK}'s built-in

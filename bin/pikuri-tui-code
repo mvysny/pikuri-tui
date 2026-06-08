@@ -223,7 +223,21 @@ Tuile::Screen.instance.theme_def = PikuriTui::AppTheme::THEME_DEF
 # the Agent's ListenerList see the same TokenLog instance.
 token_log = Pikuri::Agent::Listener::TokenLog.new
 
-app = PikuriTui::Code::App.new(token_log: token_log, project_root: workspace.project_root) do |listener, confirmer_popup, task_listener|
+# Per-tool diff formatters for the conversation pane: the edit / write
+# ToolCall renders as a before/after diff (the write side reads the
+# existing file through the same workspace the Write tool uses) instead of
+# an argument dump, and the paired ToolResult is suppressed on success /
+# surfaced on error. See PikuriTui::Code::TuileListener#tool_formatters.
+tool_formatters = {
+  'edit'  => PikuriTui::Code::EditFormatter.new,
+  'write' => PikuriTui::Code::WriteFormatter.new(workspace: workspace)
+}
+
+app = PikuriTui::Code::App.new(
+  token_log: token_log,
+  project_root: workspace.project_root,
+  tool_formatters: tool_formatters
+) do |listener, confirmer_popup, task_listener|
   # The Tuile modal confirmer for writes + bash, unless confirmations are
   # disabled (--no-confirm / --yolo), in which case approve everything.
   confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE

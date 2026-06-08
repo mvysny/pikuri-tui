@@ -119,7 +119,12 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   event stream into a `Tuile::Component::TextView` (the
   conversation pane). The equivalent of pikuri's
   `Pikuri::Agent::Listener::Terminal`, retargeted at the TUI.
-  Shared by `Chat::App` and the planned `Code::App`.
+  Shared by `Chat::App` and `Code::App`. Tool calls render through an
+  injected `tool_formatters` map (tool name → formatter) when one is
+  registered, otherwise the default `→ name(args)` / `= result` lines; the
+  formatter handling a `ToolCall` is stashed so the paired `ToolResult`
+  routes back to it. The chat shell registers none; the coding shell wires
+  the `edit` / `write` diff formatters.
 - `lib/pikuri_tui/markdown_renderer.rb` —
   `PikuriTui::MarkdownRenderer`, the single entry point for
   turning Markdown into ANSI for the conversation pane. Parses
@@ -202,7 +207,8 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   + git-change-summary windows, the `Code::GitDiffPopup` (full diff on
   `Ctrl+G`) + its `Code::GitWatcher`, and a `Code::TaskListener`, and
   yields the confirmer and the task listener to the build block
-  alongside the conversation listener.
+  alongside the conversation listener. Forwards a `tool_formatters` map
+  (the bin's `edit` / `write` diff formatters) to its `TuileListener`.
 - `lib/pikuri_tui/code/layout.rb` — `PikuriTui::Code::Layout`, the
   coding shell's dual-pane root layout: a 60/40 width split with the
   conversation pane over a fixed-height input strip on the left and
@@ -258,6 +264,34 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   neutralized text + per-attack-class warnings are rendered in the
   popup body (warnings in the `AppTheme` `:notice` tone + bold,
   detail in `:detail`, like `Confirmer::Terminal`).
+- `lib/pikuri_tui/code/diff_renderer.rb` —
+  `PikuriTui::Code::DiffRenderer`, renders a before/after string pair as a
+  two-tier ANSI unified diff for the conversation pane: a full-width dim
+  line background per changed line plus a brighter background on the
+  characters that actually differ within a modified pair (Claude-Code
+  polarity), with `-`/`+`/` ` gutter markers that survive `NO_COLOR`.
+  Line- and character-level alignment via `diff-lcs` (`Diff::LCS.sdiff`).
+  Screen-agnostic like `MarkdownRenderer::AnsiConverter` — colors come from
+  an injected `Palette`, width from a parameter — so it renders and tests
+  without a `Tuile::Screen`. Output is built from `Tuile::StyledString`
+  spans. Caps long diffs with a `… +N more lines` tail.
+- `lib/pikuri_tui/code/diff_tool_formatting.rb` —
+  `PikuriTui::Code::DiffToolFormatting`, module functions shared by the
+  `edit` / `write` formatters: the call-time diff block (themed header over
+  a `DiffRenderer` body, palette read from the theme's four `:diff_*`
+  tokens at render time) and the result-time line (`nil` on success — the
+  diff already showed the change — a themed `✗ Error: …` line otherwise).
+- `lib/pikuri_tui/code/edit_formatter.rb` —
+  `PikuriTui::Code::EditFormatter`, the `tool_formatters` entry for `edit`.
+  Diffs `old_string` → `new_string` straight from the `ToolCall` arguments
+  (self-contained, no file read). Degrades to the default tool-call line
+  (returns `nil`) on a rendering failure.
+- `lib/pikuri_tui/code/write_formatter.rb` —
+  `PikuriTui::Code::WriteFormatter`, the `tool_formatters` entry for
+  `write`. Reads the existing file through the captured `workspace` for the
+  diff's "before" side (a missing file renders as an all-added `create`),
+  diffing it against `content`. Falls back (`nil`) when the path is
+  unreadable, outside the workspace, a directory, or binary.
 - `bin/pikuri-tui-chat` — boot script for the chat agent
   (`Bundler.setup(:default)`): configures `RubyLLM` for the local
   llama.cpp server, builds a streaming `Pikuri::Agent` wired with
@@ -275,7 +309,9 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   sub-agent-only network tools, and the skill / task / MCP /
   sub-agent extensions. Wires the `App`-yielded `Code::TaskListener`
   into the agent's `ListenerList` so the `Pikuri::Tasks::Extension`
-  list mutations reach the sidebar task pane. Hands it to
+  list mutations reach the sidebar task pane. Builds the `edit` /
+  `write` diff formatters (the `write` one over the same `workspace`)
+  and passes them as `Code::App`'s `tool_formatters`. Hands it to
   `PikuriTui::Code::App`. Ports pikuri's own `bin/pikuri-code` demo
   onto the Tuile shell.
 - `bin/setup` — `bundle install` wrapper.

@@ -300,4 +300,97 @@ RSpec.describe PikuriTui::TuileListener do
       assert_includes fg_colors, gray
     end
   end
+
+  describe 'per-tool formatters' do
+    # A stand-in formatter recording its calls; the real EditFormatter /
+    # WriteFormatter are exercised by their own specs. render_call returns a
+    # block unless the args say otherwise; render_result echoes whatever the
+    # spec sets up.
+    let(:formatter) do
+      Class.new do
+        attr_reader :call_args, :result_args
+
+        def initialize(call_block:, result_block:)
+          @call_block = call_block
+          @result_block = result_block
+        end
+
+        def render_call(arguments:, width:, theme:)
+          @call_args = { arguments: arguments, width: width, theme: theme }
+          @call_block
+        end
+
+        def render_result(content:, theme:)
+          @result_args = { content: content, theme: theme }
+          @result_block
+        end
+      end
+    end
+
+    def listener_with(fmt)
+      described_class.new(
+        text_view: text_view, screen: Tuile::Screen.instance, tool_formatters: { 'edit' => fmt }
+      )
+    end
+
+    it 'renders a formatter call block instead of the default tool-call line' do
+      fmt = formatter.new(call_block: 'DIFF BLOCK', result_block: nil)
+      l = listener_with(fmt)
+      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
+      assert_includes rendered, 'DIFF BLOCK'
+      refute_includes rendered, '→ edit'
+    end
+
+    it 'passes the pane width and theme to the formatter' do
+      fmt = formatter.new(call_block: 'X', result_block: nil)
+      l = listener_with(fmt)
+      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
+      assert_equal({ 'path' => 'a.rb' }, fmt.call_args[:arguments])
+      assert fmt.call_args[:width].positive?
+      assert_same Tuile::Screen.instance.theme, fmt.call_args[:theme]
+    end
+
+    it 'suppresses the result line when the paired formatter returns nil (success)' do
+      fmt = formatter.new(call_block: 'DIFF', result_block: nil)
+      l = listener_with(fmt)
+      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
+      l.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'Edited a.rb: replaced 1 occurrence.'))
+      refute_includes rendered, 'Edited a.rb'
+      refute_includes rendered, '= '
+    end
+
+    it 'renders the formatter result block when it returns one (error path)' do
+      fmt = formatter.new(call_block: 'DIFF', result_block: '✗ Error: old_string not found')
+      l = listener_with(fmt)
+      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
+      l.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'Error: old_string not found in a.rb.'))
+      assert_includes rendered, '✗ Error: old_string not found'
+    end
+
+    it 'falls back to the default tool-call line when render_call returns nil' do
+      fmt = formatter.new(call_block: nil, result_block: nil)
+      l = listener_with(fmt)
+      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
+      assert_includes rendered, '→ edit'
+    end
+
+    it 'routes the result to the default += line when render_call declined' do
+      fmt = formatter.new(call_block: nil, result_block: 'SHOULD NOT SHOW')
+      l = listener_with(fmt)
+      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
+      l.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'whatever'))
+      assert_includes rendered, '= whatever'
+      refute_includes rendered, 'SHOULD NOT SHOW'
+    end
+
+    it 'leaves unregistered tools on the default rendering' do
+      fmt = formatter.new(call_block: 'DIFF', result_block: 'R')
+      l = listener_with(fmt)
+      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'grep', arguments: { 'q' => 'x' }))
+      l.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'match'))
+      assert_includes rendered, '→ grep'
+      assert_includes rendered, '= match'
+      refute_includes rendered, 'DIFF'
+    end
+  end
 end

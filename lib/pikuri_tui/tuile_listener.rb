@@ -98,21 +98,36 @@ module PikuriTui
     #   to gray and so always goes through a {StreamingMarkdownBuffer}
     #   (with the renderer set to {MarkdownRenderer}→recolor or
     #   recolor-only, depending on the flag).
+    # @param tool_formatters [Hash{String => #render_call, #render_result}]
+    #   per-tool-name formatters that replace the default +→ name(args)+ /
+    #   += result+ rendering for those tools. On a {Pikuri::Agent::Event::ToolCall}
+    #   whose +name+ is a key, the formatter's +render_call+ produces the
+    #   call block (the diff view for +edit+ / +write+); the paired
+    #   {Pikuri::Agent::Event::ToolResult} is then routed to the same
+    #   formatter's +render_result+ (which returns +nil+ to suppress a
+    #   redundant success line, or a string for an error). Both hooks may
+    #   return +nil+ to fall back to the default rendering. Defaults to +{}+
+    #   — the chat shell registers none, so its behavior is unchanged.
     # @param dump_events [Boolean] when +true+, every event handed to
     #   {#on_event} is also +inspect+-ed and appended to
     #   {EVENT_DUMP_PATH}. The file is truncated here so each run starts
     #   clean. Off by default; intended as a local debugging aid.
-    def initialize(text_view:, screen:, markdown: true, dump_events: false)
+    def initialize(text_view:, screen:, markdown: true, tool_formatters: {}, dump_events: false)
       super()
       @text_view = text_view
       @screen = screen
       @markdown = markdown
+      @tool_formatters = tool_formatters
       @dump_events = dump_events
       @buffer = nil
       @assistant_region = nil
       @thinking_buffer = nil
       @thinking_region = nil
       @thinking_streamed = false
+      # Set on a ToolCall a formatter handled, consumed by the next
+      # ToolResult to pair the result with that call. ruby_llm runs tool
+      # calls strictly call→result→call→result, so a single slot is exact.
+      @pending_formatter = nil
 
       File.write(EVENT_DUMP_PATH, '') if @dump_events
     end
@@ -184,12 +199,11 @@ module PikuriTui
       in Pikuri::Agent::Event::ToolCall(name:, arguments:)
         flush_assistant(:wipe)
         release_thinking
-        args = arguments.map { |k, v| "#{k}=#{v.inspect}" }.join(', ')
-        add_block(@screen.theme.tool("→ #{name}(#{args})"))
+        render_tool_call(name, arguments)
       in Pikuri::Agent::Event::ToolResult(content:)
         flush_assistant(:wipe)
         release_thinking
-        add_block(@screen.theme.tool("= #{truncate_tool_result(content)}"))
+        render_tool_result(content)
       in Pikuri::Agent::Event::FallbackNotice(reason:)
         flush_assistant(:wipe)
         release_thinking
@@ -201,6 +215,48 @@ module PikuriTui
       else
         # Tokens / ContextCap: silent here. TokenLog handles them if the
         # host registered one.
+      end
+    end
+
+    # Render a {Pikuri::Agent::Event::ToolCall}. A registered formatter for
+    # +name+ (e.g. the +edit+ / +write+ diff view) takes precedence; when it
+    # produces a block, it's also stashed in {@pending_formatter} so the
+    # paired result routes back to it. A missing formatter — or one that
+    # declines by returning +nil+ — falls back to the default
+    # +→ name(args)+ line and clears the pending slot.
+    #
+    # @param name [String] the tool name.
+    # @param arguments [Hash] the tool-call arguments.
+    # @return [void]
+    def render_tool_call(name, arguments)
+      formatter = @tool_formatters[name]
+      block = formatter&.render_call(arguments: arguments, width: buffer_width, theme: @screen.theme)
+      if block
+        @pending_formatter = formatter
+        add_block(block)
+      else
+        @pending_formatter = nil
+        args = arguments.map { |k, v| "#{k}=#{v.inspect}" }.join(', ')
+        add_block(@screen.theme.tool("→ #{name}(#{args})"))
+      end
+    end
+
+    # Render a {Pikuri::Agent::Event::ToolResult}. When the paired call was
+    # handled by a formatter, route the result to its +render_result+ — which
+    # returns +nil+ to suppress a redundant success line (the diff already
+    # showed the change) or a string for an error. Otherwise fall back to the
+    # default += result+ line.
+    #
+    # @param content [String] the tool observation.
+    # @return [void]
+    def render_tool_result(content)
+      formatter = @pending_formatter
+      @pending_formatter = nil
+      if formatter
+        block = formatter.render_result(content: content, theme: @screen.theme)
+        add_block(block) if block
+      else
+        add_block(@screen.theme.tool("= #{truncate_tool_result(content)}"))
       end
     end
 

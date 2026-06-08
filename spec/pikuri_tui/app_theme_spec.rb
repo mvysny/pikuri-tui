@@ -14,7 +14,8 @@ RSpec.describe PikuriTui::AppTheme do
     end
 
     it 'carries exactly the tokens the app paints' do
-      assert_equal %i[added detail error notice removed thinking tool user],
+      assert_equal %i[added detail diff_line_add diff_line_del diff_span_add diff_span_del
+                      error notice removed thinking tool user],
                    described_class::DARK.custom.keys.sort
     end
 
