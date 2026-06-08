@@ -346,6 +346,14 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   the minitest style (`assert_equal`, `assert`, `refute`, …)
   rather than RSpec matchers. Same convention as pikuri — keeps
   the two codebases readable side-by-side.
+- **Run the suite with `bundle exec rspec`.** Always go through
+  Bundler — never plain `rspec`. Sometimes during the development, the pikuri gems are local path
+  dependencies (`../pikuri/*`), and `spec_helper` pulls in the
+  whole `:code` group; only the Bundler environment puts those
+  paths on the load path. Plain `rspec` fails on the first path-only
+  gem (`require 'pikuri-mcp'`) and, where stale system-installed
+  pikuri gems exist, silently tests against those instead of the
+  local checkout.
 
 ## Working on this codebase
 
