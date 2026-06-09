@@ -7,7 +7,6 @@ RSpec.describe PikuriTui::Code::DiffRenderer do
     described_class::Palette.new(
       line_add: theme[:diff_line_add],
       line_del: theme[:diff_line_del],
-      line_mod: theme[:diff_line_mod],
       span_add: theme[:diff_span_add],
       span_del: theme[:diff_span_del]
     )
@@ -32,13 +31,6 @@ RSpec.describe PikuriTui::Code::DiffRenderer do
     ss = parse(line)
     col = ss.to_s.index(substr)
     (col...(col + substr.length)).map { |i| ss.slice(i, 1).spans.first.style.bg }
-  end
-
-  # Whether every character of +substr+ on the given diff +line+ is struck.
-  def struck?(line, substr)
-    ss = parse(line)
-    col = ss.to_s.index(substr)
-    (col...(col + substr.length)).all? { |i| ss.slice(i, 1).spans.first.style.strikethrough }
   end
 
   describe 'plain output (NO_COLOR / color: false)' do
@@ -68,71 +60,41 @@ RSpec.describe PikuriTui::Code::DiffRenderer do
     end
   end
 
-  describe 'two-tier coloring of a modified line (inline, single row)' do
+  describe 'two-tier coloring' do
     # "value = 10" → "value = 20": only the "1"/"2" digit differs, so it
-    # aligns as a modified pair and renders inline on one amber line tier —
-    # the unchanged text stays on the line tier, the deleted "1" gets the red
-    # span tier, the inserted "2" the green span tier, in that order ("120").
+    # aligns as a modified pair — the rest of the line carries the line tier,
+    # the differing digit the span tier.
     let(:rendered) { render("value = 10", "value = 20", width: 20, color: true) }
-    let(:mod_line) { rendered.split("\n")[0] }
+    let(:del_line) { rendered.split("\n")[0] }
+    let(:add_line) { rendered.split("\n")[1] }
 
-    it 'collapses the modified pair into a single inline row' do
-      assert_equal 1, rendered.split("\n").length
-      assert_equal '~ value = 120', parse(mod_line).to_s.rstrip
+    it 'splits a modified pair into a removed row then an added row' do
+      assert_equal '- value = 10', parse(del_line).to_s.rstrip
+      assert_equal '+ value = 20', parse(add_line).to_s.rstrip
     end
 
-    it 'paints the unchanged part of the line in the amber modified line tier' do
-      assert_equal [palette.line_mod], bgs_for(mod_line, 'value = ').uniq
+    it 'paints the unchanged part of a removed line in the dim line tier' do
+      assert_equal [palette.line_del], bgs_for(del_line, 'value = ').uniq
     end
 
-    it 'paints the deleted character in the red span tier' do
-      assert_equal [palette.span_del], bgs_for(mod_line, '1')
+    it 'paints the changed character of a removed line in the bright span tier' do
+      assert_equal [palette.span_del], bgs_for(del_line, '1')
     end
 
-    it 'paints the inserted character in the green span tier' do
-      assert_equal [palette.span_add], bgs_for(mod_line, '2')
+    it 'paints the unchanged part of an added line in the dim line tier' do
+      assert_equal [palette.line_add], bgs_for(add_line, 'value = ').uniq
     end
 
-    it 'paints the unchanged suffix back on the line tier' do
-      assert_equal [palette.line_mod], bgs_for(mod_line, '0')
+    it 'paints the changed character of an added line in the bright span tier' do
+      assert_equal [palette.span_add], bgs_for(add_line, '2')
     end
 
     it 'tints the gutter so the bar is continuous' do
-      assert_equal palette.line_mod, parse(mod_line).spans.first.style.bg
+      assert_equal palette.line_del, parse(del_line).spans.first.style.bg
     end
 
     it 'pads the line to the full width so the bar is solid' do
-      assert_equal 20, parse(mod_line).display_width
-    end
-
-    it 'strikes the deleted character through, leaving the inserted one unstruck' do
-      assert struck?(mod_line, '1'), 'expected the deleted char struck through'
-      refute struck?(mod_line, '2'), 'expected the inserted char not struck'
-    end
-  end
-
-  describe 'a divergent change groups the deleted run then the inserted run' do
-    # "60" → "55" share no characters; a raw per-character sdiff would emit
-    # 6/5/0/5 interleaved. Instead the whole deleted "60" is emitted (struck,
-    # red) then the whole inserted "55" (green), so it stays readable.
-    let(:mod_line) { render("x = 60", "x = 55", width: 20, color: true).split("\n")[0] }
-
-    it 'emits the deleted slice contiguously, then the inserted slice' do
-      assert_equal '~ x = 6055', parse(mod_line).to_s.rstrip
-    end
-
-    it 'paints and strikes the whole deleted run, paints the whole inserted run' do
-      assert_equal [palette.span_del], bgs_for(mod_line, '60').uniq
-      assert_equal [palette.span_add], bgs_for(mod_line, '55').uniq
-      assert struck?(mod_line, '60'), 'expected the whole deleted run struck'
-      refute struck?(mod_line, '55'), 'expected the inserted run unstruck'
-    end
-  end
-
-  describe 'a modified line under NO_COLOR falls back to a delete + add pair' do
-    it 'renders the old line then the new line, each with its gutter' do
-      out = render("value = 10", "value = 20", width: 20, color: false)
-      assert_equal "- value = 10\n+ value = 20", out
+      assert_equal 20, parse(del_line).display_width
     end
   end
 

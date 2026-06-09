@@ -72,31 +72,32 @@ RSpec.describe PikuriTui::Code::GitDiffRenderer do
   end
 
   describe 'a modified line in color' do
-    # Forced color: the modified pair collapses to a single inline row on the
-    # amber line tier, the changed characters picked out in the span tiers.
+    # Forced color: the modified pair stays two continuous lines — a full
+    # removed line on the red line tier, a full added line on the green tier —
+    # with the changed characters picked out in the brighter span tiers.
     let(:rendered) { described_class.render(MODIFIED, theme: theme, max_width: 80, color: true) }
-    let(:mod_line) do
+    def line_with(substr)
       rendered.split("\n").map { |l| Tuile::StyledString.parse(l) }
-              .find { |ss| ss.to_s.include?('puts') }
+              .find { |ss| ss.to_s.include?(substr) }
     end
+    let(:del_line) { line_with('"hi"') }
+    let(:add_line) { line_with('hello there') }
 
-    it 'collapses the pair into one inline ~ row (no separate - / + lines)' do
-      flat = Tuile::StyledString.parse(rendered).to_s
-      refute_includes flat, '-     puts'
-      refute_includes flat, '+     puts'
-      assert mod_line.to_s.start_with?('~ '), "expected an inline ~ row, got #{mod_line.to_s.inspect}"
+    it 'keeps the modified pair as a removed line then an added line' do
+      assert del_line.to_s.start_with?('- '), "expected a '- ' removed line, got #{del_line.to_s.inspect}"
+      assert add_line.to_s.start_with?('+ '), "expected a '+ ' added line, got #{add_line.to_s.inspect}"
     end
 
     it 'paints the inserted characters in the green span tier' do
       # "hi" → "hello there": the inserted run is "ello there" (the "h" is
-      # shared, the "i" deleted) — inline word-diff, not a contiguous "hello".
-      col = mod_line.to_s.index('ello there')
-      assert_equal theme[:diff_span_add], mod_line.slice(col, 1).spans.first.style.bg
+      # shared, the "i" deleted).
+      col = add_line.to_s.index('ello there')
+      assert_equal theme[:diff_span_add], add_line.slice(col, 1).spans.first.style.bg
     end
 
-    it 'tints the unchanged part of the line in the amber modified line tier' do
-      col = mod_line.to_s.index('puts')
-      assert_equal theme[:diff_line_mod], mod_line.slice(col, 1).spans.first.style.bg
+    it 'tints the rest of the added line in the green line tier' do
+      col = add_line.to_s.index('puts')
+      assert_equal theme[:diff_line_add], add_line.slice(col, 1).spans.first.style.bg
     end
   end
 

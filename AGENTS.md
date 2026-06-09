@@ -278,11 +278,11 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   doesn't crop the diff. Same eager-window/reopen pattern as `LogPopup`.
 - `lib/pikuri_tui/code/git_diff_renderer.rb` —
   `PikuriTui::Code::GitDiffRenderer`, renders a plain `git diff` into the
-  popup's two-tier inline form by reusing `DiffRenderer`: it parses the
+  popup's two-tier form by reusing `DiffRenderer`: it parses the
   unified diff into files → hunks and feeds each hunk's reconstructed
-  before/after pair to `DiffRenderer` (so the per-line split and inline
-  word-emphasis are re-derived by LCS, identical to the `edit`/`write` tool
-  diffs), assembled as a themed `✎ path` header over dim `@@ line N @@`
+  before/after pair to `DiffRenderer` (so the per-line split and
+  character-level emphasis are re-derived by LCS, identical to the
+  `edit`/`write` tool diffs), assembled as a themed `✎ path` header over dim `@@ line N @@`
   separators. Pads line bars to `min(longest content line, max_width)` so
   they never exceed the pane width (which `TextView` would word-wrap).
   Screen-agnostic like `DiffRenderer` / `DiffToolFormatting` — takes a
@@ -307,15 +307,12 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `PikuriTui::Code::DiffRenderer`, renders a before/after string pair as a
   two-tier ANSI unified diff for the conversation pane: a full-width dim
   line background per changed line plus a brighter background on the
-  characters that actually differ (Claude-Code polarity). A modified line
-  (a removed line aligned against a similar added one) collapses to a
-  *single* inline row on an amber `line_mod` bar with the deleted chars in
-  red and inserted chars in green — so a one-word edit reads as one tinted
-  line, not a stacked delete + add pair; pure adds/removes still carry only
-  their green/red line bar. `-`/`+`/`~`/` ` gutter markers survive
-  `NO_COLOR`, and since inline word emphasis can't survive color stripping a
-  modified line falls back to the unambiguous `-` old / `+` new two-line form
-  under `NO_COLOR`. Line- and character-level alignment via `diff-lcs`
+  characters that actually differ within a modified pair (Claude-Code
+  polarity). A modified line stays two continuous lines — the full removed
+  line then the full added line, each on its line tier with the changed
+  characters in the brighter span tier — rather than an inline merge, so a
+  multi-change line stays legible. `-`/`+`/` ` gutter markers survive
+  `NO_COLOR`. Line- and character-level alignment via `diff-lcs`
   (`Diff::LCS.sdiff`).
   Screen-agnostic like `MarkdownRenderer::AnsiConverter` — colors come from
   an injected `Palette`, width from a parameter — so it renders and tests

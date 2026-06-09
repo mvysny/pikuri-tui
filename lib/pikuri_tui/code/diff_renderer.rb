@@ -11,33 +11,19 @@ module PikuriTui
     #
     # == Two-tier coloring
     #
-    # Every changed line gets a full-width background "bar" (the +line+ tier,
-    # padded to {#width} so the tint reads as a solid bar, not just a smudge
-    # behind the text). A *pure* addition / removal — a line {Diff::LCS.sdiff}
-    # could not pair with a similar counterpart — carries only that bar: dim
-    # green for additions, dim red for removals, nothing "more changed" than
-    # the whole line.
+    # Every changed line gets a full-width background "bar" (the +line+ tier:
+    # dim red for removals, dim green for additions, padded to {#width} so the
+    # tint reads as a solid bar, not just a smudge behind the text). Within a
+    # *modified* pair — a removed line that {Diff::LCS.sdiff} aligned against a
+    # similar added line — the characters that actually differ get a second,
+    # brighter background (the +span+ tier). Pure additions and pure deletions
+    # (no aligned counterpart) carry only the line tier; there's nothing "more
+    # changed" than the whole line. This mirrors the diff polarity Claude Code
+    # uses: subtle whole-line tint, saturated changed-span.
     #
-    # A *modified* line — a removed line sdiff aligned against a similar added
-    # line — is rendered as a single inline row on an amber +line_mod+ bar:
-    # the characters that actually differ get the brighter +span+ tier on top
-    # (red for the deleted characters, green for the inserted ones), the rest
-    # stays on the amber line tint. A one-word edit therefore reads as one
-    # tinted line with the changed word picked out, not a delete row stacked
-    # over an add row. This mirrors the diff polarity Claude Code uses: subtle
-    # whole-line tint, saturated changed-span.
-    #
-    # Within a changed region the *whole* deleted slice is emitted, then the
-    # *whole* inserted slice — never interleaved per character (see
-    # {#inline_segments}) — and the deleted slice is struck through, so a
-    # change like +60+ → +55+ reads as +60+ (struck, red) then +55+ (green)
-    # rather than an unreadable +6+/+5+/+0+/+5+ ping-pong.
-    #
-    # The +-+ / +++ / +~+ / + + gutter markers carry the
-    # add/remove/modify/context meaning independently of color. Inline word
-    # emphasis can't survive color stripping, so under +NO_COLOR+ (which the
-    # spec suite runs under) a modified line falls back to the unambiguous
-    # +-+ old / +++ new two-line form instead of the merged inline row.
+    # The +-+ / +++ / + + gutter markers carry the add/remove/context meaning
+    # independently of color, so the output stays readable when +NO_COLOR+
+    # strips the backgrounds away (the spec suite runs under +NO_COLOR+).
     #
     # == Colors come from the theme
     #
@@ -56,43 +42,37 @@ module PikuriTui
     # {Tuile::StyledString.parse} models — the conversation +TextView+
     # re-parses it without surprises.
     class DiffRenderer
-      # The background tones a diff paints: the dim whole-line tier (for pure
-      # added / removed lines and the amber modified-line bar) and the bright
-      # changed-span tier (for the inserted / deleted characters within a
-      # modified line).
+      # The four background tones a diff paints: the dim whole-line tier and
+      # the bright changed-span tier, for additions and removals.
       #
       # @!attribute [r] line_add
-      #   @return [Tuile::Color] whole-line background for a pure added line.
+      #   @return [Tuile::Color] whole-line background for an added line.
       # @!attribute [r] line_del
-      #   @return [Tuile::Color] whole-line background for a pure removed line.
-      # @!attribute [r] line_mod
-      #   @return [Tuile::Color] whole-line background for an inline modified line.
+      #   @return [Tuile::Color] whole-line background for a removed line.
       # @!attribute [r] span_add
-      #   @return [Tuile::Color] inserted-character background within a modified line.
+      #   @return [Tuile::Color] changed-character background within an added line.
       # @!attribute [r] span_del
-      #   @return [Tuile::Color] deleted-character background within a modified line.
-      Palette = Data.define(:line_add, :line_del, :line_mod, :span_add, :span_del)
+      #   @return [Tuile::Color] changed-character background within a removed line.
+      Palette = Data.define(:line_add, :line_del, :span_add, :span_del)
 
       # Default cap on rendered diff lines before the overflow tail kicks in.
       # @return [Integer]
       DEFAULT_MAX_LINES = 40
 
       # The 2-column gutter prefix per row kind. The marker char distinguishes
-      # add / remove / modify / context when color is stripped.
+      # add / remove / context when color is stripped.
       # @return [Hash{Symbol => String}]
-      GUTTERS = { context: '  ', del: '- ', add: '+ ', mod: '~ ' }.freeze
+      GUTTERS = { context: '  ', del: '- ', add: '+ ' }.freeze
       private_constant :GUTTERS
 
       # One rendered diff line: its kind (drives the gutter and line tier) and
-      # its text broken into +[text, span]+ segments. +span+ is +nil+ (paint
-      # the line tier), +:add+, or +:del+ (paint that span tier) — only a
-      # +:mod+ row mixes +:add+ / +:del+ segments inline; every other kind is a
-      # single +nil+-span segment.
+      # its text broken into +[text, emphasized]+ segments (emphasized
+      # segments get the span tier).
       #
       # @!attribute [r] kind
-      #   @return [Symbol] +:context+, +:del+, +:add+, or +:mod+.
+      #   @return [Symbol] +:context+, +:del+, or +:add+.
       # @!attribute [r] segments
-      #   @return [Array(String, Symbol)] +[text, span]+ pairs.
+      #   @return [Array(String, Boolean)] +[text, emphasized?]+ pairs.
       Row = Data.define(:kind, :segments)
       private_constant :Row
 
@@ -155,11 +135,9 @@ module PikuriTui
       end
 
       # Align +old_lines+ against +new_lines+ with {Diff::LCS.sdiff} and turn
-      # each aligned change into one or more {Row}s. A +!+ (modified pair)
-      # becomes a single inline +:mod+ row (deleted + inserted characters
-      # picked out on one bar) when color is on, or — since inline emphasis
-      # can't survive color stripping — the unambiguous +:del+ then +:add+
-      # two-line form under +NO_COLOR+. Everything else is one +nil+-span row.
+      # each aligned change into one or two {Row}s. A +!+ (modified pair)
+      # becomes a removed row + an added row, each with character-level
+      # emphasis; everything else is a single row with no emphasis.
       #
       # @param old_lines [Array<String>]
       # @param new_lines [Array<String>]
@@ -168,74 +146,42 @@ module PikuriTui
         rows = []
         Diff::LCS.sdiff(old_lines, new_lines).each do |change|
           case change.action
-          when '=' then rows << Row.new(kind: :context, segments: [[change.old_element, nil]])
-          when '-' then rows << Row.new(kind: :del, segments: [[change.old_element, nil]])
-          when '+' then rows << Row.new(kind: :add, segments: [[change.new_element, nil]])
-          when '!' then rows.concat(modified_rows(change.old_element, change.new_element))
+          when '=' then rows << Row.new(kind: :context, segments: [[change.old_element, false]])
+          when '-' then rows << Row.new(kind: :del, segments: [[change.old_element, false]])
+          when '+' then rows << Row.new(kind: :add, segments: [[change.new_element, false]])
+          when '!'
+            rows << Row.new(kind: :del, segments: char_segments(change.old_element, change.new_element, :del))
+            rows << Row.new(kind: :add, segments: char_segments(change.old_element, change.new_element, :add))
           end
         end
         rows
       end
 
-      # The {Row}(s) for one modified line pair: a single inline +:mod+ row in
-      # color, the +:del+ / +:add+ split in plain text (see {#diff_rows}).
+      # Character-level diff of one modified line pair, projected onto one
+      # side. Returns +[text, emphasized]+ segments where emphasized runs are
+      # the characters unique to this side (the inserted/deleted text);
+      # +=+-aligned characters are unemphasized. Adjacent same-emphasis
+      # characters are coalesced into one segment.
       #
       # @param old_line [String]
       # @param new_line [String]
-      # @return [Array<Row>]
-      def modified_rows(old_line, new_line)
-        return [Row.new(kind: :mod, segments: inline_segments(old_line, new_line))] if @color
-
-        [Row.new(kind: :del, segments: [[old_line, nil]]),
-         Row.new(kind: :add, segments: [[new_line, nil]])]
-      end
-
-      # Character-level diff of one modified line pair, merged into a single
-      # inline sequence of +[text, span]+ segments: +=+-aligned characters
-      # carry no span (+nil+, the line tier), the changed characters carry
-      # +:del+ / +:add+.
-      #
-      # Each maximal run of differing characters (between two +=+ anchors) is
-      # emitted as the *whole* deleted slice followed by the *whole* inserted
-      # slice — never interleaved per character. So +60+ → +55+ reads as
-      # +60+ (struck, red) then +55+ (green), not the unreadable
-      # +6+/+5+/+0+/+5+ ping-pong a raw character sdiff produces when the two
-      # sides share no subsequence.
-      #
-      # @param old_line [String]
-      # @param new_line [String]
-      # @return [Array(String, Symbol)]
-      def inline_segments(old_line, new_line)
+      # @param side [Symbol] +:del+ (project onto the old line) or +:add+.
+      # @return [Array(String, Boolean)]
+      def char_segments(old_line, new_line, side)
+        drop = side == :del ? '+' : '-'
+        pick = side == :del ? :old_element : :new_element
         segments = []
-        deleted = +''
-        inserted = +''
-        flush = lambda do
-          segments << [deleted.dup, :del] unless deleted.empty?
-          segments << [inserted.dup, :add] unless inserted.empty?
-          deleted.clear
-          inserted.clear
-        end
         Diff::LCS.sdiff(old_line.chars, new_line.chars).each do |change|
-          case change.action
-          when '=' then flush.call; push_context(segments, change.old_element)
-          when '-' then deleted << change.old_element
-          when '+' then inserted << change.new_element
-          when '!' then deleted << change.old_element; inserted << change.new_element
-          end
-        end
-        flush.call
-        segments.empty? ? [['', nil]] : segments
-      end
+          next if change.action == drop
 
-      # Append a context (unchanged) character to +segments+, coalescing into
-      # the trailing context segment when there is one.
-      #
-      # @param segments [Array(String, Symbol)]
-      # @param char [String]
-      # @return [void]
-      def push_context(segments, char)
-        segments << [+'', nil] if segments.empty? || !segments.last[1].nil?
-        segments.last[0] << char
+          char = change.public_send(pick)
+          next if char.nil?
+
+          emphasized = change.action != '='
+          segments << [+'', emphasized] if segments.empty? || segments.last[1] != emphasized
+          segments.last[0] << char
+        end
+        segments.empty? ? [['', false]] : segments
       end
 
       # Render one {Row} to a string: plain +gutter+text+ when color is off,
@@ -250,11 +196,10 @@ module PikuriTui
         return "#{gutter}#{row.segments.map(&:first).join}" unless @color
 
         line_bg = line_bg_for(row.kind)
+        span_bg = span_bg_for(row.kind)
 
         spans = [span(gutter, line_bg)]
-        row.segments.each do |text, span_kind|
-          spans << span(text, span_kind ? span_bg_for(span_kind) : line_bg, strikethrough: span_kind == :del)
-        end
+        row.segments.each { |text, emphasized| spans << span(text, emphasized ? span_bg : line_bg) }
 
         styled = Tuile::StyledString.new(spans)
         pad = @width - styled.display_width
@@ -277,14 +222,13 @@ module PikuriTui
         case kind
         when :add then @palette.line_add
         when :del then @palette.line_del
-        when :mod then @palette.line_mod
         end
       end
 
-      # @param span [Symbol] +:add+ or +:del+.
-      # @return [Tuile::Color] the span-tier background for an inline changed run.
-      def span_bg_for(span)
-        case span
+      # @param kind [Symbol]
+      # @return [Tuile::Color, nil] the span-tier background, or +nil+ for context.
+      def span_bg_for(kind)
+        case kind
         when :add then @palette.span_add
         when :del then @palette.span_del
         end
@@ -292,12 +236,9 @@ module PikuriTui
 
       # @param text [String]
       # @param bg [Tuile::Color, nil]
-      # @param strikethrough [Boolean] strike the text (the inline +:del+ run,
-      #   so deleted characters stay legible as "removed" next to the
-      #   inserted ones).
       # @return [Tuile::StyledString::Span]
-      def span(text, bg, strikethrough: false)
-        Tuile::StyledString::Span.new(text: text, style: Tuile::StyledString::Style.new(bg: bg, strikethrough: strikethrough))
+      def span(text, bg)
+        Tuile::StyledString::Span.new(text: text, style: Tuile::StyledString::Style.new(bg: bg))
       end
     end
   end
