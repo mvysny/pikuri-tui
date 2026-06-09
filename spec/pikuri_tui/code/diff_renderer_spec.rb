@@ -7,6 +7,7 @@ RSpec.describe PikuriTui::Code::DiffRenderer do
     described_class::Palette.new(
       line_add: theme[:diff_line_add],
       line_del: theme[:diff_line_del],
+      line_mod: theme[:diff_line_mod],
       span_add: theme[:diff_span_add],
       span_del: theme[:diff_span_del]
     )
@@ -60,41 +61,48 @@ RSpec.describe PikuriTui::Code::DiffRenderer do
     end
   end
 
-  describe 'two-tier coloring' do
+  describe 'two-tier coloring of a modified line (inline, single row)' do
     # "value = 10" → "value = 20": only the "1"/"2" digit differs, so it
-    # aligns as a modified pair — the rest of the line carries the line tier,
-    # the differing digit the span tier.
+    # aligns as a modified pair and renders inline on one amber line tier —
+    # the unchanged text stays on the line tier, the deleted "1" gets the red
+    # span tier, the inserted "2" the green span tier, in that order ("120").
     let(:rendered) { render("value = 10", "value = 20", width: 20, color: true) }
-    let(:del_line) { rendered.split("\n")[0] }
-    let(:add_line) { rendered.split("\n")[1] }
+    let(:mod_line) { rendered.split("\n")[0] }
 
-    it 'splits a modified pair into a removed row then an added row' do
-      assert_equal '- value = 10', parse(del_line).to_s.rstrip
-      assert_equal '+ value = 20', parse(add_line).to_s.rstrip
+    it 'collapses the modified pair into a single inline row' do
+      assert_equal 1, rendered.split("\n").length
+      assert_equal '~ value = 120', parse(mod_line).to_s.rstrip
     end
 
-    it 'paints the unchanged part of a removed line in the dim line tier' do
-      assert_equal [palette.line_del], bgs_for(del_line, 'value = ').uniq
+    it 'paints the unchanged part of the line in the amber modified line tier' do
+      assert_equal [palette.line_mod], bgs_for(mod_line, 'value = ').uniq
     end
 
-    it 'paints the changed character of a removed line in the bright span tier' do
-      assert_equal [palette.span_del], bgs_for(del_line, '1')
+    it 'paints the deleted character in the red span tier' do
+      assert_equal [palette.span_del], bgs_for(mod_line, '1')
     end
 
-    it 'paints the unchanged part of an added line in the dim line tier' do
-      assert_equal [palette.line_add], bgs_for(add_line, 'value = ').uniq
+    it 'paints the inserted character in the green span tier' do
+      assert_equal [palette.span_add], bgs_for(mod_line, '2')
     end
 
-    it 'paints the changed character of an added line in the bright span tier' do
-      assert_equal [palette.span_add], bgs_for(add_line, '2')
+    it 'paints the unchanged suffix back on the line tier' do
+      assert_equal [palette.line_mod], bgs_for(mod_line, '0')
     end
 
     it 'tints the gutter so the bar is continuous' do
-      assert_equal palette.line_del, parse(del_line).spans.first.style.bg
+      assert_equal palette.line_mod, parse(mod_line).spans.first.style.bg
     end
 
     it 'pads the line to the full width so the bar is solid' do
-      assert_equal 20, parse(del_line).display_width
+      assert_equal 20, parse(mod_line).display_width
+    end
+  end
+
+  describe 'a modified line under NO_COLOR falls back to a delete + add pair' do
+    it 'renders the old line then the new line, each with its gutter' do
+      out = render("value = 10", "value = 20", width: 20, color: false)
+      assert_equal "- value = 10\n+ value = 20", out
     end
   end
 

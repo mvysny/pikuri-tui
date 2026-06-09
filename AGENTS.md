@@ -259,23 +259,36 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   a compact change summary in the sidebar (one `XY path  +N -N` line per
   changed file, from `git status --porcelain` + `--numstat`; each file's
   label toned by kind via `AppTheme` — new green, deleted red, modified
-  yellow — and its `+N`/`-N` markers green/red) and the full colored diff
-  in the `GitDiffPopup`. Polls on its own thread every `POLL_INTERVAL`
+  yellow — and its `+N`/`-N` markers green/red) and the full diff in the
+  `GitDiffPopup`. Polls on its own thread every `POLL_INTERVAL`
   seconds and, only when the capture changes, rewrites both `TextView`s
-  (marshaled onto the UI thread). The diff is `git diff HEAD` (tracked,
-  staged + unstaged) plus each untracked file diffed against `/dev/null`
-  with `diff --no-index` (a synthetic "new file" diff — surfacing
-  brand-new files without `git add -N` mutating the index). Not a listener
-  — the working tree changes without an agent event to subscribe to. git's
-  forced ANSI coloring carries through `TextView`'s `StyledString.parse`;
-  an unsupported SGR code degrades to ANSI-stripped plain text.
-  Started/stopped by `App#run`.
+  (marshaled onto the UI thread). The diff is plain (uncolored) `git diff
+  HEAD` (tracked, staged + unstaged) plus each untracked file diffed against
+  `/dev/null` with `diff --no-index` (a synthetic "new file" diff — surfacing
+  brand-new files without `git add -N` mutating the index), rendered through
+  `Code::GitDiffRenderer` (both renderings produced in `capture` on the poll
+  thread, like the summary's theming). Not a listener — the working tree
+  changes without an agent event to subscribe to. Started/stopped by
+  `App#run`.
 - `lib/pikuri_tui/code/git_diff_popup.rb` —
   `PikuriTui::Code::GitDiffPopup`, the `Tuile::Component::Popup` wrapping
-  the long-lived "Git diff" window (the full, colored, scrollable diff
-  `GitWatcher` keeps current). Opened near-fullscreen on `Ctrl+G`;
+  the long-lived "Git diff" window (the full, scrollable diff `GitWatcher`
+  keeps current). Opened near-fullscreen on `Ctrl+G`;
   overrides `max_height` to the screen height so the base 12-row cap
   doesn't crop the diff. Same eager-window/reopen pattern as `LogPopup`.
+- `lib/pikuri_tui/code/git_diff_renderer.rb` —
+  `PikuriTui::Code::GitDiffRenderer`, renders a plain `git diff` into the
+  popup's two-tier inline form by reusing `DiffRenderer`: it parses the
+  unified diff into files → hunks and feeds each hunk's reconstructed
+  before/after pair to `DiffRenderer` (so the per-line split and inline
+  word-emphasis are re-derived by LCS, identical to the `edit`/`write` tool
+  diffs), assembled as a themed `✎ path` header over dim `@@ line N @@`
+  separators. Pads line bars to `min(longest content line, max_width)` so
+  they never exceed the pane width (which `TextView` would word-wrap).
+  Screen-agnostic like `DiffRenderer` / `DiffToolFormatting` — takes a
+  `theme` and a width, renders without a `Tuile::Screen`. Handles
+  new/deleted/binary sections (header markers; binary shows a `(binary)`
+  note).
 - `lib/pikuri_tui/code/input.rb` / `code/footer_label.rb` —
   parallel copies of the `Chat::` equivalents (Enter-submits input,
   footer spinner + queued-count + token status).
@@ -294,9 +307,16 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `PikuriTui::Code::DiffRenderer`, renders a before/after string pair as a
   two-tier ANSI unified diff for the conversation pane: a full-width dim
   line background per changed line plus a brighter background on the
-  characters that actually differ within a modified pair (Claude-Code
-  polarity), with `-`/`+`/` ` gutter markers that survive `NO_COLOR`.
-  Line- and character-level alignment via `diff-lcs` (`Diff::LCS.sdiff`).
+  characters that actually differ (Claude-Code polarity). A modified line
+  (a removed line aligned against a similar added one) collapses to a
+  *single* inline row on an amber `line_mod` bar with the deleted chars in
+  red and inserted chars in green — so a one-word edit reads as one tinted
+  line, not a stacked delete + add pair; pure adds/removes still carry only
+  their green/red line bar. `-`/`+`/`~`/` ` gutter markers survive
+  `NO_COLOR`, and since inline word emphasis can't survive color stripping a
+  modified line falls back to the unambiguous `-` old / `+` new two-line form
+  under `NO_COLOR`. Line- and character-level alignment via `diff-lcs`
+  (`Diff::LCS.sdiff`).
   Screen-agnostic like `MarkdownRenderer::AnsiConverter` — colors come from
   an injected `Palette`, width from a parameter — so it renders and tests
   without a `Tuile::Screen`. Output is built from `Tuile::StyledString`

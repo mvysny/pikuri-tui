@@ -37,13 +37,18 @@ module PikuriTui
   #   markers {Code::GitWatcher} paints next to each path in the sidebar
   #   change summary. (The full diff popup uses git's own SGR coloring, not
   #   these — they're only for the summary's hand-rendered counts.)
-  # - +:diff_line_add+ / +:diff_line_del+ / +:diff_span_add+ /
-  #   +:diff_span_del+ — the four *background* tones {Code::DiffRenderer}
-  #   paints for the edit / write tool diff view: a dim whole-line bar
-  #   (+line+) and a brighter changed-character emphasis (+span+), for
-  #   additions and removals. Read as {Tuile::Color}s (the renderer applies
-  #   them as backgrounds via +StyledString+ +bg:+), not via a text helper.
-  #   Distinct from +:added+/+:removed+, which are foreground count markers.
+  # - +:diff_line_add+ / +:diff_line_del+ / +:diff_line_mod+ /
+  #   +:diff_span_add+ / +:diff_span_del+ — the *background* tones
+  #   {Code::DiffRenderer} paints for the edit / write tool diff view: a dim
+  #   whole-line bar (+line+) and a brighter changed-character emphasis
+  #   (+span+). A pure addition / removal carries only its +line+ bar (green /
+  #   red); a *modified* line is shown inline on a single amber +line_mod+ bar
+  #   with the deleted characters in the +span_del+ (red) emphasis and the
+  #   inserted ones in +span_add+ (green) — so a one-word edit reads as one
+  #   tinted line, not a delete + add pair. Read as {Tuile::Color}s (the
+  #   renderer applies them as backgrounds via +StyledString+ +bg:+), not via
+  #   a text helper. Distinct from +:added+/+:removed+, which are foreground
+  #   count markers.
   #
   # The markdown body palette ({MarkdownRenderer::AnsiConverter}'s header
   # / emphasis / code SGR codes) is deliberately NOT a theme token: that
@@ -110,6 +115,7 @@ module PikuriTui
       removed:  Tuile::Color::RED,
       diff_line_add: Tuile::Color.rgb(25, 55, 30),
       diff_line_del: Tuile::Color.rgb(60, 30, 30),
+      diff_line_mod: Tuile::Color.rgb(60, 55, 25),
       diff_span_add: Tuile::Color.rgb(40, 110, 45),
       diff_span_del: Tuile::Color.rgb(120, 40, 40)
     }.freeze
@@ -132,6 +138,7 @@ module PikuriTui
       removed:  Tuile::Color::RED3,
       diff_line_add: Tuile::Color.rgb(225, 250, 228),
       diff_line_del: Tuile::Color.rgb(255, 228, 230),
+      diff_line_mod: Tuile::Color.rgb(250, 248, 205),
       diff_span_add: Tuile::Color.rgb(170, 230, 175),
       diff_span_del: Tuile::Color.rgb(250, 180, 185)
     }.freeze

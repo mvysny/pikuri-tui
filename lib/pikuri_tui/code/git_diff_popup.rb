@@ -5,10 +5,11 @@ require 'tuile'
 module PikuriTui
   module Code
     # {Tuile::Component::Popup} wrapping the long-lived "Git diff" window —
-    # the full, colored, scrollable working-tree diff. The sidebar's
-    # {GitWatcher} summary is only a per-file +"+N -N"+ tally; the actual
-    # hunks are too wide for a 40%-width sidebar, so they live here, shown
-    # near-fullscreen on +Ctrl+G+ instead.
+    # the full, scrollable working-tree diff, rendered by {GitWatcher} through
+    # {GitDiffRenderer} into the same two-tier inline form as the edit / write
+    # tool calls. The sidebar's {GitWatcher} summary is only a per-file
+    # +"+N -N"+ tally; the actual hunks are too wide for a 40%-width sidebar,
+    # so they live here, shown near-fullscreen on +Ctrl+G+ instead.
     #
     # Like {LogPopup}, the wrapped window is constructed once and kept across
     # open/close cycles: {GitWatcher} writes the latest diff into its

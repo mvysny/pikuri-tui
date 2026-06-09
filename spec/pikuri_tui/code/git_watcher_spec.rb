@@ -97,27 +97,32 @@ RSpec.describe PikuriTui::Code::GitWatcher do
   end
 
   describe 'the full diff pane' do
-    it 'renders the hunk for a modified tracked file' do
+    # The pane is rendered through GitDiffRenderer, not git's own coloring: a
+    # themed "✎ path" header over "@@ line N @@" separators over the
+    # DiffRenderer hunk bodies (whose gutter is "- "/"+ ", with a space). Under
+    # the suite's NO_COLOR a modified line falls back to the delete + add pair.
+    it 'renders a themed header and the hunk for a modified tracked file' do
       write('tracked.txt', "l1\nCHANGED\nl3\n")
       watcher.poll_once
-      assert_includes diff, 'tracked.txt'
-      assert_includes diff, '-l2'
-      assert_includes diff, '+CHANGED'
+      assert_includes diff, '✎ tracked.txt'
+      assert_includes diff, '@@ line 1 @@'
+      assert_includes diff, '- l2'
+      assert_includes diff, '+ CHANGED'
     end
 
-    it 'renders untracked files as additions via --no-index' do
+    it 'renders untracked files as a new-file addition via --no-index' do
       write('fresh.txt', "brand new\n")
       watcher.poll_once
-      assert_includes diff, 'fresh.txt'
-      assert_includes diff, '+brand new'
+      assert_includes diff, '✎ fresh.txt (new file)'
+      assert_includes diff, '+ brand new'
     end
 
-    it "carries git's ANSI coloring through to the styled pane" do
+    it 'colors the diff through our theme, not git' do
       write('tracked.txt', "l1\nCHANGED\nl3\n")
       watcher.poll_once
       plain = Tuile::StyledString::Style.new
       assert diff_view.text.spans.any? { |span| span.style != plain },
-             'expected at least one colored span from git diff'
+             'expected at least one themed span (the header tone)'
     end
   end
 
@@ -133,7 +138,7 @@ RSpec.describe PikuriTui::Code::GitWatcher do
       assert watcher.poll_once
       write('tracked.txt', "l1\nCHANGED twice\nl3\n")
       assert watcher.poll_once, 'a fresh change should re-render'
-      assert_includes diff, '+CHANGED twice'
+      assert_includes diff, '+ CHANGED twice'
     end
   end
 

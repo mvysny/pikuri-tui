@@ -55,8 +55,8 @@ module PikuriTui
         theme.error("✗ #{text.lines.first.to_s.strip}")
       end
 
-      # Build the {DiffRenderer::Palette} from the theme's four diff tokens,
-      # read at render time so OS light/dark flips restyle the diff.
+      # Build the {DiffRenderer::Palette} from the theme's diff tokens, read at
+      # render time so OS light/dark flips restyle the diff.
       #
       # @param theme [Tuile::Theme]
       # @return [DiffRenderer::Palette]
@@ -64,6 +64,7 @@ module PikuriTui
         DiffRenderer::Palette.new(
           line_add: theme[:diff_line_add],
           line_del: theme[:diff_line_del],
+          line_mod: theme[:diff_line_mod],
           span_add: theme[:diff_span_add],
           span_del: theme[:diff_span_del]
         )

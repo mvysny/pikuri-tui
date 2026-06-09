@@ -8,7 +8,7 @@ module PikuriTui
   module Code
     # Polls git on a background thread and feeds two views: a compact change
     # summary in the sidebar (one +XY path  +N -N+ line per changed file)
-    # and the full colored diff in the {GitDiffPopup} (+Ctrl+G+). Unlike
+    # and the full inline-rendered diff in the {GitDiffPopup} (+Ctrl+G+). Unlike
     # {TuileListener} / {TaskListener} — which ride the agent's event stream
     # — the working tree changes for reasons the agent never announces (the
     # user editing files, an external build, a +git+ command in a shell
@@ -34,19 +34,26 @@ module PikuriTui
     # "new file" addition. In the summary, untracked files show their whole
     # line count as additions ({#count_lines}), since +numstat+ ignores them.
     #
-    # == Colored output
+    # == Rendering
     #
-    # +git+ suppresses color on a non-TTY pipe, so the diff commands force it
-    # with +-c color.ui=always+; Tuile's {Tuile::Component::TextView} parses
-    # the embedded ANSI ({Tuile::StyledString.parse}), so git's own diff
-    # coloring carries through. That parser is strict (fg/bg/bold/italic/
-    # underline only); should git emit an SGR code outside that set (e.g. the
-    # reverse-video whitespace-error highlight), {#render_diff} logs and
-    # falls back to ANSI-stripped plain text rather than tearing down the
-    # screen — the "library breakage is logged, we degrade" rule from
-    # CLAUDE.md. The summary's coloring is ours via {AppTheme}: each file's
-    # label is toned by change kind (new green, deleted red, modified
-    # yellow — see {#colorize_label}) and its +/- markers green/red.
+    # The diff commands ask git for *plain* (uncolored) output — we paint it
+    # ourselves. {GitDiffRenderer} parses the unified diff and renders it in
+    # the same two-tier inline format {DiffRenderer} gives the edit / write
+    # tool calls (a themed file header over +@@ line N @@+ hunk separators over
+    # inline-colored hunk bodies), so the popup reads as one family with the
+    # conversation pane. Owning the color also removes git's strict-SGR hazard
+    # entirely; {#render} still guards {GitDiffRenderer} with a degrade-to-plain
+    # rescue for an unparseable diff, per the "external breakage is logged, we
+    # degrade" rule from CLAUDE.md. The summary's coloring is likewise ours via
+    # {AppTheme}: each file's label is toned by change kind (new green, deleted
+    # red, modified yellow — see {#colorize_label}) and its +/- markers
+    # green/red.
+    #
+    # Both renderings are produced in {#capture} on the poll thread (it already
+    # reads +@screen.theme+ for the summary), so the only UI-thread work is the
+    # +text=+ assignment in {#render}. Because the rendered diff is part of the
+    # {Snapshot}, a terminal resize (which changes {#diff_width}) re-renders the
+    # bars at the new width on the next poll.
     #
     # == Threading
     #
@@ -58,9 +65,10 @@ module PikuriTui
     # sleeping poll immediately instead of blocking up to {POLL_INTERVAL}
     # seconds.
     class GitWatcher
-      # One captured poll result: the rendered sidebar +summary+ and the full
-      # colored +diff+. A value object so {#poll_once} can detect "nothing
-      # changed" with a plain +==+ and skip the rewrite.
+      # One captured poll result: the rendered sidebar +summary+ and the
+      # rendered popup +diff+ (both already ANSI, see {#capture}). A value
+      # object so {#poll_once} can detect "nothing changed" with a plain +==+
+      # and skip the rewrite.
       Snapshot = Data.define(:summary, :diff)
 
       # Seconds between captures.
@@ -85,17 +93,18 @@ module PikuriTui
       NUMSTAT_COMMAND = %w[git diff HEAD --numstat --no-renames -z].freeze
 
       # The tracked-change diff for the popup: +diff HEAD+ is the full staged
-      # + unstaged diff since the last commit, colored for the pane.
+      # + unstaged diff since the last commit. Plain (uncolored) — {#render}
+      # paints it via {GitDiffRenderer}.
       #
       # @return [Array<String>]
-      TRACKED_COMMAND = %w[git -c color.ui=always diff HEAD].freeze
+      TRACKED_COMMAND = %w[git diff HEAD].freeze
 
       # Diffs one file against +/dev/null+ without consulting the index, so
       # an untracked file shows as an all-additions "new file" diff. The
       # +--+, +/dev/null+, and path are appended per-file by {#untracked_diff}.
       #
       # @return [Array<String>]
-      NO_INDEX_COMMAND = %w[git -c color.ui=always diff --no-index].freeze
+      NO_INDEX_COMMAND = %w[git diff --no-index].freeze
 
       # The two-letter porcelain code for an untracked file.
       #
@@ -112,11 +121,11 @@ module PikuriTui
       #   per-file change summary is rendered into. Owned by the host
       #   ({Code::App}); the watcher neither builds nor destroys it.
       # @param diff_view [Tuile::Component::TextView] the pane inside the
-      #   {GitDiffPopup} the full colored diff is rendered into. Kept current
+      #   {GitDiffPopup} the full rendered diff is written into. Kept current
       #   on every poll whether or not the popup is open. Same ownership.
       # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals
       #   the rewrite back from the poll thread and whose +theme+ colors the
-      #   summary. Passed explicitly (not via the singleton) so tests can
+      #   summary and diff. Passed explicitly (not via the singleton) so tests can
       #   inject a {Tuile::FakeScreen}.
       # @param interval [Integer] seconds between polls (default
       #   {POLL_INTERVAL}); lowered by tests.
@@ -202,8 +211,8 @@ module PikuriTui
       def capture
         entries = parse_porcelain(run(PORCELAIN_COMMAND))
         untracked = entries.select { |e| e.code == UNTRACKED_CODE }.map(&:path)
-        diff = [tracked_diff, *untracked.map { |p| untracked_diff(p) }].reject(&:empty?).join
-        Snapshot.new(summary: render_summary(entries), diff: diff)
+        diff_text = [tracked_diff, *untracked.map { |p| untracked_diff(p) }].reject(&:empty?).join
+        Snapshot.new(summary: render_summary(entries), diff: render_diff(diff_text))
       rescue StandardError => e
         Tuile.logger.error("git poll failed: #{e.class}: #{e.message}")
         notice = "git unavailable: #{e.message}"
@@ -212,25 +221,39 @@ module PikuriTui
 
       # Rewrite both panes from a snapshot. Runs on the event-loop thread via
       # {#poll_once}'s +submit+, so the +text=+ calls are under the UI lock.
+      # Both fields are already rendered (see {#capture}); this only assigns.
       #
       # @param snapshot [Snapshot]
       # @return [void]
       def render(snapshot)
         @summary_view.text = snapshot.summary
-        render_diff(snapshot.diff)
+        @diff_view.text = snapshot.diff
       end
 
-      # The full colored diff into the popup pane, falling back to
-      # ANSI-stripped plain text if git emitted an SGR code the strict
-      # {Tuile::StyledString} parser rejects.
+      # Render the popup's diff: the {PLACEHOLDER} when nothing changed,
+      # otherwise the two-tier inline form via {GitDiffRenderer}. Degrades to
+      # the raw plain diff (logged) if the renderer chokes on an unexpected
+      # diff shape, per CLAUDE.md's "external breakage is logged, we degrade".
       #
-      # @param diff [String]
-      # @return [void]
-      def render_diff(diff)
-        @diff_view.text = diff.empty? ? @screen.theme.detail(PLACEHOLDER) : diff
-      rescue Tuile::StyledString::ParseError => e
-        Tuile.logger.warn("git diff had unsupported ANSI, showing plain: #{e.message}")
-        @diff_view.text = diff.gsub(/\e\[[0-9;]*m/, '')
+      # @param diff_text [String] combined plain +git diff+ output.
+      # @return [String] the ANSI string assigned to the popup pane.
+      def render_diff(diff_text)
+        return @screen.theme.detail(PLACEHOLDER) if diff_text.empty?
+
+        GitDiffRenderer.render(diff_text, theme: @screen.theme, max_width: diff_width)
+      rescue StandardError => e
+        Tuile.logger.error("git diff render failed: #{e.class}: #{e.message}")
+        diff_text
+      end
+
+      # Pane-width cap for the rendered diff bars. The {GitDiffPopup} clamps to
+      # 4/5 of the screen; this undershoots that (frame + scrollbar) so
+      # {DiffRenderer}'s line-bar padding never pushes a bar past the viewport,
+      # which {Tuile::Component::TextView} would word-wrap onto an extra row.
+      #
+      # @return [Integer]
+      def diff_width
+        [(@screen.size.width * 4 / 5) - 4, 20].max
       end
 
       # The sidebar summary: one line per changed file, +"XY path  +A -D"+,
