@@ -86,7 +86,7 @@ module PikuriTui
       end
 
       # The modal dialog itself: a framed +Window+ captioned "Confirm",
-      # wrapping a +List+ of any sanitizer warnings, the sanitized
+      # wrapping a +TextView+ of any sanitizer warnings, the sanitized
       # question, the optional sanitized detail (split per line), and a
       # y/n cue. Owns the answer channel: +y+/+n+ resolve it; the
       # inherited ESC/q close declines.
@@ -105,7 +105,7 @@ module PikuriTui
           @answer = answer
           @resolved = false
           window = Tuile::Component::Window.new('Confirm')
-          window.content = build_body(request, screen.theme)
+          window.content = build_body(request, screen)
           super(content: window)
         end
 
@@ -163,19 +163,27 @@ module PikuriTui
         # the sanitized question (bold, default fg), the sanitized detail
         # (+:detail+ tone, split per line) when present, and the y/n cue.
         # Colors come from the {AppTheme} +theme+ so they track light/dark;
-        # lines are ANSI strings (built via {Tuile::StyledString}) that
-        # +List+ re-parses via +StyledString.parse+, matching
+        # lines are ANSI strings (built via {Tuile::StyledString}) that the
+        # +TextView+ re-parses via +StyledString.parse+, matching
         # +Confirmer::Terminal+'s rendering and {App}'s own error line.
         #
-        # No blank spacer lines: +List#lines=+ drops empty entries
-        # (trailing empties of each split are stripped), so a +''+ would
-        # render nothing — the dialog is intentionally compact.
+        # A +TextView+ (not a +List+) so long lines — a multi-line bash
+        # command, a wide path — word-wrap inside the popup instead of being
+        # clipped at the right edge. Each logical line is pre-wrapped here to
+        # the popup's eventual inner width: the +Popup+ derives its height
+        # from {Tuile::Component::TextView#content_size}, which counts
+        # *unwrapped* hard lines, so feeding raw long lines would size the
+        # popup too short and push the y/n cue out of view. Wrapping up front
+        # makes the hard-line count match the rendered row count.
+        #
+        # No blank spacer lines: the dialog is intentionally compact.
         #
         # @param request [Pikuri::Workspace::Confirmer::Request]
-        # @param theme [AppTheme] the current theme; supplies the +:notice+
-        #   and +:detail+ tones.
-        # @return [Tuile::Component::List] the sanitized, multi-line body
-        def build_body(request, theme)
+        # @param screen [Tuile::Screen] supplies the {AppTheme} +:notice+ /
+        #   +:detail+ tones and the width the body is pre-wrapped to.
+        # @return [Tuile::Component::TextView] the sanitized, wrapped body
+        def build_body(request, screen)
+          theme = screen.theme
           question = Pikuri::Sanitizer.sanitize(request.question)
           detail   = request.detail ? Pikuri::Sanitizer.sanitize(request.detail) : nil
           warnings = question.warnings + (detail ? detail.warnings : [])
@@ -190,9 +198,34 @@ module PikuriTui
           detail&.text&.split("\n")&.each { |line| lines << theme.detail(line) }
           lines << '(y) yes   (n) no'
 
-          list = Tuile::Component::List.new
-          list.lines = lines
-          list
+          view = Tuile::Component::TextView.new
+          view.text = wrap_lines(lines, body_width(screen)).join("\n")
+          view
+        end
+
+        # Word-wrap each ANSI +line+ to +width+ columns, preserving its
+        # styling across the wrap (via {Tuile::StyledString#wrap}), and
+        # return the flattened list of physical lines as ANSI strings.
+        #
+        # @param lines [Array<String>] ANSI-encoded logical lines.
+        # @param width [Integer] column width to wrap to.
+        # @return [Array<String>] ANSI-encoded physical (wrapped) lines.
+        def wrap_lines(lines, width)
+          lines.flat_map do |line|
+            Tuile::StyledString.parse(line).wrap(width).map(&:to_ansi)
+          end
+        end
+
+        # The inner content width the body is pre-wrapped to: the popup grows
+        # to at most 4/5 of the screen width (see
+        # +Tuile::Component::Popup#update_rect+), minus the +Window+'s two
+        # border columns. Floored at a sane minimum so a tiny terminal still
+        # wraps rather than dividing by a non-positive width.
+        #
+        # @param screen [Tuile::Screen]
+        # @return [Integer]
+        def body_width(screen)
+          [(screen.size.width * 4 / 5) - 2, 20].max
         end
       end
     end

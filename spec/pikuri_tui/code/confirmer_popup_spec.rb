@@ -101,26 +101,50 @@ RSpec.describe PikuriTui::Code::ConfirmerPopup do
       end
     end
 
+    # The body is a TextView; its #text is a single StyledString whose
+    # #to_s joins the hard lines with "\n", so split on "\n" to recover
+    # the rendered (pre-wrapped) lines.
+    def body_lines(dialog)
+      dialog.content.content.text.to_s.split("\n")
+    end
+
     it 'neutralizes control bytes in the detail (no raw \r reaches the body)' do
-      lines = dialog(request(detail: "echo hi\rrm -rf ~/")).content.content.lines.map(&:to_s).join("\n")
+      lines = body_lines(dialog(request(detail: "echo hi\rrm -rf ~/"))).join("\n")
       refute_includes lines, "\r"
       assert_includes lines, '\\x0d'
     end
 
     it 'surfaces a sanitizer warning when the LLM text carries suspicious bytes' do
-      lines = dialog(request(detail: "echo hi\rrm -rf ~/")).content.content.lines.map(&:to_s).join("\n")
+      lines = body_lines(dialog(request(detail: "echo hi\rrm -rf ~/"))).join("\n")
       assert_includes lines, 'Suspicious content detected'
       assert_includes lines, 'control bytes'
     end
 
     it 'shows no warning banner for clean content' do
-      lines = dialog(request(question: 'OK to overwrite foo.rb?')).content.content.lines.map(&:to_s).join("\n")
+      lines = body_lines(dialog(request(question: 'OK to overwrite foo.rb?'))).join("\n")
       refute_includes lines, 'Suspicious content detected'
     end
 
     it 'omits the detail block entirely when detail is nil (the Write case)' do
-      lines = dialog(request(question: 'OK to overwrite foo.rb?', detail: nil)).content.content.lines.map(&:to_s)
-      assert_equal ['OK to overwrite foo.rb?', '(y) yes   (n) no'], lines.map(&:to_s)
+      lines = body_lines(dialog(request(question: 'OK to overwrite foo.rb?', detail: nil)))
+      assert_equal ['OK to overwrite foo.rb?', '(y) yes   (n) no'], lines
+    end
+
+    it 'word-wraps a long single-line command instead of clipping it' do
+      cmd = 'find . -type f -name "*.rb" -exec grep -l "needle" {} + | ' \
+            'xargs wc -l | sort -n | head -20 | awk "{ print \$2 }" | ' \
+            'tr "\\n" " " | sed "s/  */ /g" | cut -c1-200'
+      lines = body_lines(dialog(request(question: 'Run this?', detail: cmd)))
+      # The command is longer than the wrapped body width (126 cols on the
+      # 160-wide fake screen), so it spans more than one rendered line — the
+      # question + ≥2 detail rows + the y/n cue.
+      assert_operator lines.length, :>, 3
+      # Every rendered line stays within the wrapped body width.
+      assert(lines.all? { |l| l.length <= 126 }, "a line exceeded the wrap width: #{lines.inspect}")
+      # Both ends of the command survive the wrap.
+      detail = lines.first(lines.length - 1).join("\n")
+      assert_includes detail, 'find .'
+      assert_includes detail, 'tr'
     end
   end
 end
