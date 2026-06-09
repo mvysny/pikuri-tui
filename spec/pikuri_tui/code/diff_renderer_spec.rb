@@ -34,6 +34,13 @@ RSpec.describe PikuriTui::Code::DiffRenderer do
     (col...(col + substr.length)).map { |i| ss.slice(i, 1).spans.first.style.bg }
   end
 
+  # Whether every character of +substr+ on the given diff +line+ is struck.
+  def struck?(line, substr)
+    ss = parse(line)
+    col = ss.to_s.index(substr)
+    (col...(col + substr.length)).all? { |i| ss.slice(i, 1).spans.first.style.strikethrough }
+  end
+
   describe 'plain output (NO_COLOR / color: false)' do
     it 'renders context, deletion and addition rows with gutter markers' do
       out = render("foo\nbar", "foo\nbaz", width: 20, color: false)
@@ -96,6 +103,29 @@ RSpec.describe PikuriTui::Code::DiffRenderer do
 
     it 'pads the line to the full width so the bar is solid' do
       assert_equal 20, parse(mod_line).display_width
+    end
+
+    it 'strikes the deleted character through, leaving the inserted one unstruck' do
+      assert struck?(mod_line, '1'), 'expected the deleted char struck through'
+      refute struck?(mod_line, '2'), 'expected the inserted char not struck'
+    end
+  end
+
+  describe 'a divergent change groups the deleted run then the inserted run' do
+    # "60" → "55" share no characters; a raw per-character sdiff would emit
+    # 6/5/0/5 interleaved. Instead the whole deleted "60" is emitted (struck,
+    # red) then the whole inserted "55" (green), so it stays readable.
+    let(:mod_line) { render("x = 60", "x = 55", width: 20, color: true).split("\n")[0] }
+
+    it 'emits the deleted slice contiguously, then the inserted slice' do
+      assert_equal '~ x = 6055', parse(mod_line).to_s.rstrip
+    end
+
+    it 'paints and strikes the whole deleted run, paints the whole inserted run' do
+      assert_equal [palette.span_del], bgs_for(mod_line, '60').uniq
+      assert_equal [palette.span_add], bgs_for(mod_line, '55').uniq
+      assert struck?(mod_line, '60'), 'expected the whole deleted run struck'
+      refute struck?(mod_line, '55'), 'expected the inserted run unstruck'
     end
   end
 

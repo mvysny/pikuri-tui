@@ -27,6 +27,12 @@ module PikuriTui
     # over an add row. This mirrors the diff polarity Claude Code uses: subtle
     # whole-line tint, saturated changed-span.
     #
+    # Within a changed region the *whole* deleted slice is emitted, then the
+    # *whole* inserted slice — never interleaved per character (see
+    # {#inline_segments}) — and the deleted slice is struck through, so a
+    # change like +60+ → +55+ reads as +60+ (struck, red) then +55+ (green)
+    # rather than an unreadable +6+/+5+/+0+/+5+ ping-pong.
+    #
     # The +-+ / +++ / +~+ / + + gutter markers carry the
     # add/remove/modify/context meaning independently of color. Inline word
     # emphasis can't survive color stripping, so under +NO_COLOR+ (which the
@@ -186,37 +192,49 @@ module PikuriTui
 
       # Character-level diff of one modified line pair, merged into a single
       # inline sequence of +[text, span]+ segments: +=+-aligned characters
-      # carry no span (+nil+, the line tier), deleted characters carry +:del+,
-      # inserted ones +:add+. A substitution (+!+) emits the deleted character
-      # then the inserted one. Adjacent same-span characters are coalesced.
+      # carry no span (+nil+, the line tier), the changed characters carry
+      # +:del+ / +:add+.
+      #
+      # Each maximal run of differing characters (between two +=+ anchors) is
+      # emitted as the *whole* deleted slice followed by the *whole* inserted
+      # slice — never interleaved per character. So +60+ → +55+ reads as
+      # +60+ (struck, red) then +55+ (green), not the unreadable
+      # +6+/+5+/+0+/+5+ ping-pong a raw character sdiff produces when the two
+      # sides share no subsequence.
       #
       # @param old_line [String]
       # @param new_line [String]
       # @return [Array(String, Symbol)]
       def inline_segments(old_line, new_line)
         segments = []
+        deleted = +''
+        inserted = +''
+        flush = lambda do
+          segments << [deleted.dup, :del] unless deleted.empty?
+          segments << [inserted.dup, :add] unless inserted.empty?
+          deleted.clear
+          inserted.clear
+        end
         Diff::LCS.sdiff(old_line.chars, new_line.chars).each do |change|
           case change.action
-          when '=' then push_char(segments, change.old_element, nil)
-          when '-' then push_char(segments, change.old_element, :del)
-          when '+' then push_char(segments, change.new_element, :add)
-          when '!'
-            push_char(segments, change.old_element, :del)
-            push_char(segments, change.new_element, :add)
+          when '=' then flush.call; push_context(segments, change.old_element)
+          when '-' then deleted << change.old_element
+          when '+' then inserted << change.new_element
+          when '!' then deleted << change.old_element; inserted << change.new_element
           end
         end
+        flush.call
         segments.empty? ? [['', nil]] : segments
       end
 
-      # Append +char+ to +segments+, opening a fresh segment when its +span+
-      # differs from the last (so runs of the same span coalesce).
+      # Append a context (unchanged) character to +segments+, coalescing into
+      # the trailing context segment when there is one.
       #
       # @param segments [Array(String, Symbol)]
       # @param char [String]
-      # @param span [Symbol, nil]
       # @return [void]
-      def push_char(segments, char, span)
-        segments << [+'', span] if segments.empty? || segments.last[1] != span
+      def push_context(segments, char)
+        segments << [+'', nil] if segments.empty? || !segments.last[1].nil?
         segments.last[0] << char
       end
 
@@ -234,7 +252,9 @@ module PikuriTui
         line_bg = line_bg_for(row.kind)
 
         spans = [span(gutter, line_bg)]
-        row.segments.each { |text, span_kind| spans << span(text, span_kind ? span_bg_for(span_kind) : line_bg) }
+        row.segments.each do |text, span_kind|
+          spans << span(text, span_kind ? span_bg_for(span_kind) : line_bg, strikethrough: span_kind == :del)
+        end
 
         styled = Tuile::StyledString.new(spans)
         pad = @width - styled.display_width
@@ -272,9 +292,12 @@ module PikuriTui
 
       # @param text [String]
       # @param bg [Tuile::Color, nil]
+      # @param strikethrough [Boolean] strike the text (the inline +:del+ run,
+      #   so deleted characters stay legible as "removed" next to the
+      #   inserted ones).
       # @return [Tuile::StyledString::Span]
-      def span(text, bg)
-        Tuile::StyledString::Span.new(text: text, style: Tuile::StyledString::Style.new(bg: bg))
+      def span(text, bg, strikethrough: false)
+        Tuile::StyledString::Span.new(text: text, style: Tuile::StyledString::Style.new(bg: bg, strikethrough: strikethrough))
       end
     end
   end
