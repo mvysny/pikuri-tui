@@ -138,12 +138,6 @@ skill_catalog = Pikuri::Skill::Catalog::Bundled.new(
   search_bases: [project_root, Dir.home]
 )
 
-# Toolchain caches (~/.gradle, ~/.m2/repository, ~/.cargo/registry, ...):
-# readable by the file tools AND mounted as ephemeral overlays in the
-# bubblewrap sandbox (writes vanish at exit). See
-# Pikuri::Code::ToolchainPaths.
-toolchain_overlay = Pikuri::Code::ToolchainPaths.ephemeral_overlay
-
 # Workspace: project_root is the writable ceiling, the bind root, the
 # relative-path base. temp: true mints an ephemeral writable scratch dir.
 # --yolo swaps in AllowAll (everything but the credential denylist).
@@ -159,7 +153,6 @@ workspace = if yolo
               Pikuri::Workspace::Filesystem.new(
                 project_root:      project_root,
                 readable:          Pikuri::Code::ToolchainPaths.readable +
-                                   toolchain_overlay +
                                    skill_catalog.roots +
                                    extra_readable,
                 writable:          extra_writable,
@@ -175,8 +168,7 @@ workspace = if yolo
 # --no-sandbox / --yolo.
 sandbox = if sandbox_enabled
             Pikuri::Code::Bash::Sandbox::Bubblewrap.new(
-              workspace:         workspace,
-              ephemeral_overlay: toolchain_overlay
+              workspace:         workspace
             )
           else
             Pikuri::Code::Bash::Sandbox::NONE
