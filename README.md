@@ -14,7 +14,8 @@ Pikuri owns the agent loop, tool execution, and LLM transport. This project owns
 ## Prerequisites
 
 - Ruby ≥ 3.4
-- A local LLM server (e.g. [llama.cpp](https://github.com/ggerganov/llama.cpp) `server`)
+- A local LLM server (e.g. [llama.cpp](https://github.com/ggerganov/llama.cpp) `server`),
+  or a cloud-based LLM server (Grok, Anthropic, ...)
 
 ## Install
 
