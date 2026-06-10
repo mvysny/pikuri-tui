@@ -7,13 +7,13 @@ Terminal UI front-ends for [pikuri](https://codeberg.org/mvysny/pikuri) — a Ru
 Two shells:
 
 - **`pikuri-tui-chat`** — general-purpose chat with web search and calculator tools.
-- **`pikuri-tui-code`** *(planned)* — in-repo coding agent.
+- **`pikuri-tui-code`** — in-repo coding agent.
 
 Pikuri owns the agent loop, tool execution, and LLM transport. This project owns nothing but the TUI shell: a conversation pane, a diagnostic log pane, an input field, and a status bar.
 
 ## Prerequisites
 
-- Ruby ≥ 3.4
+- Ruby ≥ 3.3
 - A local LLM server (e.g. [llama.cpp](https://github.com/ggerganov/llama.cpp) `server`),
   or a cloud-based LLM server (Grok, Anthropic, ...)
 
@@ -29,7 +29,7 @@ bundle install
 bin/pikuri-tui-chat
 ```
 
-Defaults to `http://localhost:8080` and model `unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M`. Override with `--server`, `--model`, and `--api-key-env`:
+Defaults to `http://localhost:8080` and model `unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M`. Override with `--server` and `--model`:
 
 ```sh
 bin/pikuri-tui-chat --server http://localhost:8082 --model my-model
@@ -134,7 +134,7 @@ bearer_token = "sk-..."
 # headers = { "X-Api-Key" = "abc" }                        # or a [code.mcp.headers] sub-table
 ```
 
-Secrets in the config file — `api_key`, the `[search]` keys, and any MCP
+Secrets in the config file — `api_key` and any MCP
 `bearer_token` / `basic_auth` / `headers` / `env` value — should be kept
 private; pikuri-tui prints a `chmod 600` advisory to the diagnostic log
 (`Ctrl+L`) when a file holding one is group- or world-readable.
