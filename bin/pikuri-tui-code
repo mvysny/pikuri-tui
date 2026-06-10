@@ -201,28 +201,41 @@ system_prompt += if sandbox_enabled
                      "(keeps the host's /tmp clean)."
                  end
 
-server = llm.server.chomp('/')
-model = llm.model
-openai_api_base = "#{server}/v1"
+# Build a Pikuri::Agent::ChatTransport from one config connection. The
+# api_base / api_key travel *on the transport* (not just RubyLLM's global
+# config) so the Ctrl+P picker can switch the live agent to a model on a
+# different server — pikuri maps them onto a per-chat RubyLLM::Context.
+# The key is read straight from the config file — never from the
+# environment, which the sandboxed bash tool and every stdio MCP server
+# would inherit — and a connection that omits it falls back to
+# "not-needed" (fine for a local llama.cpp).
+def transport_for(llm)
+  key = llm.api_key
+  key = 'not-needed' if key.nil? || key.strip.empty?
+  Pikuri::Agent::ChatTransport.new(
+    model: llm.model,
+    provider: :openai,
+    assume_model_exists: true,
+    api_base: "#{llm.server.chomp('/')}/v1",
+    api_key: key
+  )
+end
 
-# The key is read straight from the config file — never from the environment,
-# which the sandboxed bash tool and every stdio MCP server would inherit. A
-# connection that omits it falls back to "not-needed" (fine for local llama.cpp).
-api_key = llm.api_key
-api_key = 'not-needed' if api_key.nil? || api_key.strip.empty?
+# All configured connections become picker entries (ModelChoice); the
+# first is the boot model. The transport carries its own connection, so
+# the context-window probe and a Ctrl+P switch both target the right
+# server.
+models = config.llms.map { |c| PikuriTui::ModelChoice.new(name: c.name, transport: transport_for(c)) }
 
 Pikuri::Extractors::PDF.register
 
+# Still set the global config: it supplies RubyLLM's default model and the
+# fallback connection for any code path that builds a chat without an
+# explicit per-transport base.
 RubyLLM.configure do |c|
-  c.openai_api_base = openai_api_base
-  c.openai_api_key  = api_key
+  c.openai_api_base = "#{llm.server.chomp('/')}/v1"
+  c.openai_api_key  = models.first.transport.api_key
 end
-
-# llama.cpp exposes the server's launched +n_ctx+ at +/props+ on the base
-# host (not under +/v1+). Hand the derived URL to
-# +Pikuri::Agent::ContextWindowDetector+ so the cap is resolved against
-# the local server, which is unknown to ruby_llm's bundled model registry.
-llama_probe_url = "#{server}/props"
 
 cancel_flag = Pikuri::Agent::Control::Cancellable.new
 
@@ -272,8 +285,9 @@ tool_formatters = {
 app = PikuriTui::Code::App.new(
   token_log: token_log,
   project_root: workspace.project_root,
-  tool_formatters: tool_formatters
-) do |listener, confirmer_popup, task_listener|
+  tool_formatters: tool_formatters,
+  models: models
+) do |listener, confirmer_popup, task_listener, model_listener|
   # The Tuile modal confirmer for writes + bash, unless confirmations are
   # disabled (--no-confirm / --yolo), in which case approve everything.
   confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE
@@ -289,11 +303,7 @@ app = PikuriTui::Code::App.new(
   )
 
   Pikuri::Agent.new(
-    transport: Pikuri::Agent::ChatTransport.new(
-      model: model,
-      provider: :openai,
-      assume_model_exists: true
-    ),
+    transport: models.first.transport,
     system_prompt: system_prompt,
     # Default :raise policy, deliberately NOT :synthesize — a coding turn
     # ends in a changed working tree, not an answer. On exhaustion the
@@ -301,7 +311,6 @@ app = PikuriTui::Code::App.new(
     step_limit: Pikuri::Agent::Control::StepLimit.new(max: 40),
     cancellable: cancel_flag,
     interloper: interloper,
-    llama_probe_url: llama_probe_url,
     streaming: true
   ) do |c|
     c.add_listener rate_limited_listener
@@ -310,6 +319,8 @@ app = PikuriTui::Code::App.new(
     # pane. Not rate-limited — task mutations are rare and each snapshot
     # is authoritative.
     c.add_listener task_listener
+    # Keeps the footer's model name in step with Ctrl+P switches.
+    c.add_listener model_listener
     # File/shell tools first (declaration order biases some models toward
     # earlier tools); calculator last as auxiliary. Network tools go on
     # the sub-agent-only pool so untrusted web content lands in a child

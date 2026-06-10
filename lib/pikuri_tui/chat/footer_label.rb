@@ -5,8 +5,10 @@ require 'tuile'
 module PikuriTui
   module Chat
     # A {Tuile::Component::Label} that mounts in the conversation window's
-    # footer slot and surfaces three pieces of status the user otherwise
-    # has no way to see: whether the agent is mid-turn (a spinner ticks
+    # footer slot and surfaces four pieces of status the user otherwise
+    # has no way to see: the current model's display name (the leading
+    # segment, updated by {ModelListener} when a +run_loop+ model switch
+    # lands), whether the agent is mid-turn (a spinner ticks
     # while +run_loop+ is on the worker thread), how many mid-turn
     # messages are queued in the agent's
     # +Pikuri::Agent::Control::Interloper+ awaiting delivery ("N queued" —
@@ -104,6 +106,17 @@ module PikuriTui
       # @return [Pikuri::Agent::Control::Interloper, nil]
       attr_accessor :interloper
 
+      # The display name of the agent's current model, shown as the
+      # footer's leading segment. Set by {App} once after the agent is
+      # built (the boot model) and again by {ModelListener} each time a
+      # +run_loop(transport:)+ switch lands — so it tracks the model the
+      # agent is *actually* on, never an optimistic guess. +nil+/empty
+      # renders no model segment. Assigning re-runs {#refresh}; must be
+      # set on the UI thread (the {ModelListener} marshals via +submit+).
+      #
+      # @return [String, nil]
+      attr_reader :current_model
+
       # @param screen [Tuile::Screen] screen whose +event_queue+ drives
       #   the spinner ticker.
       # @param token_log [Pikuri::Agent::Listener::TokenLog] main
@@ -115,9 +128,17 @@ module PikuriTui
         @screen = screen
         @token_log = token_log
         @interloper = nil
+        @current_model = nil
         @ticker = nil
         @spinner_frame = nil
         token_log.on_status_line = method(:on_status_line)
+        refresh
+      end
+
+      # @param name [String, nil] new current-model display name.
+      # @return [void]
+      def current_model=(name)
+        @current_model = name
         refresh
       end
 
@@ -204,6 +225,7 @@ module PikuriTui
       # @return [void]
       def refresh
         segments = []
+        segments << @current_model if @current_model && !@current_model.empty?
         pending = @interloper ? @interloper.size : 0
         segments << "#{pending} queued" if pending.positive?
         status = @token_log.status_line

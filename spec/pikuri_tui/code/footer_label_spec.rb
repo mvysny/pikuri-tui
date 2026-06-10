@@ -19,6 +19,24 @@ RSpec.describe PikuriTui::Code::FooterLabel do
     assert_equal '', label.text.to_s
   end
 
+  it 'renders the current model name as the leading segment once set' do
+    label.current_model = 'Local Qwen'
+    assert_equal ' Local Qwen ', label.text.to_s
+  end
+
+  it 'puts the model name ahead of the token status' do
+    label.current_model = 'Local Qwen'
+    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    label.send(:refresh)
+    assert_match(/\A Local Qwen · msg #1: ctx=11.0k/, label.text.to_s)
+  end
+
+  it 'drops the model segment when set back to nil' do
+    label.current_model = 'Local Qwen'
+    label.current_model = nil
+    assert_equal '', label.text.to_s
+  end
+
   it "reflects the TokenLog's status_line once an event has been processed" do
     # Event fired before the label exists (the lazy let hasn't constructed
     # it, so the on_status_line observer isn't installed yet) — asserts

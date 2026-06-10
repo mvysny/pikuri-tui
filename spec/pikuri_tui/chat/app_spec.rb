@@ -12,13 +12,15 @@ RSpec.describe PikuriTui::Chat::App do
   # spec calls {#finish_turn!}, so a spec can hold a turn open and observe
   # the mid-turn paths.
   class StubAgent
-    attr_reader :cancellable, :interloper, :listener, :messages
+    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports
 
-    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new)
+    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model')
       @listener = listener
       @cancellable = Pikuri::Agent::Control::Cancellable.new
       @interloper = interloper
+      @model = model
       @messages = []
+      @transports = []
       @gate = Queue.new
       @blocking = false
     end
@@ -27,8 +29,9 @@ RSpec.describe PikuriTui::Chat::App do
 
     def finish_turn! = @gate << :done
 
-    def run_loop(user_message:)
+    def run_loop(user_message:, transport: nil)
       @messages << user_message
+      @transports << transport
       @gate.pop if @blocking
     end
   end
@@ -261,7 +264,84 @@ RSpec.describe PikuriTui::Chat::App do
     assert_includes captured.string, 'oops'
   end
 
+  describe 'model picker (Ctrl+P)' do
+    let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
+    let(:picker_app) do
+      described_class.new(models: choices) { |listener, _model_listener| StubAgent.new(listener, model: 'm1') }
+    end
+
+    it 'seeds the footer with the boot model display name' do
+      footer = picker_app.instance_variable_get(:@footer_label)
+      assert_equal 'Local', footer.current_model
+    end
+
+    it 'advertises the ^P model hint when more than one model is configured' do
+      picker_app
+      assert_includes picker_app.screen.pane.status_bar.text.to_s, '^P model'
+    end
+
+    it 'does not advertise ^P with only one model configured' do
+      one = described_class.new(models: [model_choice('Solo', 'm1')]) do |listener, _ml|
+        StubAgent.new(listener, model: 'm1')
+      end
+      refute_includes one.screen.pane.status_bar.text.to_s, '^P'
+    end
+
+    it 'builds options flagging the active model and selecting one stashes its transport' do
+      options, block = capture_picker { picker_app.send(:open_model_picker) }
+
+      assert_equal '1', options[0][0]
+      assert_match(/●\s*Local/, options[0][1])
+      assert_match(/Cloud/,     options[1][1])
+
+      block.call('2')
+      assert_equal choices[1].transport, picker_app.instance_variable_get(:@pending_transport)
+    end
+
+    it 'applies the pending transport to the next run_loop, then clears it' do
+      agent = picker_app.agent
+      picker_app.instance_variable_set(:@pending_transport, choices[1].transport)
+
+      picker_app.send(:submit_message, 'go')
+      wait_until { agent.messages.size == 1 }
+      assert_equal choices[1].transport, agent.transports[0]
+
+      picker_app.send(:submit_message, 'again')
+      wait_until { agent.messages.size == 2 }
+      assert_nil agent.transports[1], 'a switch must apply at most once'
+    end
+  end
+
   private
+
+  def model_choice(name, model)
+    PikuriTui::ModelChoice.new(
+      name: name,
+      transport: Pikuri::Agent::ChatTransport.new(
+        model: model, provider: :openai, assume_model_exists: true,
+        api_base: 'http://x/v1', api_key: 'k'
+      )
+    )
+  end
+
+  # Swap +PickerWindow.open+ for a recorder (restored after), run the
+  # block that triggers it, and return the captured +[options, callback]+
+  # so a spec can assert the option list and drive selection without
+  # exercising Tuile's popup/focus machinery.
+  def capture_picker
+    original = Tuile::Component::PickerWindow.method(:open)
+    captured_options = nil
+    captured_block = nil
+    Tuile::Component::PickerWindow.define_singleton_method(:open) do |_caption, options, &block|
+      captured_options = options
+      captured_block = block
+      nil
+    end
+    yield
+    [captured_options, captured_block]
+  ensure
+    Tuile::Component::PickerWindow.define_singleton_method(:open, original)
+  end
 
   def status_bar_text
     app.screen.pane.status_bar.text.to_s

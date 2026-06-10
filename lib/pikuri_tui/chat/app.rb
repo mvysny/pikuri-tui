@@ -76,6 +76,11 @@ module PikuriTui
       #   events; the App doesn't register listeners itself.
       attr_reader :token_log
 
+      # @return [ModelListener] the footer model-name listener yielded to
+      #   the build block. The host must include it in the agent's
+      #   +ListenerList+ so +ModelSwitched+ events reach the footer.
+      attr_reader :model_listener
+
       # @param token_log [Pikuri::Agent::Listener::TokenLog] the
       #   per-conversation token log whose +status_line+ feeds the
       #   conversation-window footer. The host is responsible for
@@ -88,34 +93,49 @@ module PikuriTui
       #   conversation pane skips +TTY::Markdown+ and the streaming path
       #   uses {PassthroughBuffer} — appropriate for back-ends whose
       #   content is already in display form.
-      # @yield [listener] one-shot factory invoked exactly once during
-      #   construction. The block receives the {TuileListener} bound to
-      #   this app's conversation pane and must return a constructed
-      #   +Pikuri::Agent+ whose +ListenerList+ includes that listener
-      #   and the +token_log+ exposed at {#token_log}.
+      # @param models [Array<ModelChoice>] the connections the +Ctrl+P+
+      #   model picker offers, in display order. The +Ctrl+P+ shortcut is
+      #   registered only when more than one is given (nothing to switch
+      #   between otherwise); the map of model id → name still drives the
+      #   footer's model segment regardless. Defaults to empty — tests and
+      #   single-connection hosts can ignore it.
+      # @yield [listener, model_listener] one-shot factory invoked exactly
+      #   once during construction. The block receives the {TuileListener}
+      #   bound to this app's conversation pane and the {ModelListener}
+      #   that keeps the footer's model name current, and must return a
+      #   constructed +Pikuri::Agent+ whose +ListenerList+ includes both
+      #   (plus the +token_log+ exposed at {#token_log}).
       # @yieldparam listener [TuileListener] the conversation-pane
+      #   listener; include it in the agent's +ListenerList+.
+      # @yieldparam model_listener [ModelListener] the footer model-name
       #   listener; include it in the agent's +ListenerList+.
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given (no agent → no app).
-      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, markdown: true, capture_mouse: true, &build_agent)
+      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, markdown: true, models: [], capture_mouse: true, &build_agent)
         raise LocalJumpError, 'Chat::App requires a block that builds the Pikuri::Agent' unless block_given?
 
         @screen = Tuile::Screen.instance
         @token_log = token_log
         @markdown = markdown
+        @models = models
+        @model_names = models.to_h { |choice| [choice.transport.model, choice.name] }
+        @pending_transport = nil
         @capture_mouse = capture_mouse
         @error_count = 0
         @turn_in_progress = false
 
         build_components
         wire_logging
-        @agent = build_agent.call(@listener)
+        @agent = build_agent.call(@listener, @model_listener)
         # The footer renders a "N queued" segment off the interloper's
         # +peek+ while mid-turn injections are pending. Installed here
         # (rather than at FooterLabel construction) because the agent —
         # and therefore its interloper — doesn't exist until the build
         # block has run.
         @footer_label.interloper = @agent.interloper
+        # Seed the footer with the boot model's display name; the
+        # ModelListener takes over on every later switch.
+        @footer_label.current_model = @model_names.fetch(@agent.model, @agent.model)
 
         @screen.on_error = method(:on_screen_error)
         @screen.content = @layout
@@ -165,6 +185,7 @@ module PikuriTui
         @input_window.content = @input
 
         @listener = TuileListener.new(text_view: @conversation_view, screen: @screen, markdown: @markdown)
+        @model_listener = ModelListener.new(footer: @footer_label, screen: @screen, names: @model_names)
 
         @layout = Layout.new(
           conversation: @conversation_window,
@@ -188,6 +209,9 @@ module PikuriTui
       #   running turn while the log popup happens to be open — close it
       #   (ESC/q) first — and that a {Code::ConfirmerPopup} is dismissed
       #   by declining (ESC/q), not by Ctrl+C.
+      # - +Ctrl+P+ opens the model picker (only registered when more than
+      #   one connection is configured). Like the others, suppressed while
+      #   a popup is open.
       #
       # @return [void]
       def register_shortcuts
@@ -196,6 +220,42 @@ module PikuriTui
           Tuile::Keys::CTRL_C,
           hint: "^C #{@screen.theme.error('cancel')}"
         ) { on_interrupt }
+        # Ctrl+P opens the model picker — only when there's more than one
+        # connection to switch between (a lone model has nothing to pick).
+        return unless @models.size > 1
+
+        @screen.register_global_shortcut(
+          Tuile::Keys::CTRL_P,
+          hint: "^P #{@screen.theme.hint('model')}"
+        ) { open_model_picker }
+      end
+
+      # Open the model picker: a {Tuile::Component::PickerWindow} popup
+      # listing every configured connection, the active one (matched by
+      # the agent's current model id) flagged. Picking stashes that
+      # connection's transport as {@pending_transport}; it is applied at
+      # the top of the *next* +run_loop+ (see {#start_turn}), and the
+      # footer updates only once the switch lands (via {ModelListener}) —
+      # so the footer never advertises a model a failed switch never
+      # reached. ESC / +q+ dismiss without changing anything.
+      #
+      # Hotkeys cover the first nine entries (PickerWindow keys are single
+      # characters); arrow-keys + Enter select any entry. Runs on the UI
+      # thread (global-shortcut dispatch), so the +@pending_transport+
+      # write the picker callback makes is safe against {#start_turn}'s
+      # read.
+      #
+      # @return [void]
+      def open_model_picker
+        current = @agent.model
+        options = @models.each_with_index.map do |choice, i|
+          marker = choice.transport.model == current ? '● ' : '  '
+          [(i + 1).to_s, "#{marker}#{choice.name}"]
+        end
+        Tuile::Component::PickerWindow.open('Switch model', options) do |key|
+          choice = @models[key.to_i - 1]
+          @pending_transport = choice.transport if choice
+        end
       end
 
       # (Re-)registers the +Ctrl+L+ global shortcut with a status-bar hint that
@@ -271,9 +331,14 @@ module PikuriTui
       # @param message [String]
       # @return [void]
       def start_turn(message)
+        # Consume the picker's pending model switch (if any) on the UI
+        # thread, before the worker spawns: run_loop applies it at the top
+        # of the turn. Cleared here so it's applied at most once.
+        transport = @pending_transport
+        @pending_transport = nil
         @footer_label.start_animation
         Thread.new do
-          @agent.run_loop(user_message: message)
+          @agent.run_loop(user_message: message, transport: transport)
         rescue Pikuri::Agent::Control::Cancellable::Cancelled
           # Notice already rendered by the TuileListener; nothing else to do.
         rescue StandardError => e

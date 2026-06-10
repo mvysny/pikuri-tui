@@ -53,8 +53,9 @@ module PikuriTui
     # Carries a human-readable message naming the offending key or file.
     class Error < StandardError; end
 
-    # One model connection. The TUI will switch between several by {#name}
-    # in the future; for now the first {Config#llms} entry is used.
+    # One model connection. Every entry becomes a +Ctrl+P+ model-picker
+    # choice (the bins map each to a +ModelChoice+ + +ChatTransport+); the
+    # first {Config#llms} entry is the boot connection.
     #
     # @!attribute [r] name
     #   @return [String] unique display name, e.g. +"Local Qwen 3.6"+.
@@ -225,7 +226,8 @@ module PikuriTui
     #   bins surface these through the diagnostic log.
     attr_reader :warnings
 
-    # @return [Llm] the connection both shells use for now (the first).
+    # @return [Llm] the boot connection (the first); the rest are
+    #   reachable at runtime through the +Ctrl+P+ model picker.
     def primary_llm = @llms.first
 
     # File layers, lowest priority first. +$XDG_CONFIG_DIRS+ (default
