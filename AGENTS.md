@@ -195,10 +195,15 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   tracks light/dark; the `GRAY` default is the screen-free fallback.
 - `lib/pikuri_tui/model_choice.rb` — `PikuriTui::ModelChoice`, a
   `Data.define(:name, :transport)` pairing a connection's display name
-  with the `Pikuri::Agent::ChatTransport` selecting it switches to. The
-  bins build one per `Config#llms` entry and hand the list to each shell's
-  `App` as `models:`; the transport is opaque to the UI (stashed as
-  pending, forwarded to the next `run_loop`).
+  with the `Pikuri::Agent::ChatTransport` selecting it switches to. Its
+  `.from_llm(llm)` factory builds one per `Config#llms` entry — the single
+  place the Pikuri seam is crossed (the `Pikuri`-free `Config` value object
+  → a connection-bearing transport via `ChatTransport.from_openai_server`,
+  with the `nil`/blank-key → `"not-needed"` fallback) so the bins just map
+  `config.llms` through it. The connection rides the transport's own
+  per-chat `RubyLLM::Context`, so neither bin calls `RubyLLM.configure`. The
+  bins hand the list to each shell's `App` as `models:`; the transport is
+  opaque to the UI (stashed as pending, forwarded to the next `run_loop`).
 - `lib/pikuri_tui/model_listener.rb` — `PikuriTui::ModelListener`, a
   `Pikuri::Agent::Listener::Base` subclass that consumes
   `Pikuri::Agent::Event::ModelSwitched` (emitted at the top of `run_loop`
@@ -362,9 +367,9 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   unreadable, outside the workspace, a directory, or binary.
 - `bin/pikuri-tui-chat` — boot script for the chat agent
   (`Bundler.setup(:default)`): maps every `Config#llms` connection to a
-  `ModelChoice` carrying a connection-bearing `ChatTransport` (`api_base`
-  / `api_key` on the transport, so a `Ctrl+P` switch can cross servers),
-  sets `RubyLLM`'s global config to the boot connection, builds a
+  `ModelChoice` (via `ModelChoice.from_llm`) carrying a connection-bearing
+  `ChatTransport` (`api_base` / `api_key` on the transport, so a `Ctrl+P`
+  switch can cross servers), builds a
   streaming `Pikuri::Agent` (booted on the first transport) wired with
   the web/calc tools (search, scrape, fetch, calculator), a
   `TokenLog`, a `Control::Interloper` (for mid-turn message
@@ -385,7 +390,8 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   model switches reach the footer. Builds the `edit` /
   `write` diff formatters (the `write` one over the same `workspace`)
   and passes them as `Code::App`'s `tool_formatters`. Maps `Config#llms`
-  to the `models:` list (connection-bearing `ChatTransport`s) for the
+  through `ModelChoice.from_llm` to the `models:` list (connection-bearing
+  `ChatTransport`s) for the
   `Ctrl+P` picker. Hands it to
   `PikuriTui::Code::App`. Ports pikuri's own `bin/pikuri-code` demo
   onto the Tuile shell.

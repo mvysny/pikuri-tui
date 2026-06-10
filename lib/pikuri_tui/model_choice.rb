@@ -17,5 +17,34 @@ module PikuriTui
   # @!attribute [r] transport
   #   @return [Pikuri::Agent::ChatTransport] the transport selecting this
   #     entry switches to.
-  ModelChoice = Data.define(:name, :transport)
+  ModelChoice = Data.define(:name, :transport) do
+    # Build a choice from one {Config::Llm} connection. The connection
+    # (api_base / api_key) rides the {Pikuri::Agent::ChatTransport}'s own
+    # per-chat +RubyLLM::Context+ — pikuri needs no process-global
+    # +RubyLLM.configure+ — and +from_openai_server+ normalizes the
+    # trailing +/v1+. A connection that omits its key falls back to
+    # +"not-needed"+ (fine for a local llama.cpp). The key is read straight
+    # from the config file, never the environment, which pikuri would
+    # inherit into every subprocess it spawns (sandboxed bash, stdio MCP).
+    #
+    # This is the wiring-layer translation of a +Pikuri::*+-free
+    # {Config::Llm} value object into a transport — {Config} itself stays
+    # free of every +Pikuri::*+ reference (see its "Pikuri seam" note), so
+    # the seam crossing lives here, in the Pikuri-aware adapter.
+    #
+    # @param llm [Config::Llm] one +[[llm]]+ connection from {Config#llms}.
+    # @return [ModelChoice] the display-name / transport pairing.
+    def self.from_llm(llm)
+      key = llm.api_key
+      key = 'not-needed' if key.nil? || key.strip.empty?
+      new(
+        name: llm.name,
+        transport: Pikuri::Agent::ChatTransport.from_openai_server(
+          server: llm.server,
+          model: llm.model,
+          api_key: key
+        )
+      )
+    end
+  end
 end

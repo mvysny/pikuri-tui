@@ -127,9 +127,6 @@ end
 
 sandbox_enabled = config.sandbox
 confirm_enabled = config.confirm
-# The first connection is the one both shells use for now (the TUI will
-# switch between PikuriTui::Config#llms by name later).
-llm = config.primary_llm
 
 # Skill catalog: project root + Dir.home as search bases (project beats
 # global). Catalog roots are folded into the workspace's readable set so
@@ -193,41 +190,14 @@ system_prompt += if sandbox_enabled
                      "(keeps the host's /tmp clean)."
                  end
 
-# Build a Pikuri::Agent::ChatTransport from one config connection. The
-# api_base / api_key travel *on the transport* (not just RubyLLM's global
-# config) so the Ctrl+P picker can switch the live agent to a model on a
-# different server — pikuri maps them onto a per-chat RubyLLM::Context.
-# The key is read straight from the config file — never from the
-# environment, which the sandboxed bash tool and every stdio MCP server
-# would inherit — and a connection that omits it falls back to
-# "not-needed" (fine for a local llama.cpp).
-def transport_for(llm)
-  key = llm.api_key
-  key = 'not-needed' if key.nil? || key.strip.empty?
-  Pikuri::Agent::ChatTransport.new(
-    model: llm.model,
-    provider: :openai,
-    assume_model_exists: true,
-    api_base: "#{llm.server.chomp('/')}/v1",
-    api_key: key
-  )
-end
-
 # All configured connections become picker entries (ModelChoice); the
-# first is the boot model. The transport carries its own connection, so
-# the context-window probe and a Ctrl+P switch both target the right
-# server.
-models = config.llms.map { |c| PikuriTui::ModelChoice.new(name: c.name, transport: transport_for(c)) }
+# first is the boot model. ModelChoice.from_llm builds each one's
+# connection-bearing transport (the Pikuri seam lives there, not in the
+# Pikuri-free Config), so the context-window probe and a Ctrl+P switch
+# both target the right server.
+models = config.llms.map { |llm| PikuriTui::ModelChoice.from_llm(llm) }
 
 Pikuri::Extractors::PDF.register
-
-# Still set the global config: it supplies RubyLLM's default model and the
-# fallback connection for any code path that builds a chat without an
-# explicit per-transport base.
-RubyLLM.configure do |c|
-  c.openai_api_base = "#{llm.server.chomp('/')}/v1"
-  c.openai_api_key  = models.first.transport.api_key
-end
 
 cancel_flag = Pikuri::Agent::Control::Cancellable.new
 
