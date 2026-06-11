@@ -50,7 +50,7 @@ gem 'tomlrb', '~> 2.0'
 # coding dependencies off chat's load path. (No +:chat+ group: tuile,
 # kramdown and rouge are shared by both conversation panes, so the
 # chat shell has no dependencies of its own beyond +:default+.)
-gem 'pikuri-core', path: '../pikuri/pikuri-core'
+gem 'pikuri-core', '~> 0.0.7'
 
 # In-process, pure-Ruby (pdf-reader) PDF text extraction with lazy
 # windowed paging. Shared by both shells in :default: zero infra
@@ -58,7 +58,7 @@ gem 'pikuri-core', path: '../pikuri/pikuri-core'
 # against a bare local llama.cpp. Richer document formats
 # (DOCX/XLSX/EPUB/…) via the sandboxed pikuri-extractors gem are
 # deliberately deferred until a concrete need — see AGENTS.md.
-gem 'pikuri-pdf', path: '../pikuri/pikuri-pdf'
+gem 'pikuri-pdf', '~> 0.0.7'
 
 # The coding shell's extra runtime — the six file/shell tools
 # (pikuri-workspace), the bubblewrap sandbox + git_clone + toolchain
@@ -80,12 +80,12 @@ group :code do
   # shell never renders a diff, so this stays off its load path.
   gem 'diff-lcs', '~> 2.0'
 
-  gem 'pikuri-workspace', path: '../pikuri/pikuri-workspace'
-  gem 'pikuri-code', path: '../pikuri/pikuri-code'
-  gem 'pikuri-tasks', path: '../pikuri/pikuri-tasks'
-  gem 'pikuri-skills', path: '../pikuri/pikuri-skills'
-  gem 'pikuri-mcp', path: '../pikuri/pikuri-mcp'
-  gem 'pikuri-subagents', path: '../pikuri/pikuri-subagents'
+  gem 'pikuri-workspace', '~> 0.0.7'
+  gem 'pikuri-code', '~> 0.0.7'
+  gem 'pikuri-tasks','~> 0.0.7'
+  gem 'pikuri-skills','~> 0.0.7'
+  gem 'pikuri-mcp', '~> 0.0.7'
+  gem 'pikuri-subagents','~> 0.0.7'
 end
 
 group :test do

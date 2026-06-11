@@ -1,63 +1,3 @@
-PATH
-  remote: ../pikuri/pikuri-code
-  specs:
-    pikuri-code (0.0.6)
-      pikuri-core (= 0.0.6)
-      pikuri-subagents (= 0.0.6)
-      pikuri-tasks (= 0.0.6)
-      pikuri-workspace (= 0.0.6)
-
-PATH
-  remote: ../pikuri/pikuri-core
-  specs:
-    pikuri-core (0.0.6)
-      faraday (~> 2.9)
-      nokogiri (~> 1.19)
-      rainbow (~> 3.1)
-      reverse_markdown (~> 3.0)
-      ruby-readability (~> 0.7)
-      ruby_llm (~> 1.15)
-      zeitwerk (~> 2.7)
-
-PATH
-  remote: ../pikuri/pikuri-mcp
-  specs:
-    pikuri-mcp (0.0.6)
-      mcp (~> 0.17)
-      pikuri-core (= 0.0.6)
-
-PATH
-  remote: ../pikuri/pikuri-pdf
-  specs:
-    pikuri-pdf (0.0.6)
-      pdf-reader (~> 2.15)
-      pikuri-core (= 0.0.6)
-
-PATH
-  remote: ../pikuri/pikuri-skills
-  specs:
-    pikuri-skills (0.0.6)
-      pikuri-core (= 0.0.6)
-
-PATH
-  remote: ../pikuri/pikuri-subagents
-  specs:
-    pikuri-subagents (0.0.6)
-      pikuri-core (= 0.0.6)
-      pikuri-workspace (= 0.0.6)
-
-PATH
-  remote: ../pikuri/pikuri-tasks
-  specs:
-    pikuri-tasks (0.0.6)
-      pikuri-core (= 0.0.6)
-
-PATH
-  remote: ../pikuri/pikuri-workspace
-  specs:
-    pikuri-workspace (0.0.6)
-      pikuri-core (= 0.0.6)
-
 GEM
   remote: https://rubygems.org/
   specs:
@@ -123,6 +63,34 @@ GEM
       hashery (~> 2.0)
       ruby-rc4
       ttfunk
+    pikuri-code (0.0.7)
+      pikuri-core (= 0.0.7)
+      pikuri-subagents (= 0.0.7)
+      pikuri-tasks (= 0.0.7)
+      pikuri-workspace (= 0.0.7)
+    pikuri-core (0.0.7)
+      faraday (~> 2.9)
+      nokogiri (~> 1.19)
+      rainbow (~> 3.1)
+      reverse_markdown (~> 3.0)
+      ruby-readability (~> 0.7)
+      ruby_llm (~> 1.15)
+      zeitwerk (~> 2.7)
+    pikuri-mcp (0.0.7)
+      mcp (~> 0.17)
+      pikuri-core (= 0.0.7)
+    pikuri-pdf (0.0.7)
+      pdf-reader (~> 2.15)
+      pikuri-core (= 0.0.7)
+    pikuri-skills (0.0.7)
+      pikuri-core (= 0.0.7)
+    pikuri-subagents (0.0.7)
+      pikuri-core (= 0.0.7)
+      pikuri-workspace (= 0.0.7)
+    pikuri-tasks (0.0.7)
+      pikuri-core (= 0.0.7)
+    pikuri-workspace (0.0.7)
+      pikuri-core (= 0.0.7)
     prism (1.9.0)
     public_suffix (7.0.5)
     racc (1.8.1)
@@ -184,14 +152,14 @@ DEPENDENCIES
   kramdown (~> 2.4)
   kramdown-parser-gfm (~> 1.1)
   minitest (~> 6.0)
-  pikuri-code!
-  pikuri-core!
-  pikuri-mcp!
-  pikuri-pdf!
-  pikuri-skills!
-  pikuri-subagents!
-  pikuri-tasks!
-  pikuri-workspace!
+  pikuri-code (~> 0.0.7)
+  pikuri-core (~> 0.0.7)
+  pikuri-mcp (~> 0.0.7)
+  pikuri-pdf (~> 0.0.7)
+  pikuri-skills (~> 0.0.7)
+  pikuri-subagents (~> 0.0.7)
+  pikuri-tasks (~> 0.0.7)
+  pikuri-workspace (~> 0.0.7)
   rouge (>= 4.0, < 6)
   rspec-core (~> 3.13)
   tomlrb (~> 2.0)
@@ -233,14 +201,14 @@ CHECKSUMS
   nokogiri (1.19.3-x86_64-linux-gnu) sha256=2f5078620fe12e83669b5b17311b32532a8153d02eee7ad06948b926d6080976
   nokogiri (1.19.3-x86_64-linux-musl) sha256=248c906d2166eca5efb56d52fdee5f9a1f51d69a72e2b64fdac647b4ce39ea3f
   pdf-reader (2.15.1) sha256=18c6a986a84a3117fa49f4279fc2de51f5d2399b71833df5d2bccd595c7068ce
-  pikuri-code (0.0.6)
-  pikuri-core (0.0.6)
-  pikuri-mcp (0.0.6)
-  pikuri-pdf (0.0.6)
-  pikuri-skills (0.0.6)
-  pikuri-subagents (0.0.6)
-  pikuri-tasks (0.0.6)
-  pikuri-workspace (0.0.6)
+  pikuri-code (0.0.7) sha256=faef9381b6d7999750a90e5da9d1bea89119eaa3ebb3beab588b2610bbc3673f
+  pikuri-core (0.0.7) sha256=dbb412cb83f24ee8c993e49b6223d5c4bf6e09a1e43823ecdaf85da6bcb52bd5
+  pikuri-mcp (0.0.7) sha256=f951a95a3602137984343fd9da133c450695c8a1d1e88ace5edf37f6d7d91638
+  pikuri-pdf (0.0.7) sha256=cc1ab8f04a64b0c3e7bbde1640aa18e4f1b69d10b9dba2afee0ae3f0333db83a
+  pikuri-skills (0.0.7) sha256=44d7f23eca8ab8dc91a7957572a4dd0c0fb0e535c6f6df270d767bceabd05b68
+  pikuri-subagents (0.0.7) sha256=37ef75f581b16ff0d5e434ed3c52400259469f28f1993bd705f65a64eaa13d6d
+  pikuri-tasks (0.0.7) sha256=5629606bc11a742688d0ebae5823d997cdac63900628d3e4d613f671f56fa6bd
+  pikuri-workspace (0.0.7) sha256=41e5bb2bf3a15bc49729d3a73da0697306bff6f78d5f68d92e9855e05cacf766
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
   public_suffix (7.0.5) sha256=1a8bb08f1bbea19228d3bed6e5ed908d1cb4f7c2726d18bd9cadf60bc676f623
   racc (1.8.1) sha256=4a7f6929691dbec8b5209a0b373bc2614882b55fc5d2e447a21aaa691303d62f
