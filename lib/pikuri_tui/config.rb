@@ -88,7 +88,15 @@ module PikuriTui
     #     coding agent can read. Both protections rely on the file sitting in
     #     the user/system config (see {.load}); project-local files are not
     #     loaded for exactly this reason.
-    Llm = Data.define(:name, :server, :model, :api_key)
+    # @!attribute [r] context_window
+    #   @return [Integer, nil] explicit context-window cap for this
+    #     connection, or +nil+ to let pikuri auto-detect it (its llama.cpp
+    #     +/props+ probe, which yields +nil+ for a non-llama server). Set it
+    #     for a cloud model the probe can't reach — e.g. a 2M-window model on
+    #     x.ai — so the footer shows a real +used/cap+. Rides the connection's
+    #     +Pikuri::Agent::ChatTransport+, so it is correct per-model across a
+    #     +Ctrl+P+ switch.
+    Llm = Data.define(:name, :server, :model, :api_key, :context_window)
 
     # One MCP server definition (coding shell only). Exactly one of
     # {#command} (local stdio subprocess) / {#url} (remote HTTP) is
@@ -347,7 +355,7 @@ module PikuriTui
     def self.build_llm(hash, index)
       raise Error, "llm[#{index}] must be a table" unless hash.is_a?(Hash)
 
-      unknown = hash.keys - %w[name server model api_key]
+      unknown = hash.keys - %w[name server model api_key context_window]
       raise Error, "llm[#{index}]: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
 
       name = hash['name']
@@ -357,11 +365,17 @@ module PikuriTui
         raise Error, "llm #{name.inspect}: `#{k}` must be a string" if hash[k] && !hash[k].is_a?(String)
       end
 
+      cw = hash['context_window']
+      if cw && !(cw.is_a?(Integer) && cw.positive?)
+        raise Error, "llm #{name.inspect}: `context_window` must be a positive integer"
+      end
+
       Llm.new(
-        name:    name,
-        server:  hash['server'] || DEFAULT_SERVER,
-        model:   hash['model'] || DEFAULT_MODEL,
-        api_key: hash['api_key'] # nil when omitted → "not-needed" at the bin
+        name:           name,
+        server:         hash['server'] || DEFAULT_SERVER,
+        model:          hash['model'] || DEFAULT_MODEL,
+        api_key:        hash['api_key'], # nil when omitted → "not-needed" at the bin
+        context_window: cw # nil when omitted → pikuri auto-detects
       )
     end
 
@@ -503,7 +517,8 @@ module PikuriTui
     end
 
     def self.default_llm
-      Llm.new(name: DEFAULT_LLM_NAME, server: DEFAULT_SERVER, model: DEFAULT_MODEL, api_key: nil)
+      Llm.new(name: DEFAULT_LLM_NAME, server: DEFAULT_SERVER, model: DEFAULT_MODEL, api_key: nil,
+              context_window: nil)
     end
 
     # First non-nil value — precedence resolution that treats +false+ as a

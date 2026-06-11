@@ -7,8 +7,9 @@ require 'spec_helper'
 # seam between Config's value objects and Pikuri's transport is crossed.
 describe PikuriTui::ModelChoice do
   # Build a Config::Llm with sensible defaults, overridable per example.
-  def llm(name: 'Local', server: 'http://localhost:8080', model: 'qwen', api_key: nil)
-    PikuriTui::Config::Llm.new(name: name, server: server, model: model, api_key: api_key)
+  def llm(name: 'Local', server: 'http://localhost:8080', model: 'qwen', api_key: nil, context_window: nil)
+    PikuriTui::Config::Llm.new(name: name, server: server, model: model, api_key: api_key,
+                               context_window: context_window)
   end
 
   describe '.from_llm' do
@@ -33,6 +34,14 @@ describe PikuriTui::ModelChoice do
     it 'falls back to "not-needed" when the key is nil or blank' do
       assert_equal 'not-needed', described_class.from_llm(llm(api_key: nil)).transport.api_key
       assert_equal 'not-needed', described_class.from_llm(llm(api_key: '  ')).transport.api_key
+    end
+
+    it 'carries an explicit context_window onto the transport' do
+      assert_equal 2_000_000, described_class.from_llm(llm(context_window: 2_000_000)).transport.context_window
+    end
+
+    it 'leaves context_window nil so pikuri auto-detects' do
+      assert_nil described_class.from_llm(llm(context_window: nil)).transport.context_window
     end
   end
 end

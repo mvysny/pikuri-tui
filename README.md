@@ -83,6 +83,10 @@ model   = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
 # server  = "https://openrouter.ai/api"
 # model   = "anthropic/claude-opus-4-8"
 # api_key = "sk-or-..."
+# A local llama.cpp reports its real window automatically; a cloud server
+# can't be probed, so set context_window to see a used/cap figure in the
+# footer (omit it and the cap simply stays blank).
+# context_window = 2000000
 
 # Coding-shell settings (bin/pikuri-tui-code only).
 [code]

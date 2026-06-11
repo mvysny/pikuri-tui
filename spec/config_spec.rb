@@ -105,6 +105,22 @@ describe PikuriTui::Config do
       end
     end
 
+    it 'reads an explicit context_window from an [[llm]] entry' do
+      with_dirs do |home, _|
+        write_config(home, "[[llm]]\nname = \"Grok\"\nserver = \"https://api.x.ai\"\ncontext_window = 2000000")
+        c = described_class.load(env: env_for(home))
+        assert_equal 2_000_000, c.primary_llm.context_window
+      end
+    end
+
+    it 'leaves context_window nil when the entry omits it (pikuri auto-detects)' do
+      with_dirs do |home, _|
+        write_config(home, "[[llm]]\nname = \"Local\"\nserver = \"http://x\"")
+        c = described_class.load(env: env_for(home))
+        assert_nil c.primary_llm.context_window
+      end
+    end
+
     it 'builds stdio and http MCP servers' do
       with_dirs do |home, _|
         write_config(home, <<~TOML)
@@ -352,6 +368,16 @@ describe PikuriTui::Config do
     it 'rejects an unknown llm key (e.g. the dropped api_key_env)' do
       e = expect_error("[[llm]]\nname = \"a\"\napi_key_env = \"OPENAI_API_KEY\"")
       assert_includes e.message, 'unknown key'
+    end
+
+    it 'rejects a non-integer context_window' do
+      e = expect_error("[[llm]]\nname = \"a\"\ncontext_window = \"2000000\"")
+      assert_includes e.message, '`context_window` must be a positive integer'
+    end
+
+    it 'rejects a non-positive context_window' do
+      e = expect_error("[[llm]]\nname = \"a\"\ncontext_window = 0")
+      assert_includes e.message, '`context_window` must be a positive integer'
     end
 
     it 'rejects duplicate llm names' do

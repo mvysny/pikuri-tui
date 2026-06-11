@@ -32,6 +32,11 @@ module PikuriTui
     # free of every +Pikuri::*+ reference (see its "Pikuri seam" note), so
     # the seam crossing lives here, in the Pikuri-aware adapter.
     #
+    # The connection's {Config::Llm#context_window} (an explicit cap for a
+    # server pikuri's +/props+ probe can't reach) rides the transport too,
+    # so it is honored per-model across a +Ctrl+P+ switch; +nil+ defers to
+    # pikuri's auto-detection.
+    #
     # @param llm [Config::Llm] one +[[llm]]+ connection from {Config#llms}.
     # @return [ModelChoice] the display-name / transport pairing.
     def self.from_llm(llm)
@@ -42,7 +47,8 @@ module PikuriTui
         transport: Pikuri::Agent::ChatTransport.from_openai_server(
           server: llm.server,
           model: llm.model,
-          api_key: key
+          api_key: key,
+          context_window: llm.context_window
         )
       )
     end
