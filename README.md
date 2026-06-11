@@ -86,7 +86,7 @@ model   = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
 # A local llama.cpp reports its real window automatically; a cloud server
 # can't be probed, so set context_window to see a used/cap figure in the
 # footer (omit it and the cap simply stays blank).
-# context_window = 2000000
+# context_window = 1000000
 
 # Coding-shell settings (bin/pikuri-tui-code only).
 [code]
