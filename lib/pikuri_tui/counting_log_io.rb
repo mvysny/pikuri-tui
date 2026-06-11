@@ -37,6 +37,12 @@ module PikuriTui
     # @return [Array<String>]
     ERROR_PREFIXES = ['E,', 'F,'].freeze
 
+    # Re-enters this object's #write once Pikuri.log_io is wired here; safe
+    # because the only line we emit is warn-class, so it can't re-trigger
+    # #bump_error_count.
+    LOG = Pikuri.logger_for('log')
+    private_constant :LOG
+
     # @param log_window [Tuile::Component::LogWindow] the diagnostic window
     #   that receives every line, regardless of severity. Same role as the
     #   +window+ argument to +Tuile::Component::LogWindow::IO.new+.
@@ -95,7 +101,7 @@ module PikuriTui
     def bump_error_count(string)
       @on_error&.call(string)
     rescue StandardError => e
-      Tuile.logger.warn(
+      LOG.warn(
         "CountingLogIO on_error callback raised (#{e.class}: #{e.message}); " \
         'error count may be stale'
       )

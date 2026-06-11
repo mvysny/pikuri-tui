@@ -111,6 +111,9 @@ module PikuriTui
     COMMIT_PROBE_SENTINEL = ""
     private_constant :COMMIT_PROBE_SENTINEL
 
+    LOG = Pikuri.logger_for('markdown')
+    private_constant :LOG
+
     # @param render [#call] callable that takes a Markdown +String+ and
     #   returns rendered ANSI +String+. The buffer treats it as an
     #   opaque function — it must be deterministic for a given input
@@ -298,7 +301,7 @@ module PikuriTui
       @open_source = remaining
       true
     rescue StandardError => e
-      Tuile.logger.warn(
+      LOG.warn(
         "StreamingMarkdownBuffer: commit-render failed " \
         "(#{e.class}: #{e.message}); keeping content open"
       )
@@ -330,7 +333,7 @@ module PikuriTui
       rendered = @render.call(source)
       rendered.split("\n")
     rescue StandardError => e
-      Tuile.logger.warn(
+      LOG.warn(
         "StreamingMarkdownBuffer: render failed " \
         "(#{e.class}: #{e.message}); keeping previous rendered state"
       )

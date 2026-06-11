@@ -12,6 +12,7 @@ ENV['NO_COLOR'] = '1'
 require 'rspec/core'
 require 'minitest'
 require 'minitest/assertions'
+require 'stringio'
 
 require 'pikuri-core'
 
@@ -38,17 +39,42 @@ Tuile::ThemeDef.default = PikuriTui::AppTheme::THEME_DEF
 
 # Silence pikuri's default $stderr logging during the suite so production
 # log lines don't bleed into rspec output. Specs that exercise logging
-# swap +Pikuri.log_io+ to a +StringIO+ or a +CountingLogIO+ wired against
-# a +Tuile::FakeScreen+, then restore it.
-Pikuri.log_io = File.open(File::NULL, 'w')
+# swap +Pikuri.log_io+ to a +StringIO+ (see +capture_log+ below) or a
+# +CountingLogIO+ wired against a +Tuile::FakeScreen+. A per-example reset
+# (see RSpec.configure) returns it here afterward, so an App spec that wires
+# a now-dead FakeScreen into +Pikuri.log_io+ can't leak it into the next
+# example's logger writes.
+NULL_LOG = File.open(File::NULL, 'w')
+Pikuri.log_io = NULL_LOG
 
 RSpec.configure do |config|
+  # Reset the shared pikuri log sink before each example so a prior example's
+  # swap (esp. an App's screen-bound CountingLogIO) never leaks across.
+  config.before { Pikuri.log_io = NULL_LOG }
+
   config.include Minitest::Assertions
   config.include(Module.new do
     attr_writer :assertions
 
     def assertions
       @assertions ||= 0
+    end
+  end)
+
+  # Capture pikuri log output for the duration of the block and return it as
+  # a String. pikuri-tui logs through per-class LOG constants
+  # (Pikuri.logger_for), never Tuile.logger, and Pikuri.log_io= rewires those
+  # loggers in place — so redirecting the shared sink captures them. The
+  # previous sink (NULL by default; see above) is restored after.
+  config.include(Module.new do
+    def capture_log
+      sink = StringIO.new
+      previous = Pikuri.log_io
+      Pikuri.log_io = sink
+      yield
+      sink.string
+    ensure
+      Pikuri.log_io = previous
     end
   end)
 end

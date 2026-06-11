@@ -32,8 +32,8 @@ module PikuriTui
   #    this") doesn't apply here — submitting clears the input area, so
   #    without an echo the user's message vanishes.
   # 2. Library failures during rendering (kramdown / rouge choking on
-  #    assistant output) are caught and logged through {Tuile.logger}
-  #    instead of bubbling out — an uncaught raise on the worker thread
+  #    assistant output) are caught and logged through the +'listener'+
+  #    pikuri logger instead of bubbling out — an uncaught raise on the worker thread
   #    would silently kill the agent loop. Same "library exceptions are
   #    logged, our bugs raise" rule documented in CLAUDE.md.
   # 3. Streaming events ({Pikuri::Agent::Event::AssistantDelta} /
@@ -80,6 +80,9 @@ module PikuriTui
     #
     # @return [String]
     EVENT_DUMP_PATH = '/tmp/pikuri-tui-events.txt'
+
+    LOG = Pikuri.logger_for('listener')
+    private_constant :LOG
 
     # @param text_view [Tuile::Component::TextView] the conversation pane
     #   to render rendered events into. Lifetime is owned by the host
@@ -395,7 +398,7 @@ module PikuriTui
 
       MarkdownRenderer.render(content, width: buffer_width)
     rescue StandardError => e
-      Tuile.logger.warn("MarkdownRenderer.render failed (#{e.class}: #{e.message}); falling back to raw text")
+      LOG.warn("MarkdownRenderer.render failed (#{e.class}: #{e.message}); falling back to raw text")
       content
     end
 

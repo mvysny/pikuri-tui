@@ -29,6 +29,18 @@ require 'pikuri-core'
 require 'pikuri-pdf'
 require 'pikuri_tui'
 
+# Boot-time logging goes to stderr until the screen is up. pikuri's loggers
+# (Pikuri.logger_for) already default to $stderr — we set it explicitly to
+# document the lifecycle: anything logged before App.new (e.g. Config.load
+# reporting which config files it read) surfaces on stderr, then App rewires
+# Pikuri.log_io to the diagnostic LogWindow and every logger follows.
+Pikuri.log_io = $stderr
+
+# This bin's own logger. Like every pikuri-tui logger it goes through
+# Pikuri.logger_for (NOT Tuile.logger — see AGENTS.md), so it writes to
+# stderr now and to the LogWindow once App rewires Pikuri.log_io.
+main_log = Pikuri.logger_for('main')
+
 # CLI overrides start nil ("flag not given") so PikuriTui::Config can tell
 # an explicit flag from an absent one; they override the selected
 # connection's fields on top of the config file. Built-in defaults live in
@@ -71,7 +83,7 @@ end
 # All configured connections become picker entries (ModelChoice); the
 # first is the boot model. ModelChoice.from_llm builds each one's
 # connection-bearing transport (the Pikuri seam lives there, not in the
-# Pikuri-free Config), so the context-window probe and a Ctrl+P switch
+# Pikuri-light Config), so the context-window probe and a Ctrl+P switch
 # both target the right server.
 models = config.llms.map { |llm| PikuriTui::ModelChoice.from_llm(llm) }
 
@@ -131,9 +143,10 @@ app = PikuriTui::Chat::App.new(token_log: token_log, models: models) do |listene
   end
 end
 
-# Surface any config-load advisories (e.g. a config file holding a literal
+# Surface config-load advisories (e.g. a config file holding a literal
 # api_key with loose permissions) in the diagnostic pane now that App.new
-# has wired Tuile.logger to it.
-config.warnings.each { |w| Tuile.logger.warn(w) }
+# has rewired Pikuri.log_io to it. Which files were read is already logged
+# by Config.load itself (to stderr at boot, then re-pointed to the LogWindow).
+config.warnings.each { |w| main_log.warn(w) }
 
 app.run

@@ -31,16 +31,24 @@ module PikuriTui
   # == The Pikuri seam
   #
   # This class is eager-loaded by BOTH shells, including the chat shell,
-  # whose +Bundler.setup(:default)+ never puts +pikuri-mcp+ on the load
-  # path. So {Config} stays free of every +Pikuri::*+ reference: MCP
-  # servers surface as plain {McpServer} value objects whose field names
-  # ({McpServer#id} / +command+ / +url+ / +headers+) match
+  # whose +Bundler.setup(:default)+ never puts +pikuri-mcp+ (nor the rest of
+  # the +:code+ group) on the load path. So {Config} references nothing from
+  # those gems: MCP servers surface as plain {McpServer} value objects whose
+  # field names ({McpServer#id} / +command+ / +url+ / +headers+) match
   # +Pikuri::Mcp::Registry+'s entries 1:1, and the coding bin does the
   # trivial pass-through into +Registry::StdioEntry+ / +Registry::HttpEntry+.
   # The +bearer_token+ / +basic_auth+ HTTP-auth conveniences are resolved
   # here into {McpServer#headers} so that pass-through stays trivial.
   # Translation lives in the wiring layer where +Pikuri::*+ is allowed, not
   # here.
+  #
+  # The one +Pikuri+ touch allowed here is +pikuri-core+'s logging facade:
+  # {.load} reports which config files it read through +Pikuri.logger_for+
+  # (memoized, +progname+-tagged), which both shells load (+pikuri-core+ is
+  # in the +:default+ group). +Pikuri.log_io+ defaults to +$stderr+, so
+  # these lines surface immediately at boot — before any screen exists — and
+  # each bin's +App+ later rewires +Pikuri.log_io+ to the diagnostic
+  # LogWindow, retroactively re-pointing this logger too. No delayed replay.
   #
   # == Errors
   #
@@ -49,6 +57,9 @@ module PikuriTui
   # up, so the bins rescue {Error} into a plain +warn+ + +exit+ rather
   # than the usual route-to-LogWindow path (there is no LogWindow yet).
   class Config
+    LOG = Pikuri.logger_for('config')
+    private_constant :LOG
+
     # Raised for any unreadable / malformed / schema-invalid config file.
     # Carries a human-readable message naming the offending key or file.
     class Error < StandardError; end
@@ -166,13 +177,17 @@ module PikuriTui
     def self.load(overrides: {}, env: ENV)
       merged = {}
       warnings = []
+      any_loaded = false
       candidate_paths(env).each do |path|
         next unless File.file?(path)
 
         parsed = parse_file(path)
+        LOG.info("loaded #{path}")
+        any_loaded = true
         warn_loose_perms(path, parsed, warnings)
         merged = deep_merge(merged, parsed)
       end
+      LOG.info('no config file found; using built-in defaults') unless any_loaded
       validate_top!(merged)
 
       llm_tables = merged['llm'] || []

@@ -64,13 +64,12 @@ RSpec.describe PikuriTui::AnsiGrayscale do
     end
 
     it 'logs and returns the input unchanged when StyledString cannot parse the SGR' do
-      captured = StringIO.new
-      Tuile.logger = Logger.new(captured)
       # SGR code 2 (dim) is not modeled by Tuile::StyledString → ParseError.
       input = "\e[2mdim\e[0m"
-      out = described_class.recolor(input)
+      out = nil
+      log = capture_log { out = described_class.recolor(input) }
       assert_equal input, out
-      assert_includes captured.string, 'AnsiGrayscale'
+      assert_includes log, 'AnsiGrayscale'
     end
 
     it 'handles multi-span input by recoloring every span' do

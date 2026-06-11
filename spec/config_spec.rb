@@ -241,6 +241,24 @@ describe PikuriTui::Config do
     end
   end
 
+  describe 'load logging (Pikuri.logger_for)' do
+    it 'logs each config file it reads, in load order' do
+      with_dirs do |home, sys|
+        sys_path  = write_config(sys, "[code]\nsandbox = false\n")
+        home_path = write_config(home, "[[llm]]\nname = \"a\"\n")
+        out = capture_log { described_class.load(env: env_for(home, dirs: sys)) }
+        assert_includes out, "loaded #{sys_path}"
+        assert_includes out, "loaded #{home_path}"
+        assert_operator out.index(sys_path), :<, out.index(home_path)
+      end
+    end
+
+    it 'logs a defaults notice when no config file is found' do
+      out = capture_log { load_bare }
+      assert_includes out, 'no config file found'
+    end
+  end
+
   describe 'security advisories' do
     it 'warns when a file holding a literal api_key is group/other-accessible' do
       with_dirs do |home, _|

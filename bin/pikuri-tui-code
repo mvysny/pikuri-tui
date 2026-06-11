@@ -41,6 +41,18 @@ require 'pikuri-mcp'
 require 'pikuri-subagents'
 require 'pikuri_tui'
 
+# Boot-time logging goes to stderr until the screen is up. pikuri's loggers
+# (Pikuri.logger_for) already default to $stderr — we set it explicitly to
+# document the lifecycle: anything logged before App.new (e.g. Config.load
+# reporting which config files it read) surfaces on stderr, then App rewires
+# Pikuri.log_io to the diagnostic LogWindow and every logger follows.
+Pikuri.log_io = $stderr
+
+# This bin's own logger. Like every pikuri-tui logger it goes through
+# Pikuri.logger_for (NOT Tuile.logger — see AGENTS.md), so it writes to
+# stderr now and to the LogWindow once App rewires Pikuri.log_io.
+main_log = Pikuri.logger_for('main')
+
 # CLI overrides start nil ("flag not given") so PikuriTui::Config can tell
 # an explicit flag from an absent one. The sandbox/confirm flags only ever
 # force false (there is no --sandbox / --confirm); config sets the baseline.
@@ -320,28 +332,29 @@ app = PikuriTui::Code::App.new(
   end
 end
 
-# Boot diagnostics into the LogWindow (App.new has wired Tuile.logger to
-# it by now). The conversation pane is not a log sink (AGENTS.md), so
-# project-root / skill / safety notices go to the diagnostic pane the
-# user opens with Ctrl+L. Safety-reductions are logged at warn so they
-# stand out among the info noise.
-Tuile.logger.warn(chdir_notice) if chdir_notice
-Tuile.logger.info("Working in #{workspace.project_root}")
-Tuile.logger.info("Loaded project context from #{md_path}") if md_path
+# Boot diagnostics through the 'main' logger (App.new has rewired
+# Pikuri.log_io to the LogWindow by now, so these land there). The
+# conversation pane is not a log sink (AGENTS.md), so project-root / skill /
+# safety notices go to the diagnostic pane the user opens with Ctrl+L.
+# Safety-reductions are logged at warn so they stand out among the info noise.
+main_log.warn(chdir_notice) if chdir_notice
+main_log.info("Working in #{workspace.project_root}")
+main_log.info("Loaded project context from #{md_path}") if md_path
 unless skill_catalog.empty?
   names = skill_catalog.list.map(&:name).sort.join(', ')
-  Tuile.logger.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
+  main_log.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
 end
 # Config-load advisories (e.g. a config file holding a literal api_key with
-# loose permissions).
-config.warnings.each { |w| Tuile.logger.warn(w) }
+# loose permissions). Which files were read is already logged by Config.load
+# itself (to stderr at boot, then re-pointed to the LogWindow).
+config.warnings.each { |w| main_log.warn(w) }
 safety = []
 safety << 'Sandbox: DISABLED.' unless sandbox_enabled
 safety << 'Confirmer: AUTO-APPROVE.' unless confirm_enabled
 safety << 'Filesystem: ALLOW_ALL (credential denylist only).' if yolo
 unless safety.empty?
   safety << 'Use only with an outer sandbox (docker / dev-container) or in a throwaway environment.'
-  Tuile.logger.warn(safety.join(' '))
+  main_log.warn(safety.join(' '))
 end
 
 app.run

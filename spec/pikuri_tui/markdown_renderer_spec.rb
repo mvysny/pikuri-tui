@@ -139,16 +139,10 @@ RSpec.describe PikuriTui::MarkdownRenderer do
   end
 
   context 'diagnostics' do
-    it 'forwards converter warnings to Tuile.logger, not the output' do
-      captured = StringIO.new
-      original = Tuile.logger
-      Tuile.logger = Logger.new(captured)
-      begin
-        out = described_class.render('before <marquee>zip</marquee> after', width: width)
-      ensure
-        Tuile.logger = original
-      end
-      assert_includes captured.string, 'marquee'
+    it 'forwards converter warnings to the pikuri log, not the output' do
+      out = nil
+      log = capture_log { out = described_class.render('before <marquee>zip</marquee> after', width: width) }
+      assert_includes log, 'marquee'
       assert_includes out, 'zip'
       refute_includes out, 'marquee'
     end

@@ -54,11 +54,12 @@ loaded.
   conversation transcript — assistant Markdown, reasoning,
   tool-call lines, tool observations — driven by our pikuri
   listener. The `LogWindow` shows internal diagnostics —
-  pikuri's per-subsystem loggers via `Pikuri.log_io=`,
-  pikuri-tui's own loggers, anything we route through
-  `Tuile.logger`. Never cross the streams: the conversation
-  pane is what the user reads; the log pane is what we read
-  when something's wrong.
+  both pikuri's and pikuri-tui's per-subsystem loggers, routed
+  through `Pikuri.log_io=` (pikuri-tui logs via `Pikuri.logger_for`,
+  not `Tuile.logger` — see Conventions), plus any `Tuile`-internal
+  noise we still capture through `Tuile.logger`. Never cross the
+  streams: the conversation pane is what the user reads; the log
+  pane is what we read when something's wrong.
 
 - **The seam.** All `Pikuri::*` references stay inside the bin
   scripts (boot/wiring) and the small adapter set under
@@ -120,13 +121,18 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   switches, and its MCP servers (`[[code.mcp]]`) from the XDG search
   path (`/etc/xdg` → `$XDG_CONFIG_HOME`, deep-merged, arrays replace)
   with CLI overrides on top. Parsed with `tomlrb` (parse-only,
-  zero-dep) and validated by hand. Deliberately free of every
-  `Pikuri::*` reference — it is eager-loaded by the chat shell, whose
+  zero-dep) and validated by hand. References nothing from the
+  `:code`-group gems — it is eager-loaded by the chat shell, whose
   `Bundler.setup(:default)` lacks `pikuri-mcp` — so MCP servers
   surface as plain `Config::McpServer` value objects whose field
   names match `Pikuri::Mcp::Registry`'s entries 1:1, and the coding
   bin does the trivial pass-through into `Registry::StdioEntry` /
-  `HttpEntry`. HTTP MCP auth rides `HttpEntry`'s `headers`: an entry's
+  `HttpEntry`. Its one `Pikuri` touch is `pikuri-core`'s logging
+  facade (in `:default`, so both shells have it): `load` reports each
+  config file it reads through `Pikuri.logger_for('config')`, which
+  surfaces on `$stderr` at boot (pikuri's default `log_io`) and
+  follows along when each bin's `App` rewires `Pikuri.log_io` to the
+  LogWindow — no delayed replay. HTTP MCP auth rides `HttpEntry`'s `headers`: an entry's
   `bearer_token` / `basic_auth` (username+password) conveniences are
   folded into the `headers` hash at load time alongside any raw custom
   `headers`. A stdio entry's `env` table passes straight through to
@@ -415,21 +421,50 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `Pikuri::Agent::Event::ToolCall`) — never bare `Object` or
   `Any`. Document expected exceptions with `@raise`. One-line
   summary first, then blank line, then tags. `bin/` and `spec/`
-  files don't need it.
+  files don't need it. Exception: the per-class `LOG` logger
+  constants (see "Log through pikuri" below) carry no rdoc — the
+  declaration is self-explanatory.
 - **Bundler.** Entry-point scripts in `bin/` self-bootstrap via
   `require 'bundler/setup'` so callers don't need the
   `bundle exec` ceremony. Pin the `BUNDLE_GEMFILE` to this
   project's Gemfile via `__dir__` so the scripts work when
   symlinked into `~/.local/bin/`.
-- **Internal logging goes to Tuile's `LogWindow`, not stderr.**
-  Wire `Tuile.logger` and `Pikuri.log_io=` to a
-  `Tuile::Component::LogWindow::IO` early in boot so pikuri-tui's
-  own loggers, pikuri's per-subsystem loggers, and any
-  third-party log noise we route here all land in the visible
-  diagnostic pane. The conversation pane (`TextView`, driven by
-  `PikuriTui::TuileListener`) is for the LLM stream — assistant
-  Markdown, reasoning, tool calls, observations — and is not a
-  log sink; never write log lines into it.
+- **Log through pikuri, not `Tuile.logger`.** Emit every pikuri-tui
+  log line through a named pikuri logger —
+  `Pikuri.logger_for('<subsystem>')` — never `Tuile.logger`. Each
+  logging class/module stores its logger as a private constant, the
+  Ruby form of Java's `private static final Logger log = …`: one
+  per class, created once, not per instance:
+
+  ```ruby
+  LOG = Pikuri.logger_for('git')
+  private_constant :LOG
+  # ... LOG.error("git poll failed: …")
+  ```
+
+  These `LOG` constants are exempt from the YARD rule above — no rdoc
+  on them, the one line speaks for itself. Use a short subsystem tag
+  (several classes may share one — `Pikuri.logger_for` memoizes per
+  name, so they share the `Logger` object): `'markdown'` (renderer /
+  grayscale / streaming buffer), `'formatter'` (edit / write), plus
+  `'listener'`, `'git'`, `'log'`, `'config'`, and `'chat'` / `'code'`
+  for the two `App`s. The bins are plain scripts, not classes, so they
+  keep a local (`main_log = Pikuri.logger_for('main')`).
+
+  Why pikuri and not `Tuile.logger`: pikuri's `Pikuri.log_io` defaults
+  to `$stderr`, so a logger works from the first line of boot, *before*
+  any screen exists (a `LOG` constant built at class-load time logs
+  fine); `Pikuri.log_io=` rewires every logger already handed out in
+  one shot, so when each bin's `App` points it at the
+  `Tuile::Component::LogWindow::IO` the whole stream — including loggers
+  created earlier at stderr — follows to the diagnostic pane with no
+  delayed replay. `Tuile.logger` defaults to `IO::NULL` (dropped until
+  wired) and is a single untagged logger, so it's reserved for one job:
+  `App` still assigns `Tuile.logger = Logger.new(io)` to capture
+  `Tuile`'s *own* internal noise into the same LogWindow. The
+  conversation pane (`TextView`, driven by `PikuriTui::TuileListener`)
+  is for the LLM stream — assistant Markdown, reasoning, tool calls,
+  observations — and is not a log sink; never write log lines into it.
 - **Our bugs raise; library exceptions are logged.** Two buckets:
   unexpected internal state in *this project's* code raises with
   the offending data included — silent fallbacks hide what

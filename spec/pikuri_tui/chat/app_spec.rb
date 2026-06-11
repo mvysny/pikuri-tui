@@ -255,13 +255,11 @@ RSpec.describe PikuriTui::Chat::App do
     assert_equal false, @listener.instance_variable_get(:@markdown)
   end
 
-  it 'installs an on_error handler that funnels uncaught exceptions to Tuile.logger' do
+  it 'installs an on_error handler that funnels uncaught exceptions to the pikuri log' do
     app
-    captured = StringIO.new
-    Tuile.logger = Logger.new(captured)
-    app.screen.on_error.call(RuntimeError.new('oops'))
-    assert_includes captured.string, 'RuntimeError'
-    assert_includes captured.string, 'oops'
+    log = capture_log { app.screen.on_error.call(RuntimeError.new('oops')) }
+    assert_includes log, 'RuntimeError'
+    assert_includes log, 'oops'
   end
 
   describe 'model picker (Ctrl+P)' do

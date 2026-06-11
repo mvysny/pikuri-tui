@@ -43,12 +43,10 @@ RSpec.describe PikuriTui::CountingLogIO do
   end
 
   it 'tolerates a raising on_error callback (logging must never crash the worker that called it)' do
-    captured = StringIO.new
-    Tuile.logger = Logger.new(captured)
     io = described_class.new(log_window: log_window, on_error: ->(_line) { raise 'callback bug' })
     logger = Logger.new(io)
-    logger.error('boom')
-    assert_includes captured.string, 'CountingLogIO on_error callback raised'
+    log = capture_log { logger.error('boom') }
+    assert_includes log, 'CountingLogIO on_error callback raised'
   end
 
   it 'leaves on_error unset by default (no counting wired = silent)' do

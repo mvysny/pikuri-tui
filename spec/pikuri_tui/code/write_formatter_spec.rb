@@ -65,13 +65,14 @@ RSpec.describe PikuriTui::Code::WriteFormatter do
     end
 
     it 'falls back (nil) and logs when resolution raises (outside workspace)' do
-      captured = StringIO.new
-      Tuile.logger = Logger.new(captured)
-      out = described_class.new(workspace: workspace({})).render_call(
-        arguments: { 'path' => '../escape', 'content' => 'x' }, width: 40, theme: theme
-      )
+      out = nil
+      log = capture_log do
+        out = described_class.new(workspace: workspace({})).render_call(
+          arguments: { 'path' => '../escape', 'content' => 'x' }, width: 40, theme: theme
+        )
+      end
       assert_nil out
-      assert_includes captured.string, 'WriteFormatter'
+      assert_includes log, 'WriteFormatter'
     end
   end
 

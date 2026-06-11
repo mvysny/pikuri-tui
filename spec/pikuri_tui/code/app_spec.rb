@@ -258,13 +258,11 @@ RSpec.describe PikuriTui::Code::App do
     assert_raises(LocalJumpError) { described_class.new }
   end
 
-  it 'installs an on_error handler that funnels uncaught exceptions to Tuile.logger' do
+  it 'installs an on_error handler that funnels uncaught exceptions to the pikuri log' do
     app
-    captured = StringIO.new
-    Tuile.logger = Logger.new(captured)
-    app.screen.on_error.call(RuntimeError.new('oops'))
-    assert_includes captured.string, 'RuntimeError'
-    assert_includes captured.string, 'oops'
+    log = capture_log { app.screen.on_error.call(RuntimeError.new('oops')) }
+    assert_includes log, 'RuntimeError'
+    assert_includes log, 'oops'
   end
 
   describe 'model picker (Ctrl+P)' do

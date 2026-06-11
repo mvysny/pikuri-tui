@@ -32,12 +32,11 @@ RSpec.describe PikuriTui::Code::EditFormatter do
     end
 
     it 'returns nil and logs when rendering raises (degrade, not crash)' do
-      captured = StringIO.new
-      Tuile.logger = Logger.new(captured)
       # A non-Hash arguments value blows up on transform_keys.
-      out = described_class.new.render_call(arguments: Object.new, width: 40, theme: theme)
+      out = nil
+      log = capture_log { out = described_class.new.render_call(arguments: Object.new, width: 40, theme: theme) }
       assert_nil out
-      assert_includes captured.string, 'EditFormatter'
+      assert_includes log, 'EditFormatter'
     end
   end
 

@@ -16,6 +16,9 @@ module PikuriTui
     # {#render_call} on the +ToolCall+ and {#render_result} on the paired
     # +ToolResult+.
     class EditFormatter
+      LOG = Pikuri.logger_for('formatter')
+      private_constant :LOG
+
       # Render the diff block for an +edit+ call.
       #
       # @param arguments [Hash] the tool-call arguments
@@ -36,7 +39,7 @@ module PikuriTui
           theme: theme
         )
       rescue StandardError => e
-        Tuile.logger.warn("EditFormatter.render_call failed (#{e.class}: #{e.message}); falling back to default")
+        LOG.warn("EditFormatter.render_call failed (#{e.class}: #{e.message}); falling back to default")
         nil
       end
 

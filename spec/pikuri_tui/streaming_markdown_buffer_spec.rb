@@ -161,23 +161,17 @@ RSpec.describe PikuriTui::StreamingMarkdownBuffer do
     end
 
     it 'catches render exceptions, logs, and keeps prior region content' do
-      old_logger = Tuile.logger
-      log_io = StringIO.new
-      Tuile.logger = Logger.new(log_io)
-
       flaky = FlakyRenderer.new(width: width)
       buf = build(render: flaky)
       buf.append('hello')
       content_before = region.text.to_s
 
       flaky.explode = true
-      buf.append(' world')
+      log = capture_log { buf.append(' world') }
 
       assert_equal content_before, region.text.to_s
-      assert_includes log_io.string, 'render failed'
-      assert_includes log_io.string, 'synthetic render boom'
-    ensure
-      Tuile.logger = old_logger
+      assert_includes log, 'render failed'
+      assert_includes log, 'synthetic render boom'
     end
 
     it 'recovers cleanly on the next successful render' do

@@ -18,6 +18,9 @@ module PikuriTui
     # dispatch there) — acceptable for the file sizes the model writes;
     # revisit if a large file ever stutters the paint.
     class WriteFormatter
+      LOG = Pikuri.logger_for('formatter')
+      private_constant :LOG
+
       # @param workspace [Pikuri::Workspace::Filesystem] resolves the path
       #   and bounds the read to the workspace (same handle the +Write+ tool
       #   uses).
@@ -49,7 +52,7 @@ module PikuriTui
           theme: theme
         )
       rescue StandardError => e
-        Tuile.logger.warn("WriteFormatter.render_call failed (#{e.class}: #{e.message}); falling back to default")
+        LOG.warn("WriteFormatter.render_call failed (#{e.class}: #{e.message}); falling back to default")
         nil
       end
 

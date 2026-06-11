@@ -20,7 +20,7 @@ module PikuriTui
   # deliberately emits only that supported alphabet (see its "Output
   # contract" doc) so the happy path is fine; if a styling tweak ever
   # emits an unsupported code we log
-  # through {Tuile.logger} and return the input unrecolored rather
+  # through the +'markdown'+ pikuri logger and return the input unrecolored rather
   # than tearing down the agent loop with an uncaught raise on the
   # worker thread. The expected fix when the log fires is to add the
   # missing code to {Tuile::StyledString}'s parser, not to grow a
@@ -36,6 +36,9 @@ module PikuriTui
     # @return [Tuile::Color]
     GRAY = Tuile::Color.new([85, 85, 85])
 
+    LOG = Pikuri.logger_for('markdown')
+    private_constant :LOG
+
     class << self
       # Repaint +ansi+ as one flat tone, preserving bold/italic/underline.
       # Empty input fast-paths to the empty string.
@@ -48,13 +51,13 @@ module PikuriTui
       #   theme's +:thinking+ token so the tone tracks light/dark.
       # @return [String] same content, repainted. On parse failure (an
       #   SGR code {Tuile::StyledString} doesn't model), returns +ansi+
-      #   unchanged and logs through {Tuile.logger}.
+      #   unchanged and logs through the +'markdown'+ pikuri logger.
       def recolor(ansi, fg: GRAY)
         return ansi if ansi.nil? || ansi.empty?
 
         Tuile::StyledString.parse(ansi).with_fg(fg).with_bg(nil).to_ansi
       rescue Tuile::StyledString::ParseError => e
-        Tuile.logger.warn(
+        LOG.warn(
           "AnsiGrayscale.recolor: StyledString parse failed " \
           "(#{e.class}: #{e.message}); returning input unrecolored"
         )

@@ -117,6 +117,9 @@ module PikuriTui
       # @return [String]
       PLACEHOLDER = '(no changes)'
 
+      LOG = Pikuri.logger_for('git')
+      private_constant :LOG
+
       # @param summary_view [Tuile::Component::TextView] the sidebar pane the
       #   per-file change summary is rendered into. Owned by the host
       #   ({Code::App}); the watcher neither builds nor destroys it.
@@ -214,7 +217,7 @@ module PikuriTui
         diff_text = [tracked_diff, *untracked.map { |p| untracked_diff(p) }].reject(&:empty?).join
         Snapshot.new(summary: render_summary(entries), diff: render_diff(diff_text))
       rescue StandardError => e
-        Tuile.logger.error("git poll failed: #{e.class}: #{e.message}")
+        LOG.error("git poll failed: #{e.class}: #{e.message}")
         notice = "git unavailable: #{e.message}"
         Snapshot.new(summary: notice, diff: notice)
       end
@@ -242,7 +245,7 @@ module PikuriTui
 
         GitDiffRenderer.render(diff_text, theme: @screen.theme, max_width: diff_width)
       rescue StandardError => e
-        Tuile.logger.error("git diff render failed: #{e.class}: #{e.message}")
+        LOG.error("git diff render failed: #{e.class}: #{e.message}")
         diff_text
       end
 

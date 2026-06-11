@@ -49,6 +49,9 @@ module PikuriTui
     #   tool-result boundary) instead of starting a second +run_loop+. The
     #   flag is read and written only on the UI thread.
     class App
+      LOG = Pikuri.logger_for('chat')
+      private_constant :LOG
+
       # @return [Tuile::Screen] the (already-installed) screen this app
       #   runs on.
       attr_reader :screen
@@ -312,7 +315,7 @@ module PikuriTui
       def queue_mid_turn(message)
         interloper = @agent.interloper
         if interloper.nil?
-          Tuile.logger.warn('mid-turn message dropped: the agent has no Interloper wired')
+          LOG.warn('mid-turn message dropped: the agent has no Interloper wired')
           return
         end
 
@@ -342,7 +345,7 @@ module PikuriTui
         rescue Pikuri::Agent::Control::Cancellable::Cancelled
           # Notice already rendered by the TuileListener; nothing else to do.
         rescue StandardError => e
-          Tuile.logger.error(
+          LOG.error(
             "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"
           )
           @screen.event_queue.submit do
@@ -466,7 +469,7 @@ module PikuriTui
       # @param exception [StandardError]
       # @return [void]
       def on_screen_error(exception)
-        Tuile.logger.error(
+        LOG.error(
           "#{exception.class}: #{exception.message}\n#{(exception.backtrace || []).join("\n")}"
         )
       end

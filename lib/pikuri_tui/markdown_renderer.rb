@@ -29,8 +29,8 @@ module PikuriTui
   #    *and* ordered, numbering intact — and block spacing comes out
   #    right the first time, so there is no post-processing pass.
   #
-  # Parser and converter warnings are forwarded to {Tuile.logger} (the
-  # diagnostic pane), not the conversation pane.
+  # Parser and converter warnings are forwarded to the +'markdown'+ pikuri
+  # logger (the diagnostic pane), not the conversation pane.
   #
   # == Table separators
   #
@@ -56,6 +56,9 @@ module PikuriTui
     TABLE_SEPARATOR_LIKE = /^[ \t]*\|?[ \t\-—–:]*\|[ \t\-—–:|]*$/
     private_constant :TABLE_SEPARATOR_LIKE
 
+    LOG = Pikuri.logger_for('markdown')
+    private_constant :LOG
+
     module_function
 
     # Render Markdown to ANSI.
@@ -72,8 +75,8 @@ module PikuriTui
       patched = fix_table_separators(source)
       doc = Kramdown::Document.new(patched, input: 'GFM', hard_wrap: false, width: width)
       ansi, warnings = AnsiConverter.convert(doc.root, doc.options)
-      doc.warnings.each { |w| Tuile.logger.debug("MarkdownRenderer: kramdown: #{w}") }
-      warnings.each { |w| Tuile.logger.warn("MarkdownRenderer: #{w}") }
+      doc.warnings.each { |w| LOG.debug("MarkdownRenderer: kramdown: #{w}") }
+      warnings.each { |w| LOG.warn("MarkdownRenderer: #{w}") }
       ansi
     end
 
