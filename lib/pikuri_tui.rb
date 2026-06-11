@@ -16,7 +16,10 @@ module PikuriTui
   # inflector matches the *whole* basename rather than per-segment, so
   # the mapping has to spell the full word — segment-only rules like
   # +'io' => 'IO'+ aren't consulted.
-  loader.inflector.inflect('counting_log_io' => 'CountingLogIO')
+  loader.inflector.inflect(
+    'counting_log_io'  => 'CountingLogIO',
+    'buffering_log_io' => 'BufferingLogIO'
+  )
 
   # The coding shell ({PikuriTui::Code}) depends on the :code-group
   # pikuri gems — pikuri-workspace defines +Pikuri::Workspace::Confirmer+

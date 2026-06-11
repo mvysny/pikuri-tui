@@ -129,10 +129,13 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   bin does the trivial pass-through into `Registry::StdioEntry` /
   `HttpEntry`. Its one `Pikuri` touch is `pikuri-core`'s logging
   facade (in `:default`, so both shells have it): `load` reports each
-  config file it reads through `Pikuri.logger_for('config')`, which
-  surfaces on `$stderr` at boot (pikuri's default `log_io`) and
-  follows along when each bin's `App` rewires `Pikuri.log_io` to the
-  LogWindow — no delayed replay. HTTP MCP auth rides `HttpEntry`'s `headers`: an entry's
+  config file it reads — and any `chmod 600` loose-permissions advisory —
+  through `Pikuri.logger_for('config')`, surfacing on `$stderr` at boot.
+  `Config` only *logs*; it no longer collects advisories for the caller to
+  replay (there is no `#warnings` reader). The bins install a
+  `BufferingLogIO` as the boot `log_io`, so these pre-screen lines are
+  retained and replayed into the LogWindow when each bin's `App` rewires
+  `Pikuri.log_io`. HTTP MCP auth rides `HttpEntry`'s `headers`: an entry's
   `bearer_token` / `basic_auth` (username+password) conveniences are
   folded into the `headers` hash at load time alongside any raw custom
   `headers`. A stdio entry's `env` table passes straight through to
@@ -142,7 +145,7 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   project-local config layer): the environment is inherited by every
   subprocess pikuri spawns — sandboxed bash, stdio MCP — so a key
   there leaks to agent-run code, whereas this file is parent-only and
-  outside the agent's readable tree. `#warnings` surfaces a non-fatal
+  outside the agent's readable tree. `load` logs a non-fatal
   `chmod 600` advisory when a key-bearing file has loose permissions.
   Hosts the built-in defaults (`DEFAULT_SERVER` / `DEFAULT_MODEL` / …)
   the bins show in `--help`.
@@ -224,6 +227,15 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `LogWindow` and counts error-class writes so the `Ctrl+L`
   status-bar hint can flag "something broke." Shared by both
   shells.
+- `lib/pikuri_tui/buffering_log_io.rb` — `PikuriTui::BufferingLogIO`,
+  the `IO`-shaped sink the bins install as the boot-time `Pikuri.log_io`.
+  Tees every pre-screen line to `$stderr` (so a crash before the screen
+  still prints) *and* retains it; `#replay_into(sink)` re-feeds the
+  retained lines through the `CountingLogIO` once the `App` wires it, so
+  config-file reads / `chmod 600` advisories / model-wiring lines that
+  only hit `$stderr` at boot land in the `LogWindow` too — error lines
+  among them bumping the counter like a live write. Bounded ring buffer
+  (oldest drop past the cap, noted on replay). Shared by both shells.
 - `lib/pikuri_tui/log_popup.rb` — `PikuriTui::LogPopup`, the
   `Popup` wrapper around the eager `LogWindow` that resets the
   unread-error counter on dismiss. Shared by both shells.
@@ -448,8 +460,9 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   name, so they share the `Logger` object): `'markdown'` (renderer /
   grayscale / streaming buffer), `'formatter'` (edit / write), plus
   `'listener'`, `'git'`, `'log'`, `'config'`, and `'chat'` / `'code'`
-  for the two `App`s. The bins are plain scripts, not classes, so they
-  keep a local (`main_log = Pikuri.logger_for('main')`).
+  for the two `App`s. The bins are plain scripts, not classes, so when one
+  needs to log it keeps a local (`main_log = Pikuri.logger_for('main')` —
+  the coding bin does, for project-root / skill / safety notices).
 
   Why pikuri and not `Tuile.logger`: pikuri's `Pikuri.log_io` defaults
   to `$stderr`, so a logger works from the first line of boot, *before*
@@ -457,8 +470,13 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   fine); `Pikuri.log_io=` rewires every logger already handed out in
   one shot, so when each bin's `App` points it at the
   `Tuile::Component::LogWindow::IO` the whole stream — including loggers
-  created earlier at stderr — follows to the diagnostic pane with no
-  delayed replay. `Tuile.logger` defaults to `IO::NULL` (dropped until
+  created earlier at stderr — follows to the diagnostic pane for every
+  *subsequent* line with no per-logger rewiring. Lines emitted *before*
+  that swap only ever hit `$stderr` (invisible once the alternate screen
+  buffer is up), so the bins install a `BufferingLogIO` as the boot
+  `log_io` that tees to `$stderr` and retains them; `App#wire_logging`
+  replays the retained lines into the LogWindow right after the swap.
+  `Tuile.logger` defaults to `IO::NULL` (dropped until
   wired) and is a single untagged logger, so it's reserved for one job:
   `App` still assigns `Tuile.logger = Logger.new(io)` to capture
   `Tuile`'s *own* internal noise into the same LogWindow. The

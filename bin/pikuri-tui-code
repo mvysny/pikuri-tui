@@ -41,12 +41,13 @@ require 'pikuri-mcp'
 require 'pikuri-subagents'
 require 'pikuri_tui'
 
-# Boot-time logging goes to stderr until the screen is up. pikuri's loggers
-# (Pikuri.logger_for) already default to $stderr — we set it explicitly to
-# document the lifecycle: anything logged before App.new (e.g. Config.load
-# reporting which config files it read) surfaces on stderr, then App rewires
-# Pikuri.log_io to the diagnostic LogWindow and every logger follows.
-Pikuri.log_io = $stderr
+# Boot-time logging goes to stderr until the screen is up. A BufferingLogIO
+# tees every pre-screen log line to stderr (so a crash before the screen still
+# prints) AND retains it, so App#wire_logging can replay those lines — config
+# file reads, chmod 600 advisories, model wiring — into the diagnostic
+# LogWindow once it rewires Pikuri.log_io there. pikuri's loggers
+# (Pikuri.logger_for) default to $stderr; we override that with the buffer.
+Pikuri.log_io = PikuriTui::BufferingLogIO.new
 
 # This bin's own logger. Like every pikuri-tui logger it goes through
 # Pikuri.logger_for (NOT Tuile.logger — see AGENTS.md), so it writes to
@@ -344,10 +345,6 @@ unless skill_catalog.empty?
   names = skill_catalog.list.map(&:name).sort.join(', ')
   main_log.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
 end
-# Config-load advisories (e.g. a config file holding a literal api_key with
-# loose permissions). Which files were read is already logged by Config.load
-# itself (to stderr at boot, then re-pointed to the LogWindow).
-config.warnings.each { |w| main_log.warn(w) }
 safety = []
 safety << 'Sandbox: DISABLED.' unless sandbox_enabled
 safety << 'Confirmer: AUTO-APPROVE.' unless confirm_enabled

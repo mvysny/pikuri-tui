@@ -186,8 +186,8 @@ describe PikuriTui::Config do
       with_dirs do |home, _|
         path = write_config(home, "[[code.mcp]]\nid = \"remote\"\nurl = \"https://x\"\nbearer_token = \"t\"")
         File.chmod(0o644, path)
-        c = described_class.load(env: env_for(home))
-        assert(c.warnings.any? { |w| w.include?('chmod 600') })
+        out = capture_log { described_class.load(env: env_for(home)) }
+        assert_includes out, 'chmod 600'
       end
     end
 
@@ -264,9 +264,8 @@ describe PikuriTui::Config do
       with_dirs do |home, _|
         path = write_config(home, "[[llm]]\nname = \"a\"\napi_key = \"sk-secret\"")
         File.chmod(0o644, path)
-        c = described_class.load(env: env_for(home))
-        assert_equal 1, c.warnings.size
-        assert_includes c.warnings.first, 'chmod 600'
+        out = capture_log { described_class.load(env: env_for(home)) }
+        assert_includes out, 'chmod 600'
       end
     end
 
@@ -274,8 +273,8 @@ describe PikuriTui::Config do
       with_dirs do |home, _|
         path = write_config(home, "[[llm]]\nname = \"a\"\napi_key = \"sk-secret\"")
         File.chmod(0o600, path)
-        c = described_class.load(env: env_for(home))
-        assert_empty c.warnings
+        out = capture_log { described_class.load(env: env_for(home)) }
+        refute_includes out, 'chmod 600'
       end
     end
 
@@ -283,8 +282,8 @@ describe PikuriTui::Config do
       with_dirs do |home, _|
         path = write_config(home, "[[llm]]\nname = \"a\"\nserver = \"s\"")
         File.chmod(0o644, path)
-        c = described_class.load(env: env_for(home))
-        assert_empty c.warnings
+        out = capture_log { described_class.load(env: env_for(home)) }
+        refute_includes out, 'chmod 600'
       end
     end
 
@@ -292,9 +291,8 @@ describe PikuriTui::Config do
       with_dirs do |home, _|
         path = write_config(home, "[search]\nbrave_key = \"BSA-secret\"")
         File.chmod(0o644, path)
-        c = described_class.load(env: env_for(home))
-        assert_equal 1, c.warnings.size
-        assert_includes c.warnings.first, 'chmod 600'
+        out = capture_log { described_class.load(env: env_for(home)) }
+        assert_includes out, 'chmod 600'
       end
     end
   end

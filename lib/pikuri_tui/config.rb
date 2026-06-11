@@ -43,12 +43,15 @@ module PikuriTui
   # here.
   #
   # The one +Pikuri+ touch allowed here is +pikuri-core+'s logging facade:
-  # {.load} reports which config files it read through +Pikuri.logger_for+
-  # (memoized, +progname+-tagged), which both shells load (+pikuri-core+ is
-  # in the +:default+ group). +Pikuri.log_io+ defaults to +$stderr+, so
-  # these lines surface immediately at boot — before any screen exists — and
-  # each bin's +App+ later rewires +Pikuri.log_io+ to the diagnostic
-  # LogWindow, retroactively re-pointing this logger too. No delayed replay.
+  # {.load} reports which config files it read — and any loose-permissions
+  # advisory ({.warn_loose_perms}) — through +Pikuri.logger_for+ (memoized,
+  # +progname+-tagged), which both shells load (+pikuri-core+ is in the
+  # +:default+ group). +Pikuri.log_io+ defaults to +$stderr+, so these lines
+  # surface immediately at boot — before any screen exists. The bins install a
+  # {BufferingLogIO} as that boot sink, which tees to +$stderr+ and retains
+  # every line, so each bin's +App+ replays the pre-screen lines into the
+  # diagnostic LogWindow when it rewires +Pikuri.log_io+. {Config} just logs;
+  # it never collects advisories for the caller to surface.
   #
   # == Errors
   #
@@ -134,7 +137,7 @@ module PikuriTui
     # literally in this parent-only file (never an env var pikuri would
     # inherit into the sandboxed bash / stdio MCP subprocesses, never a CLI
     # flag visible in +ps+), outside the workspace the coding agent reads,
-    # and flagged by {Config#warnings} when the file has loose permissions.
+    # and flagged by a logged warning when the file has loose permissions.
     # Field names match +Pikuri::Tool::WebSearch.build+'s keyword arguments
     # 1:1 — the bins pass them straight through (see the "Pikuri seam" note).
     #
@@ -176,7 +179,6 @@ module PikuriTui
     # @raise [Error] on an unreadable / malformed / schema-invalid file.
     def self.load(overrides: {}, env: ENV)
       merged = {}
-      warnings = []
       any_loaded = false
       candidate_paths(env).each do |path|
         next unless File.file?(path)
@@ -184,7 +186,7 @@ module PikuriTui
         parsed = parse_file(path)
         LOG.info("loaded #{path}")
         any_loaded = true
-        warn_loose_perms(path, parsed, warnings)
+        warn_loose_perms(path, parsed)
         merged = deep_merge(merged, parsed)
       end
       LOG.info('no config file found; using built-in defaults') unless any_loaded
@@ -200,12 +202,11 @@ module PikuriTui
       check_unique!(mcp.map(&:id), 'code.mcp id')
 
       new(
-        llms:     apply_llm_overrides(llms, overrides),
-        search:   build_search(merged['search']),
-        sandbox:  pick(overrides[:sandbox], code['sandbox'], DEFAULT_SANDBOX),
-        confirm:  pick(overrides[:confirm], code['confirm'], DEFAULT_CONFIRM),
-        mcp:      mcp,
-        warnings: warnings
+        llms:    apply_llm_overrides(llms, overrides),
+        search:  build_search(merged['search']),
+        sandbox: pick(overrides[:sandbox], code['sandbox'], DEFAULT_SANDBOX),
+        confirm: pick(overrides[:confirm], code['confirm'], DEFAULT_CONFIRM),
+        mcp:     mcp
       )
     end
 
@@ -214,14 +215,12 @@ module PikuriTui
     # @param sandbox [Boolean] resolved coding sandbox switch.
     # @param confirm [Boolean] resolved coding confirmer switch.
     # @param mcp [Array<McpServer>] coding-shell MCP servers (may be empty).
-    # @param warnings [Array<String>] non-fatal load advisories.
-    def initialize(llms:, search:, sandbox:, confirm:, mcp:, warnings: [])
-      @llms     = llms.freeze
-      @search   = search
-      @sandbox  = sandbox
-      @confirm  = confirm
-      @mcp      = mcp.freeze
-      @warnings = warnings.freeze
+    def initialize(llms:, search:, sandbox:, confirm:, mcp:)
+      @llms    = llms.freeze
+      @search  = search
+      @sandbox = sandbox
+      @confirm = confirm
+      @mcp     = mcp.freeze
       freeze
     end
 
@@ -235,11 +234,6 @@ module PikuriTui
     attr_reader :confirm
     # @return [Array<McpServer>] coding-shell MCP servers, declaration order.
     attr_reader :mcp
-
-    # @return [Array<String>] non-fatal advisories raised while loading
-    #   (e.g. a file holding a literal api_key with loose permissions). The
-    #   bins surface these through the diagnostic log.
-    attr_reader :warnings
 
     # @return [Llm] the boot connection (the first); the rest are
     #   reachable at runtime through the +Ctrl+P+ model picker.
@@ -258,19 +252,22 @@ module PikuriTui
       paths
     end
 
-    # Advise (non-fatally) when a file carrying a literal secret (an
-    # +[[llm]]+ api_key or a +[search]+ provider key) is
+    # Advise (non-fatally, through {LOG}) when a file carrying a literal
+    # secret (an +[[llm]]+ api_key or a +[search]+ provider key) is
     # group/other-accessible — a plaintext secret should be +chmod 600+.
     # Only files that actually contain a secret are checked, so a
-    # world-readable but secret-free /etc/xdg config raises no noise.
-    def self.warn_loose_perms(path, parsed, warnings)
+    # world-readable but secret-free /etc/xdg config raises no noise. Logged
+    # at boot rather than collected: pikuri's default +$stderr+ sink (or the
+    # bins' {BufferingLogIO}) carries it to the diagnostic pane once a screen
+    # exists, with no caller-side replay.
+    def self.warn_loose_perms(path, parsed)
       return unless holds_secret?(parsed)
 
       mode = File.stat(path).mode
       return if (mode & 0o077).zero?
 
-      warnings << "#{path} holds a literal secret but is group/other-accessible " \
-                  "(mode #{format('%04o', mode & 0o7777)}); run `chmod 600 #{path}`."
+      LOG.warn("#{path} holds a literal secret but is group/other-accessible " \
+               "(mode #{format('%04o', mode & 0o7777)}); run `chmod 600 #{path}`.")
     rescue SystemCallError
       # stat failed (race, odd filesystem) — skip the advisory, never fatal.
     end

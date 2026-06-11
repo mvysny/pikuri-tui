@@ -279,11 +279,20 @@ module PikuriTui
       # exists and before the agent is built (the agent's construction
       # can already log).
       #
+      # If the boot sink was a {BufferingLogIO} (the bins install one as the
+      # pre-screen +Pikuri.log_io+), its retained pre-screen lines are replayed
+      # through the new {CountingLogIO} *after* the swap — so the config-file
+      # reads, +chmod 600+ advisories and model-wiring lines that only hit
+      # +$stderr+ at boot now appear in the diagnostic pane, error lines among
+      # them bumping the counter just like a live write.
+      #
       # @return [void]
       def wire_logging
         io = CountingLogIO.new(log_window: @log_window, on_error: method(:on_error_logged))
+        prior = Pikuri.log_io
         Tuile.logger = Logger.new(io)
         Pikuri.log_io = io
+        prior.replay_into(io) if prior.respond_to?(:replay_into)
       end
 
       # @param message [String] non-empty draft handed up by {Input}

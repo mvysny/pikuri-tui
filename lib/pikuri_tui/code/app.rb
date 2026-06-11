@@ -335,11 +335,19 @@ module PikuriTui
       # that both renders into {@log_window} and bumps the error counter.
       # Must run after {@log_window} exists and before the agent is built.
       #
+      # If the boot sink was a {BufferingLogIO} (the bins install one as the
+      # pre-screen +Pikuri.log_io+), its retained pre-screen lines are replayed
+      # through the new {CountingLogIO} *after* the swap, surfacing the
+      # config-file reads, +chmod 600+ advisories and model-wiring lines that
+      # only hit +$stderr+ at boot.
+      #
       # @return [void]
       def wire_logging
         io = CountingLogIO.new(log_window: @log_window, on_error: method(:on_error_logged))
+        prior = Pikuri.log_io
         Tuile.logger = Logger.new(io)
         Pikuri.log_io = io
+        prior.replay_into(io) if prior.respond_to?(:replay_into)
       end
 
       # @param message [String] non-empty draft handed up by {Input}
