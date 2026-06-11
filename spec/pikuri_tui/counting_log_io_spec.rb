@@ -10,7 +10,7 @@ RSpec.describe PikuriTui::CountingLogIO do
     io = described_class.new(log_window: log_window)
     logger = Logger.new(io)
     logger.info('hello')
-    rendered = log_window.content.lines.map(&:to_s).join("\n")
+    rendered = log_window.content.text.to_s
     assert_includes rendered, 'INFO'
     assert_includes rendered, 'hello'
   end

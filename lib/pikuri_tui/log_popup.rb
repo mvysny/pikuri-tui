@@ -40,5 +40,19 @@ module PikuriTui
       super
       @on_dismiss.call
     end
+
+    # Keep the log pane at least half the screen tall even when only a few
+    # lines have been logged — the base +Popup+ sizes to content, which
+    # collapses a near-empty log to two or three rows.
+    #
+    # @return [Integer]
+    def min_height = screen.size.height / 2
+
+    # Let a busy log grow past the base 12-row cap (up to
+    # +Popup+'s 4/5-of-screen ceiling) so the diagnostic stream stays
+    # scrollable in a tall window rather than a cramped one.
+    #
+    # @return [Integer]
+    def max_height = screen.size.height
   end
 end

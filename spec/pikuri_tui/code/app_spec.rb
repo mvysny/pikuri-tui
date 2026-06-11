@@ -243,14 +243,14 @@ RSpec.describe PikuriTui::Code::App do
     agent.finish_turn!
     wait_until { !no_interloper_app.instance_variable_get(:@turn_in_progress) }
     assert_equal ['first'], agent.messages
-    rendered = no_interloper_app.log_window.content.lines.map(&:to_s).join("\n")
+    rendered = no_interloper_app.log_window.content.text.to_s
     assert_includes rendered, 'mid-turn message dropped'
   end
 
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do
     app
     Pikuri.logger_for('TestSubsystem').info('pikuri-side message')
-    rendered = app.log_window.content.lines.map(&:to_s).join("\n")
+    rendered = app.log_window.content.text.to_s
     assert_includes rendered, 'pikuri-side message'
   end
 

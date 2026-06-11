@@ -30,7 +30,7 @@ RSpec.describe PikuriTui::BufferingLogIO do
     Logger.new(io).error('boot boom')
     io.replay_into(counting)
 
-    rendered = log_window.content.lines.map(&:to_s).join("\n")
+    rendered = log_window.content.text.to_s
     assert_includes rendered, 'boot boom'
     assert_equal 1, errors.size
     assert_includes errors.first, 'boot boom'
