@@ -189,7 +189,7 @@ sandbox = if sandbox_enabled
 system_prompt = Pikuri.prompt(:'coding-system-prompt')
 md_path = ['AGENTS.md', 'CLAUDE.md'].map { |f| workspace.project_root.join(f) }.find(&:file?)
 system_prompt += "\n\n# Project Context\n\n#{File.read(md_path)}" if md_path
-system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
+system_prompt += "\n\nToday's date is: #{Time.now.strftime('%Y-%m-%d')}"
 system_prompt += "\nProject root: #{workspace.project_root}"
 unless yolo || extra_writable.empty?
   system_prompt += "\nAdditional writable paths: #{extra_writable.join(', ')}"
