@@ -50,7 +50,7 @@ gem 'tomlrb', '~> 2.0'
 # coding dependencies off chat's load path. (No +:chat+ group: tuile,
 # kramdown and rouge are shared by both conversation panes, so the
 # chat shell has no dependencies of its own beyond +:default+.)
-gem 'pikuri-core', '~> 0.0.7'
+gem 'pikuri-core', path: '../pikuri'
 
 # In-process, pure-Ruby (pdf-reader) PDF text extraction with lazy
 # windowed paging. Shared by both shells in :default: zero infra
@@ -80,12 +80,12 @@ group :code do
   # shell never renders a diff, so this stays off its load path.
   gem 'diff-lcs', '~> 2.0'
 
-  gem 'pikuri-workspace', '~> 0.0.7'
-  gem 'pikuri-code', '~> 0.0.7'
-  gem 'pikuri-tasks','~> 0.0.7'
-  gem 'pikuri-skills','~> 0.0.7'
-  gem 'pikuri-mcp', '~> 0.0.7'
-  gem 'pikuri-subagents','~> 0.0.7'
+  gem 'pikuri-workspace', path: '../pikuri'
+  gem 'pikuri-code', path: '../pikuri'
+  gem 'pikuri-tasks', path: '../pikuri'
+  gem 'pikuri-skills', path: '../pikuri'
+  gem 'pikuri-mcp', path: '../pikuri'
+  gem 'pikuri-subagents', path: '../pikuri'
 end
 
 group :test do
