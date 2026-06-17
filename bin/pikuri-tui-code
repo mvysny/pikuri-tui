@@ -306,13 +306,16 @@ app = PikuriTui::Code::App.new(
     c.add_tool Pikuri::Workspace::Glob.new(workspace: workspace)
     c.add_tool Pikuri::Workspace::Edit.new(workspace: workspace)
     c.add_tool Pikuri::Workspace::Write.new(workspace: workspace, confirmer: confirmer)
-    c.add_tool Pikuri::Code::Bash.new(workspace: workspace, confirmer: confirmer, sandbox: sandbox)
     c.add_tool Pikuri::Tool::CALCULATOR
     c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(brave_key: config.search.brave_key,
                                                        exa_key: config.search.exa_key)
     c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
     c.add_sub_agent_tool Pikuri::Tool::FETCH
-    c.add_sub_agent_tool Pikuri::Code::GitClone.new(workspace: workspace)
+    c.add_extension Pikuri::Code::Extension.new(
+      workspace: workspace,
+      confirmer: confirmer,
+      sandbox: sandbox
+    )
     c.add_extension Pikuri::Skill::Extension.new(catalog: skill_catalog)
     c.add_extension Pikuri::Tasks::Extension.new
     c.add_extension Pikuri::Mcp::Extension.new(
