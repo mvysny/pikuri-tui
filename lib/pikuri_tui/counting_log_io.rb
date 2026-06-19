@@ -53,6 +53,7 @@ module PikuriTui
     def initialize(log_window:, on_error: nil)
       @log_window = log_window
       @on_error = on_error
+      @log_file = File.open(Pikuri::Paths.state.join('pikuri.log'), 'w')
     end
 
     # @return [Tuile::Component::LogWindow] the destination window.
@@ -66,6 +67,8 @@ module PikuriTui
     #   +"\n"+
     # @return [void]
     def write(string)
+      @log_file.write(string)
+      @log_file.flush
       bump_error_count(string) if ERROR_PREFIXES.any? { |p| string.start_with?(p) }
       @log_window.log(string.chomp)
     end
@@ -79,6 +82,8 @@ module PikuriTui
     #   newline so callers should not include one
     # @return [void]
     def puts(string)
+      @log_file.puts(string)
+      @log_file.flush
       @log_window.log(string)
     end
 
@@ -87,7 +92,9 @@ module PikuriTui
     # interpret it as a filename. No-op.
     #
     # @return [void]
-    def close; end
+    def close
+      @log_file.close
+    end
 
     private
 
