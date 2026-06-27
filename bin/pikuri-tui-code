@@ -151,7 +151,7 @@ skill_catalog = Pikuri::Skill::Catalog::Bundled.new(
 # Workspace: project_root is the writable ceiling, the bind root, the
 # relative-path base. temp: true mints an ephemeral writable scratch dir.
 # --yolo swaps in AllowAll (everything but the credential denylist).
-workspace = if yolo
+filesystem = if yolo
               warn '--readable/--writable ignored under --yolo (filesystem is ALLOW_ALL).' \
                 unless extra_readable.empty? && extra_writable.empty?
               Pikuri::Workspace::Filesystem::AllowAll.new(
@@ -178,7 +178,7 @@ workspace = if yolo
 # --no-sandbox / --yolo.
 sandbox = if sandbox_enabled
             Pikuri::Code::Bash::Sandbox::Bubblewrap.new(
-              workspace:         workspace
+              workspace:         filesystem
             )
           else
             Pikuri::Code::Bash::Sandbox::NONE
@@ -187,7 +187,7 @@ sandbox = if sandbox_enabled
 # Build the system prompt: static base + optional project context +
 # footer. AGENTS.md wins over CLAUDE.md when both exist.
 system_prompt = Pikuri.prompt(:'coding-system-prompt')
-md_path = ['AGENTS.md', 'CLAUDE.md'].map { |f| workspace.project_root.join(f) }.find(&:file?)
+md_path = ['AGENTS.md', 'CLAUDE.md'].map { |f| filesystem.project_root.join(f) }.find(&:file?)
 system_prompt += "\n\n# Project Context\n\n#{File.read(md_path)}" if md_path
 system_prompt += "\n\nToday's date is: #{Time.now.strftime('%Y-%m-%d')}"
 # TODO read this from screen.color_scheme in the future
@@ -195,7 +195,7 @@ light_theme = Tuile::TerminalBackground.detect == :light
 # Grok produces colored output for code examples and defaults to theming
 # for dark terminal; I wonder whether this setting nudges it to change the theme
 system_prompt += "\nTerminal color theme: #{light_theme ? 'light' : 'dark'}"
-system_prompt += "\nProject root: #{workspace.project_root}"
+system_prompt += "\nProject root: #{filesystem.project_root}"
 unless yolo || extra_writable.empty?
   system_prompt += "\nAdditional writable paths: #{extra_writable.join(', ')}"
 end
@@ -203,7 +203,7 @@ system_prompt += if sandbox_enabled
                    "\nScratch space: /tmp — persistent across all bash and tool calls; " \
                      'use for downloads, clones, unpacks. Cleared on exit.'
                  else
-                   "\nScratch space: #{workspace.temp} — persistent across tool calls, " \
+                   "\nScratch space: #{filesystem.temp} — persistent across tool calls, " \
                      'cleared on exit. Prefer it over /tmp for downloads, clones, unpacks ' \
                      "(keeps the host's /tmp clean)."
                  end
@@ -254,17 +254,17 @@ token_log = Pikuri::Agent::Listener::TokenLog.new
 
 # Per-tool diff formatters for the conversation pane: the edit / write
 # ToolCall renders as a before/after diff (the write side reads the
-# existing file through the same workspace the Write tool uses) instead of
+# existing file through the same filesystem the Write tool uses) instead of
 # an argument dump, and the paired ToolResult is suppressed on success /
 # surfaced on error. See PikuriTui::Code::TuileListener#tool_formatters.
 tool_formatters = {
   'edit'  => PikuriTui::Code::EditFormatter.new,
-  'write' => PikuriTui::Code::WriteFormatter.new(workspace: workspace)
+  'write' => PikuriTui::Code::WriteFormatter.new(workspace: filesystem)
 }
 
 app = PikuriTui::Code::App.new(
   token_log: token_log,
-  project_root: workspace.project_root,
+  project_root: filesystem.project_root,
   tool_formatters: tool_formatters,
   models: models
 ) do |listener, confirmer_popup, task_listener, model_listener|
@@ -306,18 +306,23 @@ app = PikuriTui::Code::App.new(
     # the sub-agent-only pool so untrusted web content lands in a child
     # context with no file read/write/bash to hijack — see pikuri's
     # SECURITY.md "capability boundaries via sub-agents".
-    c.add_tool Pikuri::Workspace::Read.new(workspace: workspace)
-    c.add_tool Pikuri::Workspace::Grep.new(workspace: workspace)
-    c.add_tool Pikuri::Workspace::Glob.new(workspace: workspace)
-    c.add_tool Pikuri::Workspace::Edit.new(workspace: workspace)
-    c.add_tool Pikuri::Workspace::Write.new(workspace: workspace, confirmer: confirmer)
+    #
+    # The five file tools (read/grep/glob/edit/write) come from one
+    # Workspace::Extension: it wraps our `filesystem` in a single
+    # Workspace composite (Filesystem + this session's read record)
+    # shared across all five, so the read-before-edit gate works across
+    # them — and replaces the five add_tool lines this used to repeat.
+    # Bash and git_clone are NOT here (they aren't read/edit/write tools
+    # and take the raw Filesystem, not the read record) — they come from
+    # Pikuri::Code::Extension below.
+    c.add_extension Pikuri::Workspace::Extension.new(filesystem: filesystem, confirmer: confirmer)
     c.add_tool Pikuri::Tool::CALCULATOR
     c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(brave_key: config.search.brave_key,
                                                        exa_key: config.search.exa_key)
     c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
     c.add_sub_agent_tool Pikuri::Tool::FETCH
     c.add_extension Pikuri::Code::Extension.new(
-      workspace: workspace,
+      workspace: filesystem,
       confirmer: confirmer,
       sandbox: sandbox
     )
@@ -347,7 +352,7 @@ end
 # safety notices go to the diagnostic pane the user opens with Ctrl+L.
 # Safety-reductions are logged at warn so they stand out among the info noise.
 main_log.warn(chdir_notice) if chdir_notice
-main_log.info("Working in #{workspace.project_root}")
+main_log.info("Working in #{filesystem.project_root}")
 main_log.info("Loaded project context from #{md_path}") if md_path
 unless skill_catalog.empty?
   names = skill_catalog.list.map(&:name).sort.join(', ')

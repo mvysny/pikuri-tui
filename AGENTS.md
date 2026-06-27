@@ -398,11 +398,18 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   (`Bundler.setup(:default, :code)`): discovers the project root
   (VCS marker) and `chdir`s to it, builds a `Pikuri::Workspace`
   rooted there + a bubblewrap sandbox + skill catalog, then a
-  streaming `Pikuri::Agent` wired with the six file/shell tools
-  (the `Write` / `Bash` tools taking the `Code::ConfirmerPopup` the
-  `App` yields, or `AUTO_APPROVE` under `--no-confirm`/`--yolo`),
-  sub-agent-only network tools, and the skill / task / MCP /
-  sub-agent extensions. Wires the `App`-yielded `Code::TaskListener` and
+  streaming `Pikuri::Agent` wired with the six file/shell tools via
+  two pikuri extensions: the five read/grep/glob/edit/write file tools
+  via `Pikuri::Workspace::Extension` (which wraps the `Filesystem` in
+  one shared `Workspace` composite so the read-before-edit gate works
+  across them), and `Bash` + the sub-agent-only `git_clone` via
+  `Pikuri::Code::Extension` (Bash isn't a read/edit/write tool and
+  takes the raw `Filesystem`, not the read record, so it lives in the
+  code extension, not the workspace one). Both replace the per-tool
+  `add_tool` lines this bin used to repeat. The `Write` / `Bash` tools
+  take the `Code::ConfirmerPopup` the `App` yields, or `AUTO_APPROVE`
+  under `--no-confirm`/`--yolo`. Also sub-agent-only network tools, and
+  the skill / task / MCP / sub-agent extensions. Wires the `App`-yielded `Code::TaskListener` and
   `ModelListener` into the agent's `ListenerList` so the
   `Pikuri::Tasks::Extension` list mutations reach the sidebar task pane and
   model switches reach the footer. Builds the `edit` /
