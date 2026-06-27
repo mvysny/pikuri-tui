@@ -25,7 +25,7 @@ module PikuriTui
     # The badge is driven off the *event* rather than the host reading the
     # {Pikuri::Agent::Control::PlanMode} flag directly, so a
     # **model**-initiated entry (the +enter_plan_mode+ tool) lights up the
-    # footer exactly like a host +Ctrl+P+ press does — both flips fire the
+    # footer exactly like the leader menu's +p+ toggle does — both flips fire the
     # control's +on_change+, which +Code::Extension+ bridges onto this
     # event stream. The footer therefore reflects the authoritative flag,
     # never an inference about who toggled it.
@@ -33,7 +33,7 @@ module PikuriTui
     # == Threading
     #
     # {#on_event} fires on whatever thread flipped the flag — the agent's
-    # worker thread for a model flip, the UI thread for a +Ctrl+P+ press —
+    # worker thread for a model flip, the UI thread for a +p+ menu toggle —
     # so it marshals the footer mutation onto the event-loop thread via
     # +screen.event_queue.submit+, the same rule {TaskListener} follows.
     # (+submit+ from the UI thread simply enqueues, so the host-flip path is

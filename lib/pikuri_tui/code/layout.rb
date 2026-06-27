@@ -20,11 +20,11 @@ module PikuriTui
     # stacking {Chat::Layout} uses, but only as wide as the left column);
     # the right column is the full-height sidebar, a fixed {TASK_HEIGHT}
     # task window over the git change-summary window (the full diff is a
-    # Ctrl+G popup, not part of this layout). A parallel copy / extension of
-    # {Chat::Layout} (see {Code} for why the coding shell duplicates rather
+    # leader-menu popup, not part of this layout). A parallel copy / extension
+    # of {Chat::Layout} (see {Code} for why the coding shell duplicates rather
     # than shares).
     #
-    # Layout only — global keybindings (Ctrl+L, Ctrl+G, Ctrl+C) are installed
+    # Layout only — global keybindings (Ctrl+K, Ctrl+C) are installed
     # by {App} via {Tuile::Screen#register_global_shortcut}, which bypasses
     # the cursor-owner suppression that would otherwise let the focused
     # {Tuile::Component::TextArea} swallow them. The confirmation and git-diff

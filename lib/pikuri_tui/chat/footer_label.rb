@@ -49,7 +49,7 @@ module PikuriTui
     # The footer paints in the current theme's
     # +Tuile::Theme#hint_color+ — its content (spinner, queued count,
     # token status) is status-hint chrome, the same family as the
-    # status bar's "^L logs" hints — on the terminal-default
+    # status bar's "^K menu" hints — on the terminal-default
     # background, matching Tuile's "tokens cover only accents;
     # everything else inherits the terminal" strategy. {#refresh}
     # bakes the color in when it rebuilds the text, and

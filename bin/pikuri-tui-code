@@ -211,7 +211,7 @@ system_prompt += if sandbox_enabled
 # All configured connections become picker entries (ModelChoice); the
 # first is the boot model. ModelChoice.from_llm builds each one's
 # connection-bearing transport (the Pikuri seam lives there, not in the
-# Pikuri-free Config), so the context-window probe and a Ctrl+B switch
+# Pikuri-free Config), so the context-window probe and a model switch
 # both target the right server.
 models = config.llms.map { |llm| PikuriTui::ModelChoice.from_llm(llm) }
 
@@ -222,9 +222,9 @@ cancel_flag = Pikuri::Agent::Control::Cancellable.new
 # Shared plan-mode flag: a read-only posture in which Edit/Write refuse to
 # write. Handed to BOTH Agent.new (so Code::Extension wires the model's
 # enter_plan_mode/exit_plan_mode tools, the per-turn reminder, and the
-# PlanModeChanged event) AND Code::App (so Ctrl+P toggles the same flag
-# from the keyboard). Whoever flips it — model or key press — the footer
-# badge tracks it through the one PlanModeChanged stream.
+# PlanModeChanged event) AND Code::App (so the leader menu's p entry toggles
+# the same flag from the keyboard). Whoever flips it — model or menu — the
+# footer badge tracks it through the one PlanModeChanged stream.
 plan_mode = Pikuri::Agent::Control::PlanMode.new
 
 # Mid-loop input channel: PikuriTui::Code::App injects messages submitted
@@ -297,13 +297,13 @@ app = PikuriTui::Code::App.new(
     # Default :raise policy, deliberately NOT :synthesize — a coding turn
     # ends in a changed working tree, not an answer. On exhaustion the
     # turn stops; the chat history survives and "continue" just works.
-    step_limit: Pikuri::Agent::Control::StepLimit.new(max: 40),
+    step_limit: Pikuri::Agent::Control::StepLimit.new(max: 100),
     cancellable: cancel_flag,
     interloper: interloper,
     # Code::Extension reads this off the configurator to wire the
     # enter/exit plan tools + the PlanModeChanged event, and threads it
     # into Edit/Write so they refuse while it is active. The same instance
-    # Code::App's Ctrl+P toggle flips.
+    # Code::App's leader-menu 'p' toggle flips.
     plan_mode: plan_mode,
     streaming: true
   ) do |c|
@@ -313,10 +313,10 @@ app = PikuriTui::Code::App.new(
     # pane. Not rate-limited — task mutations are rare and each snapshot
     # is authoritative.
     c.add_listener task_listener
-    # Keeps the footer's model name in step with Ctrl+B switches.
+    # Keeps the footer's model name in step with leader-menu model switches.
     c.add_listener model_listener
     # Keeps the footer's plan-mode badge in step with the shared flag
-    # (Ctrl+P or the model's enter/exit tools).
+    # (the leader menu's 'p' toggle or the model's enter/exit tools).
     c.add_listener plan_mode_listener
     # File/shell tools first (declaration order biases some models toward
     # earlier tools); calculator last as auxiliary. Network tools go on
@@ -366,7 +366,7 @@ end
 # Boot diagnostics through the 'main' logger (App.new has rewired
 # Pikuri.log_io to the LogWindow by now, so these land there). The
 # conversation pane is not a log sink (AGENTS.md), so project-root / skill /
-# safety notices go to the diagnostic pane the user opens with Ctrl+L.
+# safety notices go to the diagnostic pane the user opens from the leader menu.
 # Safety-reductions are logged at warn so they stand out among the info noise.
 main_log.warn(chdir_notice) if chdir_notice
 main_log.info("Working in #{filesystem.project_root}")

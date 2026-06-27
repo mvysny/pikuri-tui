@@ -67,7 +67,7 @@ module PikuriTui
     # Carries a human-readable message naming the offending key or file.
     class Error < StandardError; end
 
-    # One model connection. Every entry becomes a +Ctrl+P+ model-picker
+    # One model connection. Every entry becomes a leader-menu model-picker
     # choice (the bins map each to a +ModelChoice+ + +ChatTransport+); the
     # first {Config#llms} entry is the boot connection.
     #
@@ -95,7 +95,7 @@ module PikuriTui
     #     for a cloud model the probe can't reach — e.g. a 2M-window model on
     #     x.ai — so the footer shows a real +used/cap+. Rides the connection's
     #     +Pikuri::Agent::ChatTransport+, so it is correct per-model across a
-    #     +Ctrl+P+ switch.
+    #     model switch.
     Llm = Data.define(:name, :server, :model, :api_key, :context_window)
 
     # One MCP server definition (coding shell only). Exactly one of
@@ -244,7 +244,7 @@ module PikuriTui
     attr_reader :mcp
 
     # @return [Llm] the boot connection (the first); the rest are
-    #   reachable at runtime through the +Ctrl+P+ model picker.
+    #   reachable at runtime through the leader menu's model picker.
     def primary_llm = @llms.first
 
     # File layers, lowest priority first. +$XDG_CONFIG_DIRS+ (default

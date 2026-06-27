@@ -80,9 +80,9 @@ RSpec.describe PikuriTui::Code::App do
     assert_same app.screen, app.confirmer.instance_variable_get(:@screen)
   end
 
-  it 'starts with no errors logged and a discoverable "^L logs" status-bar hint' do
+  it 'starts with no errors logged and a discoverable "^K menu" status-bar hint' do
     app
-    assert_includes status_bar_text, '^L logs'
+    assert_includes status_bar_text, '^K menu'
     refute_includes status_bar_text, '⚠'
   end
 
@@ -130,10 +130,10 @@ RSpec.describe PikuriTui::Code::App do
     refute stopped.call, 'the event loop must not stop while a popup is open'
   end
 
-  it 'shows "^L ⚠ logs (N)" when an error is logged through Tuile.logger' do
+  it 'shows "^K ⚠ menu (N)" when an error is logged through Tuile.logger' do
     app
     Tuile.logger.error('boom')
-    assert_includes status_bar_text, '^L ⚠ logs (1)'
+    assert_includes status_bar_text, '^K ⚠ menu (1)'
   end
 
   it 'increments the hint counter once per error (not once per log line)' do
@@ -142,31 +142,19 @@ RSpec.describe PikuriTui::Code::App do
     Tuile.logger.info('two')   # info shouldn't bump
     Tuile.logger.warn('three') # warn shouldn't bump either
     Tuile.logger.fatal('four') # fatal does (same bracket as error)
-    assert_includes status_bar_text, '^L ⚠ logs (2)'
+    assert_includes status_bar_text, '^K ⚠ menu (2)'
   end
 
   it 'clears the hint counter when the log popup is dismissed' do
     app
     Tuile.logger.error('boom')
-    assert_includes status_bar_text, '^L ⚠ logs (1)'
+    assert_includes status_bar_text, '^K ⚠ menu (1)'
 
     log_popup = app.instance_variable_get(:@log_popup)
     log_popup.open
     log_popup.close
-    assert_includes status_bar_text, '^L logs'
+    assert_includes status_bar_text, '^K menu'
     refute_includes status_bar_text, '⚠'
-  end
-
-  it 'opens the git diff popup on Ctrl+G' do
-    popup = app.instance_variable_get(:@git_diff_popup)
-    refute popup.open?
-    app.screen.send(:handle_key, Tuile::Keys::CTRL_G)
-    assert popup.open?, 'Ctrl+G should open the git diff popup'
-  end
-
-  it 'advertises the ^G diff hint in the status bar' do
-    app
-    assert_includes status_bar_text, '^G'
   end
 
   it 'mounts a FooterLabel as the conversation Window footer' do
@@ -265,7 +253,7 @@ RSpec.describe PikuriTui::Code::App do
     assert_includes log, 'oops'
   end
 
-  describe 'model picker (Ctrl+B)' do
+  describe 'model picker' do
     let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
     let(:picker_app) do
       described_class.new(models: choices) do |listener, _confirmer, _task_listener, _model_listener|
@@ -276,18 +264,6 @@ RSpec.describe PikuriTui::Code::App do
     it 'seeds the footer with the boot model display name' do
       footer = picker_app.instance_variable_get(:@footer_label)
       assert_equal 'Local', footer.current_model
-    end
-
-    it 'advertises the ^B model hint when more than one model is configured' do
-      picker_app
-      assert_includes picker_app.screen.pane.status_bar.text.to_s, '^B model'
-    end
-
-    it 'does not advertise ^B with only one model configured' do
-      one = described_class.new(models: [model_choice('Solo', 'm1')]) do |listener, _c, _t, _m|
-        StubAgent.new(listener, model: 'm1')
-      end
-      refute_includes one.screen.pane.status_bar.text.to_s, '^B model'
     end
 
     it 'builds options flagging the active model and selecting one stashes its transport' do
@@ -315,21 +291,12 @@ RSpec.describe PikuriTui::Code::App do
     end
   end
 
-  describe 'plan mode (Ctrl+P)' do
+  describe 'plan mode' do
     let(:plan_mode) { Pikuri::Agent::Control::PlanMode.new }
     let(:plan_app) do
       described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _task_listener, _model_listener, _plan_listener|
         StubAgent.new(listener)
       end
-    end
-
-    it 'advertises the ^P plan hint with the explicit control' do
-      plan_app
-      assert_includes plan_app.screen.pane.status_bar.text.to_s, '^P plan'
-    end
-
-    it 'registers the plan toggle by default (no control passed)' do
-      assert_includes app.screen.pane.status_bar.text.to_s, '^P plan'
     end
 
     it 'defaults to a control that is not in plan mode' do
@@ -341,6 +308,52 @@ RSpec.describe PikuriTui::Code::App do
       assert plan_mode.active?
       plan_app.send(:toggle_plan_mode)
       refute plan_mode.active?
+    end
+  end
+
+  describe 'leader menu (Ctrl+K)' do
+    it 'advertises the ^K menu status-bar hint' do
+      assert_includes app.screen.pane.status_bar.text.to_s, '^K menu'
+    end
+
+    it 'offers logs, git diff, plan mode and quit for a single-model shell' do
+      keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
+      assert_equal %w[l d p q], keys
+    end
+
+    it 'adds a switch-model action when more than one model is configured' do
+      picker_app = described_class.new(models: [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')]) do |listener, _c, _t, _ml, _pl|
+        StubAgent.new(listener, model: 'm1')
+      end
+      keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
+      assert_equal %w[l d p m q], keys
+    end
+
+    it "picking 'd' opens the git diff popup" do
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'd')
+      assert app.instance_variable_get(:@git_diff_popup).open?
+    end
+
+    it "picking 'p' toggles plan mode" do
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'p')
+      assert app.instance_variable_get(:@plan_mode).active?
+    end
+
+    it "picking 'q' stops the event loop" do
+      app
+      stopped = spy_on_stop
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'q')
+      assert stopped.call, 'expected the leader menu quit action to stop the loop'
+    end
+
+    it 'closes the menu on Ctrl+C, like ESC' do
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      refute_nil app.screen.pane.modal_popup
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+      assert_nil app.screen.pane.modal_popup, 'Ctrl+C should cancel the menu'
     end
   end
 

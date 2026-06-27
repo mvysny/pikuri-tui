@@ -8,7 +8,8 @@ module PikuriTui
   module Code
     # Polls git on a background thread and feeds two views: a compact change
     # summary in the sidebar (one +XY path  +N -N+ line per changed file)
-    # and the full inline-rendered diff in the {GitDiffPopup} (+Ctrl+G+). Unlike
+    # and the full inline-rendered diff in the {GitDiffPopup} (leader menu
+    # +d+). Unlike
     # {TuileListener} / {TaskListener} — which ride the agent's event stream
     # — the working tree changes for reasons the agent never announces (the
     # user editing files, an external build, a +git+ command in a shell

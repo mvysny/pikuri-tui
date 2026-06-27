@@ -66,15 +66,62 @@ RSpec.describe PikuriTui::Chat::App do
     assert_kind_of PikuriTui::TuileListener, @listener
   end
 
-  it 'starts with no errors logged and a discoverable "^L logs" status-bar hint' do
+  it 'starts with no errors logged and a discoverable "^K menu" status-bar hint' do
     app
-    assert_includes status_bar_text, '^L logs'
+    assert_includes status_bar_text, '^K menu'
     refute_includes status_bar_text, '⚠'
   end
 
   it 'also exposes the cancel intent as a "^C cancel" status-bar hint' do
     app
     assert_includes status_bar_text, '^C cancel'
+  end
+
+  describe 'leader menu (Ctrl+K)' do
+    it 'advertises the ^K menu status-bar hint' do
+      app
+      assert_includes status_bar_text, '^K menu'
+    end
+
+    it 'offers logs + quit for a single-model shell' do
+      keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
+      assert_equal %w[l q], keys
+    end
+
+    it 'includes a switch-model action only when more than one model is configured' do
+      picker_app = described_class.new(models: [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')]) do |listener, _ml|
+        StubAgent.new(listener, model: 'm1')
+      end
+      keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
+      assert_equal %w[l m q], keys
+    end
+
+    it 'opens a modal menu popup on Ctrl+K' do
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      assert_kind_of PikuriTui::LeaderMenu, app.instance_variable_get(:@leader_menu)
+      assert_kind_of Tuile::Component::PickerWindow, app.screen.pane.modal_popup&.content
+    end
+
+    it "picking 'l' opens the log popup" do
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'l')
+      assert app.instance_variable_get(:@log_popup).open?
+    end
+
+    it "picking 'q' stops the event loop" do
+      app
+      stopped = spy_on_stop
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'q')
+      assert stopped.call, 'expected the leader menu quit action to stop the loop'
+    end
+
+    it 'closes the menu on Ctrl+C, like ESC' do
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      refute_nil app.screen.pane.modal_popup
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+      assert_nil app.screen.pane.modal_popup, 'Ctrl+C should cancel the menu'
+    end
   end
 
   it 'cancels the in-flight turn when Ctrl+C arrives mid-turn' do
@@ -116,10 +163,10 @@ RSpec.describe PikuriTui::Chat::App do
     refute stopped.call, 'the event loop must not stop while a popup is open'
   end
 
-  it 'shows "^L ⚠ logs (N)" when an error is logged through Tuile.logger' do
+  it 'shows "^K ⚠ menu (N)" when an error is logged through Tuile.logger' do
     app
     Tuile.logger.error('boom')
-    assert_includes status_bar_text, '^L ⚠ logs (1)'
+    assert_includes status_bar_text, '^K ⚠ menu (1)'
   end
 
   it 'increments the hint counter once per error (not once per log line)' do
@@ -128,19 +175,19 @@ RSpec.describe PikuriTui::Chat::App do
     Tuile.logger.info('two')   # info shouldn't bump
     Tuile.logger.warn('three') # warn shouldn't bump either
     Tuile.logger.fatal('four') # fatal does (same bracket as error)
-    assert_includes status_bar_text, '^L ⚠ logs (2)'
+    assert_includes status_bar_text, '^K ⚠ menu (2)'
   end
 
   it 'clears the hint counter when the log popup is dismissed (user has now read the diagnostics)' do
     app
     Tuile.logger.error('boom')
-    assert_includes status_bar_text, '^L ⚠ logs (1)'
+    assert_includes status_bar_text, '^K ⚠ menu (1)'
 
-    # Open the popup directly — same dispatch path as pressing Ctrl+L.
+    # Open the popup directly — same dispatch path as the menu's 'l' entry.
     log_popup = app.instance_variable_get(:@log_popup)
     log_popup.open
     log_popup.close
-    assert_includes status_bar_text, '^L logs'
+    assert_includes status_bar_text, '^K menu'
     refute_includes status_bar_text, '⚠'
   end
 
@@ -262,7 +309,7 @@ RSpec.describe PikuriTui::Chat::App do
     assert_includes log, 'oops'
   end
 
-  describe 'model picker (Ctrl+B)' do
+  describe 'model picker' do
     let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
     let(:picker_app) do
       described_class.new(models: choices) { |listener, _model_listener| StubAgent.new(listener, model: 'm1') }
@@ -271,18 +318,6 @@ RSpec.describe PikuriTui::Chat::App do
     it 'seeds the footer with the boot model display name' do
       footer = picker_app.instance_variable_get(:@footer_label)
       assert_equal 'Local', footer.current_model
-    end
-
-    it 'advertises the ^B model hint when more than one model is configured' do
-      picker_app
-      assert_includes picker_app.screen.pane.status_bar.text.to_s, '^B model'
-    end
-
-    it 'does not advertise ^B with only one model configured' do
-      one = described_class.new(models: [model_choice('Solo', 'm1')]) do |listener, _ml|
-        StubAgent.new(listener, model: 'm1')
-      end
-      refute_includes one.screen.pane.status_bar.text.to_s, '^P'
     end
 
     it 'builds options flagging the active model and selecting one stashes its transport' do

@@ -40,7 +40,7 @@ module PikuriTui
     #
     # The footer paints in the current theme's +Tuile::Theme#hint_color+ —
     # its content is status-hint chrome, the same family as the status
-    # bar's "^L logs" hints. {#refresh} bakes the color in when it
+    # bar's "^K menu" hints. {#refresh} bakes the color in when it
     # rebuilds the text, and {#on_theme_changed} re-runs it on OS
     # light/dark appearance flips.
     #
@@ -94,7 +94,7 @@ module PikuriTui
       # impossible to miss against the dim hint chrome. Driven by
       # {PlanModeListener} off the +Pikuri::Code::PlanModeChanged+ event —
       # so it tracks the shared +Pikuri::Agent::Control::PlanMode+ flag
-      # whether the model or a +Ctrl+P+ key press flipped it. Assigning
+      # whether the model or the leader menu's +p+ toggle flipped it. Assigning
       # re-runs {#refresh}; must be set on the UI thread.
       #
       # @return [Boolean]

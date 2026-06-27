@@ -8,7 +8,7 @@ module PikuriTui
     # occupies the top, the input Window occupies a fixed-height strip at
     # the bottom.
     #
-    # Layout only — global keybindings (Ctrl+L, Ctrl+C) are installed by
+    # Layout only — global keybindings (Ctrl+K, Ctrl+C) are installed by
     # {App} via {Tuile::Screen#register_global_shortcut}, which bypasses
     # the cursor-owner suppression that would otherwise let the focused
     # {Tuile::Component::TextArea} swallow them.

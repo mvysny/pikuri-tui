@@ -21,7 +21,7 @@ module PikuriTui
   #
   # {#replay_into} re-feeds the buffered lines through the new sink's +#write+
   # (the {CountingLogIO}), so a buffered error line both renders in the pane
-  # and bumps the +Ctrl+L+ "something broke" counter, exactly as a live error
+  # and bumps the +Ctrl+K+ menu "something broke" counter, exactly as a live error
   # would. The buffered strings are the stdlib +Logger+-formatted lines
   # (severity prefix + trailing newline), so +CountingLogIO+'s severity
   # sniffing and newline chomping work unchanged. +#puts+-origin lines (no

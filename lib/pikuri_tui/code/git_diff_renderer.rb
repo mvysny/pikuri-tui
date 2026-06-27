@@ -6,7 +6,7 @@ module PikuriTui
   module Code
     # Renders a plain (uncolored) +git diff+ into the same two-tier inline
     # format {DiffRenderer} paints for the edit / write tool calls — so the
-    # +Ctrl+G+ diff popup reads as one visual family with the conversation
+    # leader-menu diff popup reads as one visual family with the conversation
     # pane instead of carrying git's own coloring.
     #
     # == How it reuses {DiffRenderer}

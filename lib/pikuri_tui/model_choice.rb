@@ -34,7 +34,7 @@ module PikuriTui
     #
     # The connection's {Config::Llm#context_window} (an explicit cap for a
     # server pikuri's +/props+ probe can't reach) rides the transport too,
-    # so it is honored per-model across a +Ctrl+P+ switch; +nil+ defers to
+    # so it is honored per-model across a model switch; +nil+ defers to
     # pikuri's auto-detection.
     #
     # @param llm [Config::Llm] one +[[llm]]+ connection from {Config#llms}.

@@ -10,7 +10,7 @@ module PikuriTui
   # == Why a parallel copy of +Chat::+ and not a shared base
   #
   # The shell machinery (worker-thread turn loop, diagnostic-log wiring,
-  # Ctrl+L / Ctrl+C shortcuts, footer) is ~90% the same as {Chat::App},
+  # leader-menu / Ctrl+C shortcuts, footer) is ~90% the same as {Chat::App},
   # but the two are deliberately kept as independent copies rather than
   # factored onto a common base. Rationale: the chat shell is functional
   # and specced, and a shared base would refactor it for a DRY win that

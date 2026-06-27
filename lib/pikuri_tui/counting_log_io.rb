@@ -6,8 +6,8 @@ module PikuriTui
   # +IO+-shaped sink for stdlib +Logger+ that forwards every line to a
   # {Tuile::Component::LogWindow} (same contract as
   # +Tuile::Component::LogWindow::IO+) *and* counts severity-+ERROR+ and
-  # +FATAL+ writes so the +Ctrl+L+ status-bar hint can advertise
-  # "press Ctrl+L, something broke."
+  # +FATAL+ writes so the +Ctrl+K+ menu status-bar hint can advertise
+  # "open the menu, something broke."
   #
   # == How the severity is detected
   #
