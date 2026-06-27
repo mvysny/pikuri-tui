@@ -11,7 +11,7 @@ module PikuriTui
     #
     # Unlike {EditFormatter}, the +ToolCall+ event carries only the new
     # +content+, so the "before" side is read from disk through the captured
-    # +workspace+. A missing file renders as an all-added "create"; an
+    # +filesystem+. A missing file renders as an all-added "create"; an
     # unreadable / out-of-workspace / binary path falls back to the
     # listener's default line (a +nil+ return). The read happens
     # synchronously on the UI thread (the listener marshals the whole
@@ -21,11 +21,11 @@ module PikuriTui
       LOG = Pikuri.logger_for('formatter')
       private_constant :LOG
 
-      # @param workspace [Pikuri::Workspace::Filesystem] resolves the path
+      # @param filesystem [Pikuri::Workspace::Filesystem] resolves the path
       #   and bounds the read to the workspace (same handle the +Write+ tool
       #   uses).
-      def initialize(workspace:)
-        @workspace = workspace
+      def initialize(filesystem:)
+        @filesystem = filesystem
       end
 
       # Render the diff block for a +write+ call.
@@ -74,7 +74,7 @@ module PikuriTui
       # @param path [String] raw path from the tool call.
       # @return [String, nil]
       def read_existing(path)
-        resolved = @workspace.resolve_for_write(path)
+        resolved = @filesystem.resolve_for_write(path)
         return '' unless resolved.exist?
         return nil if resolved.directory?
 

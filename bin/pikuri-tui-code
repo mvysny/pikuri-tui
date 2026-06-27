@@ -178,7 +178,7 @@ filesystem = if yolo
 # --no-sandbox / --yolo.
 sandbox = if sandbox_enabled
             Pikuri::Code::Bash::Sandbox::Bubblewrap.new(
-              workspace:         filesystem
+              filesystem: filesystem
             )
           else
             Pikuri::Code::Bash::Sandbox::NONE
@@ -259,7 +259,7 @@ token_log = Pikuri::Agent::Listener::TokenLog.new
 # surfaced on error. See PikuriTui::Code::TuileListener#tool_formatters.
 tool_formatters = {
   'edit'  => PikuriTui::Code::EditFormatter.new,
-  'write' => PikuriTui::Code::WriteFormatter.new(workspace: filesystem)
+  'write' => PikuriTui::Code::WriteFormatter.new(filesystem: filesystem)
 }
 
 app = PikuriTui::Code::App.new(
@@ -322,7 +322,7 @@ app = PikuriTui::Code::App.new(
     c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
     c.add_sub_agent_tool Pikuri::Tool::FETCH
     c.add_extension Pikuri::Code::Extension.new(
-      workspace: filesystem,
+      filesystem: filesystem,
       confirmer: confirmer,
       sandbox: sandbox
     )
