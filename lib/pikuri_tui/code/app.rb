@@ -94,6 +94,13 @@ module PikuriTui
       #   +ListenerList+ so +ModelSwitched+ events reach the footer.
       attr_reader :model_listener
 
+      # @return [PlanModeListener] the footer plan-mode-badge listener
+      #   yielded to the build block. The host must include it in the
+      #   agent's +ListenerList+ so +Pikuri::Code::PlanModeChanged+ events
+      #   reach the footer. Dormant until a plan-mode transition fires
+      #   (via {#toggle_plan_mode} or the model's enter/exit tools).
+      attr_reader :plan_mode_listener
+
       # @return [ConfirmerPopup] the modal confirmer handed to the build
       #   block; exposed for tests and for callers that want to inspect
       #   how the write/bash tools were wired.
@@ -114,20 +121,28 @@ module PikuriTui
       #   the +edit+ / +write+ tools. Defaults to +{}+.
       # @param capture_mouse [Boolean] forwarded to
       #   {Tuile::Screen#run_event_loop} (default +true+).
-      # @param models [Array<ModelChoice>] the connections the +Ctrl+P+
-      #   model picker offers, in display order. The +Ctrl+P+ shortcut is
+      # @param models [Array<ModelChoice>] the connections the model picker
+      #   (+Ctrl+B+) offers, in display order. The picker shortcut is
       #   registered only when more than one is given; the model id → name
       #   map drives the footer's model segment regardless. Defaults to
       #   empty.
-      # @yield [listener, confirmer, task_listener, model_listener]
+      # @param plan_mode [Pikuri::Agent::Control::PlanMode] the shared
+      #   plan-mode flag — pass the *same* instance the host handed to
+      #   +Agent.new(plan_mode:)+, so the +Ctrl+P+ toggle and the model's
+      #   +enter_plan_mode+/+exit_plan_mode+ tools flip one flag. The
+      #   +Ctrl+P+ toggle is always registered; the default is a fresh
+      #   control starting *not* in plan mode. The footer badge tracks it
+      #   via {PlanModeListener}.
+      # @yield [listener, confirmer, task_listener, model_listener, plan_mode_listener]
       #   one-shot factory invoked exactly once during construction.
       #   Receives the {TuileListener} bound to this app's conversation
       #   pane, the {ConfirmerPopup}, the {TaskListener} bound to the
-      #   sidebar task pane, and the {ModelListener} that keeps the footer
-      #   model name current; must return a constructed +Pikuri::Agent+
-      #   whose +ListenerList+ includes the listeners and the +token_log+
-      #   exposed at {#token_log}, with the confirmer wired into its
-      #   write/bash tools.
+      #   sidebar task pane, the {ModelListener} that keeps the footer
+      #   model name current, and the {PlanModeListener} that keeps the
+      #   footer plan-mode badge current; must return a constructed
+      #   +Pikuri::Agent+ whose +ListenerList+ includes the listeners and
+      #   the +token_log+ exposed at {#token_log}, with the confirmer wired
+      #   into its write/bash tools.
       # @yieldparam listener [TuileListener] the conversation-pane
       #   listener; include it in the agent's +ListenerList+.
       # @yieldparam confirmer [ConfirmerPopup] the modal confirmer; pass
@@ -137,9 +152,13 @@ module PikuriTui
       #   +Pikuri::Tasks::Extension+ that emits the events it renders).
       # @yieldparam model_listener [ModelListener] the footer model-name
       #   listener; include it in the agent's +ListenerList+.
+      # @yieldparam plan_mode_listener [PlanModeListener] the footer
+      #   plan-mode-badge listener; include it in the agent's
+      #   +ListenerList+ (alongside the +Pikuri::Code::Extension+ that emits
+      #   the events it renders).
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given.
-      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, project_root: Dir.pwd, markdown: true, tool_formatters: {}, models: [], capture_mouse: true, &build_agent)
+      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, project_root: Dir.pwd, markdown: true, tool_formatters: {}, models: [], plan_mode: Pikuri::Agent::Control::PlanMode.new, capture_mouse: true, &build_agent)
         raise LocalJumpError, 'Code::App requires a block that builds the Pikuri::Agent' unless block_given?
 
         @screen = Tuile::Screen.instance
@@ -150,13 +169,14 @@ module PikuriTui
         @models = models
         @model_names = models.to_h { |choice| [choice.transport.model, choice.name] }
         @pending_transport = nil
+        @plan_mode = plan_mode
         @capture_mouse = capture_mouse
         @error_count = 0
         @turn_in_progress = false
 
         build_components
         wire_logging
-        @agent = build_agent.call(@listener, @confirmer, @task_listener, @model_listener)
+        @agent = build_agent.call(@listener, @confirmer, @task_listener, @model_listener, @plan_mode_listener)
         # The footer renders a "N queued" segment off the interloper's
         # +peek+ while mid-turn injections are pending. Installed here
         # (rather than at FooterLabel construction) because the agent —
@@ -245,6 +265,7 @@ module PikuriTui
         @confirmer = ConfirmerPopup.new(screen: @screen)
         @task_listener = TaskListener.new(text_view: @tasks_view, screen: @screen)
         @model_listener = ModelListener.new(footer: @footer_label, screen: @screen, names: @model_names)
+        @plan_mode_listener = PlanModeListener.new(footer: @footer_label, screen: @screen)
         @git_watcher = GitWatcher.new(
           summary_view: @git_summary_view, diff_view: @git_diff_view, screen: @screen
         )
@@ -272,7 +293,9 @@ module PikuriTui
       #   running turn while the log popup happens to be open — close it
       #   (ESC/q) first — and that a {ConfirmerPopup} is dismissed by
       #   declining (ESC/q), not by Ctrl+C.
-      # - +Ctrl+P+ opens the model picker (only registered when more than
+      # - +Ctrl+P+ toggles plan mode (always registered). Suppressed while
+      #   a popup is open.
+      # - +Ctrl+B+ opens the model picker (only registered when more than
       #   one connection is configured). Suppressed while a popup is open.
       #
       # @return [void]
@@ -286,12 +309,29 @@ module PikuriTui
           Tuile::Keys::CTRL_C,
           hint: "^C #{@screen.theme.error('cancel')}"
         ) { on_interrupt }
+        @screen.register_global_shortcut(
+          Tuile::Keys::CTRL_P,
+          hint: "^P #{@screen.theme.hint('plan')}"
+        ) { toggle_plan_mode }
         return unless @models.size > 1
 
         @screen.register_global_shortcut(
-          Tuile::Keys::CTRL_P,
-          hint: "^P #{@screen.theme.hint('model')}"
+          Tuile::Keys::CTRL_B,
+          hint: "^B #{@screen.theme.hint('model')}"
         ) { open_model_picker }
+      end
+
+      # Flip the shared {Pikuri::Agent::Control::PlanMode} flag — enter if
+      # off, exit if on. Runs on the UI thread (global-shortcut dispatch);
+      # the control is thread-safe, and the footer badge updates through
+      # {PlanModeListener} off the +PlanModeChanged+ event the flip emits,
+      # so this stays a one-liner and the model-flip path renders the same
+      # way. Idempotent transitions ({PlanMode#enter!}/{#exit!}) make a
+      # double-press harmless.
+      #
+      # @return [void]
+      def toggle_plan_mode
+        @plan_mode.active? ? @plan_mode.exit! : @plan_mode.enter!
       end
 
       # Open the model picker: a {Tuile::Component::PickerWindow} popup

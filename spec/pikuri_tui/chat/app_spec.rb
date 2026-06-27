@@ -262,7 +262,7 @@ RSpec.describe PikuriTui::Chat::App do
     assert_includes log, 'oops'
   end
 
-  describe 'model picker (Ctrl+P)' do
+  describe 'model picker (Ctrl+B)' do
     let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
     let(:picker_app) do
       described_class.new(models: choices) { |listener, _model_listener| StubAgent.new(listener, model: 'm1') }
@@ -273,12 +273,12 @@ RSpec.describe PikuriTui::Chat::App do
       assert_equal 'Local', footer.current_model
     end
 
-    it 'advertises the ^P model hint when more than one model is configured' do
+    it 'advertises the ^B model hint when more than one model is configured' do
       picker_app
-      assert_includes picker_app.screen.pane.status_bar.text.to_s, '^P model'
+      assert_includes picker_app.screen.pane.status_bar.text.to_s, '^B model'
     end
 
-    it 'does not advertise ^P with only one model configured' do
+    it 'does not advertise ^B with only one model configured' do
       one = described_class.new(models: [model_choice('Solo', 'm1')]) do |listener, _ml|
         StubAgent.new(listener, model: 'm1')
       end

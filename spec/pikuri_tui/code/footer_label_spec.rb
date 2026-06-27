@@ -37,6 +37,24 @@ RSpec.describe PikuriTui::Code::FooterLabel do
     assert_equal '', label.text.to_s
   end
 
+  it 'renders the plan-mode badge when active (even with nothing else set)' do
+    label.plan_active = true
+    assert_equal ' ‖ Plan Mode ', label.text.to_s
+  end
+
+  it 'leads with the plan-mode badge, ahead of the model name' do
+    label.current_model = 'Local Qwen'
+    label.plan_active = true
+    assert_equal ' ‖ Plan Mode · Local Qwen ', label.text.to_s
+  end
+
+  it 'drops the plan-mode badge when cleared' do
+    label.current_model = 'Local Qwen'
+    label.plan_active = true
+    label.plan_active = false
+    assert_equal ' Local Qwen ', label.text.to_s
+  end
+
   it "reflects the TokenLog's status_line once an event has been processed" do
     # Event fired before the label exists (the lazy let hasn't constructed
     # it, so the on_status_line observer isn't installed yet) — asserts

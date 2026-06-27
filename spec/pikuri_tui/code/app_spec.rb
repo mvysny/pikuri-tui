@@ -265,7 +265,7 @@ RSpec.describe PikuriTui::Code::App do
     assert_includes log, 'oops'
   end
 
-  describe 'model picker (Ctrl+P)' do
+  describe 'model picker (Ctrl+B)' do
     let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
     let(:picker_app) do
       described_class.new(models: choices) do |listener, _confirmer, _task_listener, _model_listener|
@@ -278,16 +278,16 @@ RSpec.describe PikuriTui::Code::App do
       assert_equal 'Local', footer.current_model
     end
 
-    it 'advertises the ^P model hint when more than one model is configured' do
+    it 'advertises the ^B model hint when more than one model is configured' do
       picker_app
-      assert_includes picker_app.screen.pane.status_bar.text.to_s, '^P model'
+      assert_includes picker_app.screen.pane.status_bar.text.to_s, '^B model'
     end
 
-    it 'does not advertise ^P with only one model configured' do
+    it 'does not advertise ^B with only one model configured' do
       one = described_class.new(models: [model_choice('Solo', 'm1')]) do |listener, _c, _t, _m|
         StubAgent.new(listener, model: 'm1')
       end
-      refute_includes one.screen.pane.status_bar.text.to_s, '^P'
+      refute_includes one.screen.pane.status_bar.text.to_s, '^B model'
     end
 
     it 'builds options flagging the active model and selecting one stashes its transport' do
@@ -312,6 +312,35 @@ RSpec.describe PikuriTui::Code::App do
       picker_app.send(:submit_message, 'again')
       wait_until { agent.messages.size == 2 }
       assert_nil agent.transports[1], 'a switch must apply at most once'
+    end
+  end
+
+  describe 'plan mode (Ctrl+P)' do
+    let(:plan_mode) { Pikuri::Agent::Control::PlanMode.new }
+    let(:plan_app) do
+      described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _task_listener, _model_listener, _plan_listener|
+        StubAgent.new(listener)
+      end
+    end
+
+    it 'advertises the ^P plan hint with the explicit control' do
+      plan_app
+      assert_includes plan_app.screen.pane.status_bar.text.to_s, '^P plan'
+    end
+
+    it 'registers the plan toggle by default (no control passed)' do
+      assert_includes app.screen.pane.status_bar.text.to_s, '^P plan'
+    end
+
+    it 'defaults to a control that is not in plan mode' do
+      refute app.instance_variable_get(:@plan_mode).active?
+    end
+
+    it 'toggle_plan_mode flips the shared control on, then off' do
+      plan_app.send(:toggle_plan_mode)
+      assert plan_mode.active?
+      plan_app.send(:toggle_plan_mode)
+      refute plan_mode.active?
     end
   end
 

@@ -27,9 +27,10 @@ place. `bin/pikuri-tui-code` (the `PikuriTui::Code` namespace) is
 the in-repo coding shell: the same Tuile UI plus a project-rooted
 workspace, the bubblewrap sandbox, the six file/shell tools wired
 with a modal y/n confirmer (`Code::ConfirmerPopup`) on writes and
-bash, sub-agent-only network tools, and the skill / task / MCP /
-sub-agent extensions — all ported from pikuri's `bin/pikuri-code`
-demo onto the Tuile shell.
+bash, sub-agent-only network tools, the skill / task / MCP /
+sub-agent extensions, and a `Ctrl+P` plan-mode toggle (a read-only
+posture surfaced as a footer badge) — all ported from pikuri's
+`bin/pikuri-code` demo onto the Tuile shell.
 
 The two shells share their UI machinery as deliberate parallel
 copies, not a common base (see `lib/pikuri_tui/code.rb`), and their
@@ -245,10 +246,12 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   Tuile shell for `bin/pikuri-tui-chat` (conversation `TextView` +
   diagnostic `LogWindow` + input field + status bar). Takes a `models:`
   list (`ModelChoice`s) and yields a `ModelListener` to the build block
-  alongside the conversation listener; `Ctrl+P` (registered only when more
+  alongside the conversation listener; `Ctrl+B` (registered only when more
   than one model is configured) opens a `Tuile::Component::PickerWindow`
   popup whose pick stashes a pending `ChatTransport`, applied at the top of
-  the next `run_loop` via its `transport:` arg.
+  the next `run_loop` via its `transport:` arg. (The picker rides `Ctrl+B`,
+  not `Ctrl+P`, so it shares one key with the coding shell, which reserves
+  `Ctrl+P` for its plan-mode toggle.)
 - `lib/pikuri_tui/chat/layout.rb` — `PikuriTui::Chat::Layout`,
   the vertical-split root layout (conversation top, input bottom).
 - `lib/pikuri_tui/chat/input.rb` — `PikuriTui::Chat::Input`, the
@@ -257,7 +260,7 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `PikuriTui::Chat::FooterLabel`, the conversation-window footer
   label: shows the current model's display name as the leading segment
   (set once to the boot model, then updated by `ModelListener` when a
-  `Ctrl+P` switch lands), ticks a spinner while the agent is mid-turn,
+  `Ctrl+B` switch lands), ticks a spinner while the agent is mid-turn,
   shows an
   "N queued" count while the agent's `Control::Interloper` holds
   pending mid-turn injections, and renders the main agent's
@@ -277,12 +280,20 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   shell for `bin/pikuri-tui-code`. A parallel copy of `Chat::App`
   that additionally owns a `Code::ConfirmerPopup`, the sidebar task
   + git-change-summary windows, the `Code::GitDiffPopup` (full diff on
-  `Ctrl+G`) + its `Code::GitWatcher`, and a `Code::TaskListener`, and
-  yields the confirmer, the task listener, and the `ModelListener` to the
-  build block alongside the conversation listener. Forwards a
+  `Ctrl+G`) + its `Code::GitWatcher`, a `Code::TaskListener`, and a
+  `Code::PlanModeListener`, and yields the confirmer, the task listener,
+  the `ModelListener`, and the `PlanModeListener` to the build block
+  alongside the conversation listener. Forwards a
   `tool_formatters` map (the bin's `edit` / `write` diff formatters) to its
   `TuileListener`. Like `Chat::App` it takes a `models:` list and wires the
-  `Ctrl+P` model picker + footer model segment.
+  model picker + footer model segment — but on `Ctrl+B`, freeing `Ctrl+P`
+  for plan mode: it always registers a `Ctrl+P` toggle
+  (`#toggle_plan_mode` calls `enter!`/`exit!` on the shared
+  `Pikuri::Agent::Control::PlanMode` flag) and the footer plan-mode badge
+  tracks it via the `PlanModeListener`. The `plan_mode:` control defaults
+  to a fresh one (not in plan mode); the host passes the same instance it
+  hands `Agent.new` so the key toggle and the model's enter/exit tools
+  flip one flag.
 - `lib/pikuri_tui/code/layout.rb` — `PikuriTui::Code::Layout`, the
   coding shell's dual-pane root layout: a 60/40 width split with the
   conversation pane over a fixed-height input strip on the left and
@@ -302,6 +313,15 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `completed`). The companion to `TuileListener`: same
   worker-thread-to-UI-thread marshaling, a much smaller slice of the
   event stream. Not rate-limited (task mutations are rare).
+- `lib/pikuri_tui/code/plan_mode_listener.rb` —
+  `PikuriTui::Code::PlanModeListener`, a `Pikuri::Agent::Listener::Base`
+  subclass that consumes the `Pikuri::Code::PlanModeChanged` event
+  `Pikuri::Code::Extension` re-emits on every real plan-mode transition
+  and pushes the new posture onto the footer (`plan_active=`, marshaled to
+  the UI thread). Coding-shell-only (not top-level like `ModelListener`):
+  the event is a `:code`-group constant and only `Code::FooterLabel` shows
+  the badge. Driven off the *event*, not the control, so a model-initiated
+  `enter_plan_mode` lights the footer exactly like a `Ctrl+P` press.
 - `lib/pikuri_tui/code/git_watcher.rb` —
   `PikuriTui::Code::GitWatcher`, the background poller feeding two views:
   a compact change summary in the sidebar (one `XY path  +N -N` line per
@@ -339,7 +359,10 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   note).
 - `lib/pikuri_tui/code/input.rb` / `code/footer_label.rb` —
   parallel copies of the `Chat::` equivalents (Enter-submits input,
-  footer spinner + queued-count + token status).
+  footer spinner + queued-count + token status). The coding shell's
+  `FooterLabel` additionally leads with a notice-toned "‖ Plan Mode"
+  badge (`plan_active=`, driven by `PlanModeListener`) when plan mode is
+  active.
 - `lib/pikuri_tui/code/confirmer_popup.rb` —
   `PikuriTui::Code::ConfirmerPopup`, a `Pikuri::Workspace::Confirmer`
   rendered as a modal Tuile popup instead of stdin. `confirm?` is
@@ -379,14 +402,14 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   (returns `nil`) on a rendering failure.
 - `lib/pikuri_tui/code/write_formatter.rb` —
   `PikuriTui::Code::WriteFormatter`, the `tool_formatters` entry for
-  `write`. Reads the existing file through the captured `workspace` for the
+  `write`. Reads the existing file through the captured `filesystem` for the
   diff's "before" side (a missing file renders as an all-added `create`),
   diffing it against `content`. Falls back (`nil`) when the path is
   unreadable, outside the workspace, a directory, or binary.
 - `bin/pikuri-tui-chat` — boot script for the chat agent
   (`Bundler.setup(:default)`): maps every `Config#llms` connection to a
   `ModelChoice` (via `ModelChoice.from_llm`) carrying a connection-bearing
-  `ChatTransport` (`api_base` / `api_key` on the transport, so a `Ctrl+P`
+  `ChatTransport` (`api_base` / `api_key` on the transport, so a `Ctrl+B`
   switch can cross servers), builds a
   streaming `Pikuri::Agent` (booted on the first transport) wired with
   the web/calc tools (search, scrape, fetch, calculator), a
@@ -409,15 +432,21 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `add_tool` lines this bin used to repeat. The `Write` / `Bash` tools
   take the `Code::ConfirmerPopup` the `App` yields, or `AUTO_APPROVE`
   under `--no-confirm`/`--yolo`. Also sub-agent-only network tools, and
-  the skill / task / MCP / sub-agent extensions. Wires the `App`-yielded `Code::TaskListener` and
-  `ModelListener` into the agent's `ListenerList` so the
-  `Pikuri::Tasks::Extension` list mutations reach the sidebar task pane and
-  model switches reach the footer. Builds the `edit` /
-  `write` diff formatters (the `write` one over the same `workspace`)
+  the skill / task / MCP / sub-agent extensions. Constructs a shared
+  `Pikuri::Agent::Control::PlanMode` and hands it to BOTH `Agent.new`
+  (so `Code::Extension` wires the model's `enter_plan_mode`/`exit_plan_mode`
+  tools + the `PlanModeChanged` event, and `Edit`/`Write` refuse while
+  active) AND `Code::App` (so `Ctrl+P` toggles the same flag). Wires the
+  `App`-yielded `Code::TaskListener`, `ModelListener`, and
+  `PlanModeListener` into the agent's `ListenerList` so the
+  `Pikuri::Tasks::Extension` list mutations reach the sidebar task pane,
+  model switches reach the footer, and plan-mode transitions light the
+  footer badge. Builds the `edit` /
+  `write` diff formatters (the `write` one over the same `filesystem`)
   and passes them as `Code::App`'s `tool_formatters`. Maps `Config#llms`
   through `ModelChoice.from_llm` to the `models:` list (connection-bearing
   `ChatTransport`s) for the
-  `Ctrl+P` picker. Hands it to
+  `Ctrl+B` picker. Hands it to
   `PikuriTui::Code::App`. Ports pikuri's own `bin/pikuri-code` demo
   onto the Tuile shell.
 - `bin/setup` — `bundle install` wrapper.

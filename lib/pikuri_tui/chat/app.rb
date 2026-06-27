@@ -96,8 +96,8 @@ module PikuriTui
       #   conversation pane skips +TTY::Markdown+ and the streaming path
       #   uses {PassthroughBuffer} — appropriate for back-ends whose
       #   content is already in display form.
-      # @param models [Array<ModelChoice>] the connections the +Ctrl+P+
-      #   model picker offers, in display order. The +Ctrl+P+ shortcut is
+      # @param models [Array<ModelChoice>] the connections the +Ctrl+B+
+      #   model picker offers, in display order. The +Ctrl+B+ shortcut is
       #   registered only when more than one is given (nothing to switch
       #   between otherwise); the map of model id → name still drives the
       #   footer's model segment regardless. Defaults to empty — tests and
@@ -212,9 +212,11 @@ module PikuriTui
       #   running turn while the log popup happens to be open — close it
       #   (ESC/q) first — and that a {Code::ConfirmerPopup} is dismissed
       #   by declining (ESC/q), not by Ctrl+C.
-      # - +Ctrl+P+ opens the model picker (only registered when more than
+      # - +Ctrl+B+ opens the model picker (only registered when more than
       #   one connection is configured). Like the others, suppressed while
-      #   a popup is open.
+      #   a popup is open. (The coding shell binds +Ctrl+P+ to its plan-mode
+      #   toggle, so the picker shares +Ctrl+B+ across both shells for
+      #   consistency.)
       #
       # @return [void]
       def register_shortcuts
@@ -223,13 +225,13 @@ module PikuriTui
           Tuile::Keys::CTRL_C,
           hint: "^C #{@screen.theme.error('cancel')}"
         ) { on_interrupt }
-        # Ctrl+P opens the model picker — only when there's more than one
+        # Ctrl+B opens the model picker — only when there's more than one
         # connection to switch between (a lone model has nothing to pick).
         return unless @models.size > 1
 
         @screen.register_global_shortcut(
-          Tuile::Keys::CTRL_P,
-          hint: "^P #{@screen.theme.hint('model')}"
+          Tuile::Keys::CTRL_B,
+          hint: "^B #{@screen.theme.hint('model')}"
         ) { open_model_picker }
       end
 

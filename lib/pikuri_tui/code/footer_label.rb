@@ -88,6 +88,18 @@ module PikuriTui
       # @return [String, nil]
       attr_reader :current_model
 
+      # Whether the agent is currently in plan mode (a read-only posture
+      # where the file-mutation tools refuse). When +true+, {#refresh}
+      # leads with a notice-toned "‖ Plan Mode" badge so the posture is
+      # impossible to miss against the dim hint chrome. Driven by
+      # {PlanModeListener} off the +Pikuri::Code::PlanModeChanged+ event —
+      # so it tracks the shared +Pikuri::Agent::Control::PlanMode+ flag
+      # whether the model or a +Ctrl+P+ key press flipped it. Assigning
+      # re-runs {#refresh}; must be set on the UI thread.
+      #
+      # @return [Boolean]
+      attr_reader :plan_active
+
       # @param screen [Tuile::Screen] screen whose +event_queue+ drives
       #   the spinner ticker.
       # @param token_log [Pikuri::Agent::Listener::TokenLog] main agent's
@@ -100,6 +112,7 @@ module PikuriTui
         @token_log = token_log
         @interloper = nil
         @current_model = nil
+        @plan_active = false
         @ticker = nil
         @spinner_frame = nil
         token_log.on_status_line = method(:on_status_line)
@@ -110,6 +123,13 @@ module PikuriTui
       # @return [void]
       def current_model=(name)
         @current_model = name
+        refresh
+      end
+
+      # @param active [Boolean] new plan-mode posture.
+      # @return [void]
+      def plan_active=(active)
+        @plan_active = active
         refresh
       end
 
@@ -178,12 +198,15 @@ module PikuriTui
         @screen.event_queue.submit { refresh }
       end
 
-      # Recompute the label text from the current spinner frame, the
-      # interloper's pending count, and the token log's status line, baked
-      # in the current theme's +hint_color+. Must run on the UI thread.
+      # Recompute the label text from the plan-mode badge, the current
+      # spinner frame, the interloper's pending count, and the token log's
+      # status line. The badge is notice-toned so it stands out; the rest
+      # is baked in the current theme's +hint_color+. Must run on the UI
+      # thread.
       #
       # @return [void]
       def refresh
+        hint = @screen.theme.hint_color
         segments = []
         segments << @current_model if @current_model && !@current_model.empty?
         pending = @interloper ? @interloper.size : 0
@@ -199,10 +222,26 @@ module PikuriTui
           else
             "#{@spinner_frame} #{tail}"
           end
-        # Pad non-empty text with a space on each side so it doesn't butt
-        # up against the border dashes the wrap-content footer sits in.
-        plain = " #{plain} " unless plain.empty?
-        self.text = Tuile::StyledString.plain(plain).with_fg(@screen.theme.hint_color)
+
+        # The plan-mode badge leads (notice-toned, so it pops against the
+        # dim hint chrome); the spinner/model/queue/token tail follows in
+        # hint_color. Either side may be empty. +theme[:notice]+ is the
+        # color *value* (the badge is structured text built from spans, not
+        # a plain hint string — see Tuile::Theme's helper-vs-+_color+ rule).
+        rest = Tuile::StyledString.plain(plain).with_fg(hint) unless plain.empty?
+        content =
+          if @plan_active
+            badge = Tuile::StyledString.plain('‖ Plan Mode').with_fg(@screen.theme[:notice])
+            rest ? badge + Tuile::StyledString.plain(' · ').with_fg(hint) + rest : badge
+          else
+            rest
+          end
+
+        # Pad non-empty text with a hint-colored space on each side so it
+        # doesn't butt up against the border dashes the wrap-content footer
+        # sits in (hint so the non-plan path stays uniformly hint_color).
+        pad = Tuile::StyledString.plain(' ').with_fg(hint)
+        self.text = content.nil? ? Tuile::StyledString.plain('') : pad + content + pad
       end
     end
   end
