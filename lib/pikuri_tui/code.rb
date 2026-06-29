@@ -17,8 +17,12 @@ module PikuriTui
   # the project's "thin shell, readable not obfuscated" ceiling doesn't
   # ask for. The coding shell adds one thing chat has not — a
   # confirmation popup wired into the write/bash tools — and pays for it
-  # with a little duplication instead of a base-class abstraction. If a
-  # third shell ever lands, that's the moment to extract.
+  # with a little duplication instead of a base-class abstraction. A third
+  # shell has since landed ({Os::App}, the OS assistant) and the call was
+  # still to duplicate the four shell-specific pieces (App / Layout / Input
+  # / FooterLabel) rather than extract a base — though the OS shell does
+  # reuse this namespace's {ConfirmerPopup} / diff adapters directly, since
+  # those are cross-cutting tool wiring, not shell scaffolding.
   #
   # == Code-only dependencies
   #

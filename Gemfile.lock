@@ -17,6 +17,10 @@ PATH
     pikuri-mcp (0.0.7)
       mcp (~> 0.17)
       pikuri-core (= 0.0.7)
+    pikuri-os (0.0.7)
+      pikuri-code (= 0.0.7)
+      pikuri-core (= 0.0.7)
+      pikuri-workspace (= 0.0.7)
     pikuri-skills (0.0.7)
       pikuri-core (= 0.0.7)
     pikuri-subagents (0.0.7)
@@ -159,6 +163,7 @@ DEPENDENCIES
   pikuri-code!
   pikuri-core!
   pikuri-mcp!
+  pikuri-os!
   pikuri-pdf (~> 0.0.7)
   pikuri-skills!
   pikuri-subagents!
@@ -208,6 +213,7 @@ CHECKSUMS
   pikuri-code (0.0.7)
   pikuri-core (0.0.7)
   pikuri-mcp (0.0.7)
+  pikuri-os (0.0.7)
   pikuri-pdf (0.0.7) sha256=cc1ab8f04a64b0c3e7bbde1640aa18e4f1b69d10b9dba2afee0ae3f0333db83a
   pikuri-skills (0.0.7)
   pikuri-subagents (0.0.7)

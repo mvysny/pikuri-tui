@@ -1,0 +1,252 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Entry point for the Tuile OS-assistant TUI built on Pikuri::Agent — a
+# single, local, network-severed agent for understanding and operating this
+# Linux host. Same Tuile shell as bin/pikuri-tui-chat (one conversation pane
+# over an input strip, no sidebar), but wired with the five file tools + a
+# sandboxed bash via one Pikuri::Os::Extension, a Tuile modal confirmer for
+# mutations, plan mode, and the edit/write diff view. The pikuri-side wiring
+# is ported from pikuri's own bin/pikuri-os-assistant demo; everything Tuile
+# is PikuriTui::Os::App's job.
+#
+# Pin Bundler to this project's Gemfile so locked dependency versions win
+# and the script works when invoked via a symlink (e.g.
+# ~/.local/bin/pikuri-tui-os) from any working directory. `__dir__`
+# resolves through symlinks, so this points at the real checkout.
+ENV['BUNDLE_GEMFILE'] ||= File.expand_path('../Gemfile', __dir__)
+
+# Activate :default + :os — the OS shell needs pikuri-os (which pulls in
+# pikuri-workspace + pikuri-code) and diff-lcs, but NOT the coding shell's
+# tasks/skills/mcp/subagents gems. The explicit +Bundler.setup+ form (not
+# +require 'bundler/setup'+, which activates every group) keeps the :code
+# and :test groups off this process's load path.
+require 'bundler'
+Bundler.setup(:default, :os)
+require 'optparse'
+
+# pikuri-tui has no published gemspec yet — wired only as a path dependency
+# from this Gemfile — so its +lib/+ is not on Bundler's load path. Adding it
+# here lets +require 'pikuri_tui'+ resolve through Zeitwerk. pikuri-os is
+# required BEFORE pikuri_tui so its loader sees +Pikuri::Workspace+ and
+# eager-loads the PikuriTui::Os (and reused PikuriTui::Code) subtree (see
+# the gate in lib/pikuri_tui.rb).
+$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+
+require 'pikuri-core'
+require 'pikuri-os' # pulls in pikuri-workspace + pikuri-code
+require 'pikuri_tui'
+
+# Boot-time logging goes to stderr until the screen is up. A BufferingLogIO
+# tees every pre-screen log line to stderr (so a crash before the screen still
+# prints) AND retains it, so App#wire_logging can replay those lines — config
+# file reads, chmod 600 advisories, model wiring — into the diagnostic
+# LogWindow once it rewires Pikuri.log_io there. pikuri's loggers
+# (Pikuri.logger_for) default to $stderr; we override that with the buffer.
+Pikuri.log_io = PikuriTui::BufferingLogIO.new
+
+# This bin's own logger. Like every pikuri-tui logger it goes through
+# Pikuri.logger_for (NOT Tuile.logger — see AGENTS.md), so it writes to
+# stderr now and to the LogWindow once App rewires Pikuri.log_io.
+main_log = Pikuri.logger_for('main')
+
+# CLI overrides start nil ("flag not given") so PikuriTui::Config can tell
+# an explicit flag from an absent one. The sandbox/confirm flags only ever
+# force false (there is no --sandbox / --confirm); config sets the baseline.
+# Built-in defaults live in PikuriTui::Config, shown in --help.
+cli_sandbox = nil
+cli_confirm = nil
+cli_server  = nil
+cli_model   = nil
+
+parser = OptionParser.new do |opts|
+  opts.banner = 'Usage: pikuri-tui-os [options]'
+  opts.separator ''
+  opts.separator 'Options:'
+  opts.on('--no-sandbox', 'Disable the network sandbox around bash. WARNING: bash can then ' \
+                          'reach the internet — the no-egress security property is OFF.') { cli_sandbox = false }
+  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n popup for writes + bash).') { cli_confirm = false }
+  opts.on('--yolo', 'Combines --no-sandbox + --no-confirm. Use only in a throwaway environment.') do
+    cli_sandbox = false
+    cli_confirm = false
+  end
+  opts.on('--server URL', "LLM server base URL (default: #{PikuriTui::Config::DEFAULT_SERVER})") { |v| cli_server = v }
+  opts.on('--model NAME', "Model identifier (default: #{PikuriTui::Config::DEFAULT_MODEL})") { |v| cli_model = v }
+  opts.on('-h', '--help', 'Print this help and exit') do
+    puts opts
+    exit
+  end
+end
+
+begin
+  parser.parse!
+rescue OptionParser::InvalidOption, OptionParser::MissingArgument => e
+  warn e.message
+  warn parser
+  exit 2
+end
+
+# Load the layered config (XDG search path only — there is no project-local
+# layer, so a secret-bearing config can never sit inside a tree the agent
+# reads). CLI flags overlay it; the sandbox/confirm flags force false. No
+# --api-key flag: a key must never travel on the command line. Boot-time,
+# before the screen is up, so a bad file is a plain warn + exit rather than a
+# torn-down TUI.
+begin
+  config = PikuriTui::Config.load(
+    overrides: { server: cli_server, model: cli_model, sandbox: cli_sandbox, confirm: cli_confirm }
+  )
+rescue PikuriTui::Config::Error => e
+  warn "config error: #{e.message}"
+  exit 2
+end
+
+sandbox_enabled = config.sandbox
+confirm_enabled = config.confirm
+
+# The whole host is in scope (that's the point) — AllowAll, minus the
+# credential denylist for the *file* tools (~/.ssh, ~/.aws, …; bash can
+# still reach those as the user). project_root is the relative-path base
+# and the bash chdir target: the launch directory is the intuitive anchor
+# ("what's in this folder?"), and absolute paths reach everywhere anyway.
+filesystem = Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd)
+
+# Default sandbox: FullFsNoNet — binds / read-write (full host control) but
+# unshares the network namespace, so bash cannot exfiltrate. This is the
+# load-bearing security property; it probes bwrap + unprivileged user/net
+# namespaces at construction and raises (no silent fallback) if they're
+# unavailable. Boot-time, before the screen is up, so the raise prints a
+# backtrace to a normal terminal. --no-sandbox / --yolo swap in NONE and
+# re-open the network — only for a throwaway box.
+sandbox = if sandbox_enabled
+            Pikuri::Code::Bash::Sandbox::FullFsNoNet.new(filesystem: filesystem)
+          else
+            Pikuri::Code::Bash::Sandbox::NONE
+          end
+
+# Base prompt + date. The "# This machine" facts and the MACHINE.md memory
+# section are appended by Os::Extension (via append_system_prompt), so this
+# script doesn't assemble them.
+system_prompt = Pikuri.prompt(:'os-assistant')
+system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
+
+# All configured connections become picker entries (ModelChoice); the
+# first is the boot model. ModelChoice.from_llm builds each one's
+# connection-bearing transport (the Pikuri seam lives there, not in the
+# Pikuri-free Config), so the context-window probe and a model switch
+# both target the right server.
+models = config.llms.map { |llm| PikuriTui::ModelChoice.from_llm(llm) }
+
+cancel_flag = Pikuri::Agent::Control::Cancellable.new
+
+# Shared plan-mode flag: a read-only posture in which Edit/Write refuse to
+# write. Handed to BOTH Agent.new (so Os::Extension's Code::Extension wires
+# the model's enter_plan_mode/exit_plan_mode tools, the per-turn reminder,
+# and the PlanModeChanged event) AND Os::App (so the leader menu's p entry
+# toggles the same flag from the keyboard). Whoever flips it — model or menu
+# — the footer badge tracks it through the one PlanModeChanged stream.
+plan_mode = Pikuri::Agent::Control::PlanMode.new
+
+# Mid-loop input channel: PikuriTui::Os::App injects messages submitted
+# while a turn is in flight; the agent drains the queue at every
+# after_tool_result boundary, and App delivers any leftovers as a fresh
+# turn when the loop ends.
+interloper = Pikuri::Agent::Control::Interloper.new
+
+Tuile::Screen.new
+# Install the app's theme pair (built-in accents + pikuri-tui's own
+# tool/notice/error/thinking/detail tokens) durably, so OS light/dark
+# flips re-pick the legible variant instead of falling back to the
+# stock Tuile theme.
+Tuile::Screen.instance.theme_def = PikuriTui::AppTheme::THEME_DEF
+
+# Constructed up front so both the App (for the footer's status line) and
+# the Agent's ListenerList see the same TokenLog instance.
+token_log = Pikuri::Agent::Listener::TokenLog.new
+
+# Per-tool diff formatters for the conversation pane: the edit / write
+# ToolCall renders as a before/after diff (the write side reads the
+# existing file through the same filesystem the Write tool uses) instead of
+# an argument dump, and the paired ToolResult is suppressed on success /
+# surfaced on error. Reused verbatim from the coding shell — the OS agent
+# edits real files, so the diff view is just as useful here.
+tool_formatters = {
+  'edit'  => PikuriTui::Code::EditFormatter.new,
+  'write' => PikuriTui::Code::WriteFormatter.new(filesystem: filesystem)
+}
+
+app = PikuriTui::Os::App.new(
+  token_log: token_log,
+  title: "OS Assistant — #{filesystem.project_root}",
+  tool_formatters: tool_formatters,
+  models: models,
+  plan_mode: plan_mode
+) do |listener, confirmer_popup, model_listener, plan_mode_listener|
+  # The Tuile modal confirmer for writes + bash, unless confirmations are
+  # disabled (--no-confirm / --yolo), in which case approve everything.
+  # Os::Extension wraps this human confirmer in a ReadOnlyAutoConfirmer
+  # (allow_git: true) internally, so provably read-only bash + read-only git
+  # skip the popup while every mutation still reaches it.
+  confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE
+
+  # Coalesce streaming delta chunks at 15 fps before they reach the
+  # Markdown-rendering TuileListener (see bin/pikuri-tui-chat for the
+  # rationale). flush_pending_on_non_delta: false because the bookend
+  # Assistant / Thinking events re-render the authoritative final content.
+  rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
+    listener,
+    fps: 15,
+    flush_pending_on_non_delta: false
+  )
+
+  Pikuri::Agent.new(
+    transport: models.first.transport,
+    system_prompt: system_prompt,
+    # Default :raise policy: on exhaustion the turn stops; the chat history
+    # survives and "continue" just works. Os::App's generic rescue logs the
+    # Exceeded and echoes a one-liner into the conversation pane.
+    step_limit: Pikuri::Agent::Control::StepLimit.new(max: 40),
+    cancellable: cancel_flag,
+    interloper: interloper,
+    # Os::Extension's Code::Extension reads this off the configurator to wire
+    # the enter/exit plan tools + the PlanModeChanged event, and threads it
+    # into Edit/Write so they refuse while it is active. The same instance
+    # Os::App's leader-menu 'p' toggle flips.
+    plan_mode: plan_mode,
+    streaming: true
+  ) do |c|
+    c.add_listener rate_limited_listener
+    c.add_listener token_log
+    # Keeps the footer's model name in step with leader-menu model switches.
+    c.add_listener model_listener
+    # Keeps the footer's plan-mode badge in step with the shared flag
+    # (the leader menu's 'p' toggle or the model's enter/exit tools).
+    c.add_listener plan_mode_listener
+    c.add_tool Pikuri::Tool::CALCULATOR
+    # One extension wires the whole OS-helper surface: the five file tools,
+    # bash (gated by the read-only auto-confirmer + the sandbox above), the
+    # file-index tools, and the machine facts + MACHINE.md memory folded
+    # into the system prompt.
+    c.add_extension Pikuri::Os::Extension.new(
+      filesystem: filesystem,
+      confirmer: confirmer,
+      sandbox: sandbox
+    )
+  end
+end
+
+# Boot diagnostics through the 'main' logger (App.new has rewired
+# Pikuri.log_io to the LogWindow by now, so these land there). The
+# conversation pane is not a log sink (AGENTS.md), so the working-directory /
+# safety notices go to the diagnostic pane the user opens from the leader
+# menu. Safety reductions are logged at warn so they stand out.
+main_log.info("Working from #{filesystem.project_root}")
+safety = []
+safety << 'Network sandbox: DISABLED — bash can reach the internet (egress is OPEN).' unless sandbox_enabled
+safety << 'Confirmer: AUTO-APPROVE — mutations run without asking.' unless confirm_enabled
+unless safety.empty?
+  safety << 'Use only in a throwaway environment.'
+  main_log.warn(safety.join(' '))
+end
+
+app.run

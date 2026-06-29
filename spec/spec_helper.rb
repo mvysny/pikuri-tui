@@ -27,6 +27,12 @@ require 'pikuri-tasks'
 require 'pikuri-skills'
 require 'pikuri-mcp'
 require 'pikuri-subagents'
+# Also pull in pikuri-os so an Os-shell spec can build the real
+# Pikuri::Os::Extension. The PikuriTui::Os subtree itself eager-loads via
+# the +Pikuri::Workspace+ gate (it reuses the Code:: adapters and
+# references no Pikuri::Os::* constant at load time), so this require is for
+# the extension, not the subtree.
+require 'pikuri-os'
 
 require 'pikuri_tui'
 

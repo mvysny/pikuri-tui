@@ -21,21 +21,27 @@ module PikuriTui
     'buffering_log_io' => 'BufferingLogIO'
   )
 
-  # The coding shell ({PikuriTui::Code}) depends on the :code-group
-  # pikuri gems — pikuri-workspace defines +Pikuri::Workspace::Confirmer+
-  # (the {Code::ConfirmerPopup} superclass), and pikuri-code / -tasks /
-  # -subagents back the rest of the boot wiring. The chat shell runs
-  # +Bundler.setup(:default)+ and never loads those gems, so eager-loading
-  # the code subtree there would raise at class-definition time (NameError
-  # on +Pikuri::Workspace+). Gate it on the :code runtime being present —
-  # true iff the bin (or spec_helper) required those gems *before*
-  # requiring pikuri_tui. When absent, ignore the subtree so the lean chat
-  # process neither autoloads nor eager-loads it; when present, it
-  # participates normally and the fail-fast eager-load guarantee still
-  # holds for it.
+  # The coding ({PikuriTui::Code}) and OS-assistant ({PikuriTui::Os})
+  # shells depend on the heavier pikuri gems — pikuri-workspace defines
+  # +Pikuri::Workspace::Confirmer+ (the {Code::ConfirmerPopup} superclass),
+  # and pikuri-code backs the rest of the boot wiring. The OS subtree
+  # reuses the +Code::*+ adapters (confirmer / diff formatters) and so
+  # needs the same gems; it references no +Pikuri::Os::*+ constant at load
+  # time (only +Code::*+ / +Pikuri::Agent::*+), so it gates on the same
+  # +Pikuri::Workspace+ presence rather than on +Pikuri::Os+. The chat
+  # shell runs +Bundler.setup(:default)+ and never loads those gems, so
+  # eager-loading either subtree there would raise at class-definition time
+  # (NameError on +Pikuri::Workspace+). Gate both on that runtime being
+  # present — true iff the bin (or spec_helper) required those gems
+  # *before* requiring pikuri_tui. When absent, ignore the subtrees so the
+  # lean chat process neither autoloads nor eager-loads them; when present,
+  # they participate normally and the fail-fast eager-load guarantee still
+  # holds.
   unless defined?(Pikuri::Workspace)
     loader.ignore("#{__dir__}/pikuri_tui/code.rb")
     loader.ignore("#{__dir__}/pikuri_tui/code")
+    loader.ignore("#{__dir__}/pikuri_tui/os.rb")
+    loader.ignore("#{__dir__}/pikuri_tui/os")
   end
 
   loader.setup

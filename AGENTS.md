@@ -2,12 +2,14 @@
 
 ## What this project is
 
-A pair of Tuile-based TUI front-ends on a shared core, wrapping the
+A trio of Tuile-based TUI front-ends on a shared core, wrapping the
 [pikuri](https://codeberg.org/mvysny/pikuri) library:
-`bin/pikuri-tui-chat` (general-purpose chat) and `bin/pikuri-tui-code`
-(in-repo coding agent). Both bind the same `Pikuri::Agent` and the
-same `Pikuri::Tool` set as pikuri's own demo scripts; they differ
-only in their system prompt and which tools they register.
+`bin/pikuri-tui-chat` (general-purpose chat), `bin/pikuri-tui-code`
+(in-repo coding agent), and `bin/pikuri-tui-os` (offline,
+network-severed OS assistant for this host). All three bind the same
+`Pikuri::Agent` and the same `Pikuri::Tool` set as pikuri's own demo
+scripts; they differ only in their system prompt and which tools they
+register.
 
 Pikuri ships those wirings as plain stdin/stdout REPL demos in its
 own `bin/`. This project replaces the REPL with a Tuile component
@@ -19,7 +21,7 @@ shell only.
 
 ## Status
 
-Both shells are functional. `bin/pikuri-tui-chat` runs the full
+All three shells are functional. `bin/pikuri-tui-chat` runs the full
 Tuile UI — conversation pane with streamed Markdown, a diagnostic
 log popup, input field, footer spinner + token status —
 against a local llama.cpp server, with specs and Woodpecker CI in
@@ -34,18 +36,36 @@ one-time, persisted git-config trust prompt — `Code::TrustStore`),
 sub-agent-only network tools, the skill / task / MCP /
 sub-agent extensions, and a plan-mode toggle (a read-only
 posture surfaced as a footer badge) — all ported from pikuri's
-`bin/pikuri-code` demo onto the Tuile shell. Both shells route
-every command through one leader key (`Ctrl+K` → `LeaderMenu`);
-only `Ctrl+C` (cancel/quit) stays a direct shortcut.
+`bin/pikuri-code` demo onto the Tuile shell. `bin/pikuri-tui-os`
+(the `PikuriTui::Os` namespace) is the offline OS assistant: the
+chat shell's layout (one conversation pane over an input strip, no
+sidebar — no git or task window) carrying the coding shell's safety
+machinery, driven by one `Pikuri::Os::Extension` (the five file
+tools + a network-severed `FullFsNoNet`-sandboxed `bash` + the
+machine-facts / MACHINE.md system-prompt sections, offline — no web
+tools). It owns a `Code::ConfirmerPopup` on writes/bash, surfaces
+plan mode (footer badge + leader `p` toggle), and renders `edit` /
+`write` diffs — all reusing the coding shell's `Code::*` adapters
+verbatim, ported from pikuri's `bin/pikuri-os-assistant` demo. All
+three shells route every command through one leader key (`Ctrl+K` →
+`LeaderMenu`); only `Ctrl+C` (cancel/quit) stays a direct shortcut.
 
-The two shells share their UI machinery as deliberate parallel
-copies, not a common base (see `lib/pikuri_tui/code.rb`), and their
-dependencies are split across Bundler groups: `bin/pikuri-tui-chat`
-runs `Bundler.setup(:default)`, `bin/pikuri-tui-code` runs
-`Bundler.setup(:default, :code)`, so the heavier coding gems stay
-off the chat process's load path. `lib/pikuri_tui.rb` ignores the
-`PikuriTui::Code` subtree entirely when the `:code` gems aren't
-loaded.
+The three shells share their UI machinery as deliberate parallel
+copies, not a common base (see `lib/pikuri_tui/code.rb` and
+`lib/pikuri_tui/os.rb`; the OS shell additionally reuses the
+`Code::*` confirmer / diff adapters directly). Their dependencies are
+split across Bundler groups: `bin/pikuri-tui-chat` runs
+`Bundler.setup(:default)`, `bin/pikuri-tui-code` runs
+`Bundler.setup(:default, :code)`, and `bin/pikuri-tui-os` runs
+`Bundler.setup(:default, :os)` — so the heavier gems stay off the
+chat process's load path, and the coding-only gems
+(tasks/skills/mcp/subagents) stay off the OS process's. The shared
+heavier gems (`pikuri-workspace`/`pikuri-code`/`diff-lcs`) sit in
+both `:code` and `:os` via `groups:`; `pikuri-os` is `:os`-only.
+`lib/pikuri_tui.rb` ignores both the `PikuriTui::Code` and
+`PikuriTui::Os` subtrees entirely when the heavier gems aren't
+loaded (gated on `Pikuri::Workspace` — the OS subtree reuses the
+`Code::*` adapters and needs the same gems).
 
 ## Scope decisions
 
@@ -451,6 +471,32 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   diff's "before" side (a missing file renders as an all-added `create`),
   diffing it against `content`. Falls back (`nil`) when the path is
   unreadable, outside the workspace, a directory, or binary.
+- `lib/pikuri_tui/os.rb` — `PikuriTui::Os` namespace shell for the
+  OS-assistant front-end, and the home of the duplicate-only-the-shell
+  rationale: the OS shell copies the four shell-specific pieces
+  (`Os::App` / `Os::Layout` / `Os::Input` / `Os::FooterLabel`) but reuses
+  the cross-cutting adapters and the `Code::*` confirmer / diff classes
+  directly.
+- `lib/pikuri_tui/os/app.rb` — `PikuriTui::Os::App`, the Tuile shell for
+  `bin/pikuri-tui-os`. Laid out like `Chat::App` (one conversation pane
+  over an input strip, no sidebar — no task or git window) but carrying the
+  coding shell's safety machinery: it owns a `Code::ConfirmerPopup`,
+  surfaces plan mode (footer badge via `Code::PlanModeListener` + a leader
+  `p` toggle + `#toggle_plan_mode` on the shared
+  `Pikuri::Agent::Control::PlanMode`), forwards a `tool_formatters` map (the
+  bin's `edit` / `write` diff formatters) to its `TuileListener`, and wires
+  the model picker + footer model segment off a `models:` list. Yields
+  `(listener, confirmer, model_listener, plan_mode_listener)` to the build
+  block. Its `LeaderMenu` carries `l` logs / `p` plan mode / `m` switch
+  model / `q` quit — the chat set plus `p`, but without the coding shell's
+  `d` git diff.
+- `lib/pikuri_tui/os/layout.rb` — `PikuriTui::Os::Layout`, a parallel copy
+  of `Chat::Layout` (vertical split: conversation top, fixed-height input
+  strip bottom, no sidebar).
+- `lib/pikuri_tui/os/input.rb` / `os/footer_label.rb` — parallel copies of
+  the shell-specific input (Enter-submits) and footer. The OS shell's
+  `FooterLabel` is a copy of `Code::FooterLabel` (it carries the
+  notice-toned "‖ Plan Mode" badge, since the OS agent has plan mode too).
 - `bin/pikuri-tui-chat` — boot script for the chat agent
   (`Bundler.setup(:default)`): maps every `Config#llms` connection to a
   `ModelChoice` (via `ModelChoice.from_llm`) carrying a connection-bearing
@@ -504,11 +550,34 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   leader menu's `m` model picker. Hands it to
   `PikuriTui::Code::App`. Ports pikuri's own `bin/pikuri-code` demo
   onto the Tuile shell.
+- `bin/pikuri-tui-os` — boot script for the OS assistant
+  (`Bundler.setup(:default, :os)`): builds a
+  `Pikuri::Workspace::Filesystem::AllowAll` rooted at the launch
+  directory (full host, minus the file tools' credential denylist), a
+  `Pikuri::Code::Bash::Sandbox::FullFsNoNet` (network-severed, probes
+  bwrap at construction and raises if unavailable; `NONE` under
+  `--no-sandbox`/`--yolo`), and the `:'os-assistant'` system prompt + date
+  (machine facts + MACHINE.md are appended by the extension). Builds a
+  streaming `Pikuri::Agent` (step limit 40, `Cancellable`, `Interloper`,
+  shared `PlanMode`) wired with the App-yielded `ModelListener` /
+  `PlanModeListener`, a rate-limited `TuileListener`, a `TokenLog`,
+  `Pikuri::Tool::CALCULATOR`, and one `Pikuri::Os::Extension`
+  (`filesystem:` / `confirmer:` / `sandbox:`) — which internally composes
+  `Workspace::Extension` (the five file tools) + `Code::Extension` (bash
+  wrapped in `ReadOnlyAutoConfirmer(allow_git: true)`, plan-mode tools) +
+  the optional fileindex tools. The `Write`/`bash` confirmer is the
+  `App`-yielded `Code::ConfirmerPopup`, or `AUTO_APPROVE` under
+  `--no-confirm`/`--yolo` (no `TrustStore` prompt — the extension handles
+  read-only-git auto-approval itself). Reuses the `Code::EditFormatter` /
+  `Code::WriteFormatter` diff formatters as `Os::App`'s `tool_formatters`,
+  and maps `Config#llms` through `ModelChoice.from_llm` to the `models:`
+  list. Hands it to `PikuriTui::Os::App`. Ports pikuri's own
+  `bin/pikuri-os-assistant` demo onto the Tuile shell.
 - `bin/setup` — `bundle install` wrapper.
-- `bin/install` / `bin/uninstall` — symlink `bin/pikuri-tui-chat`
-  and `bin/pikuri-tui-code` into `$PREFIX` (default `~/.local/bin`)
-  and remove them again. Uninstall only removes symlinks that point
-  back into this checkout.
+- `bin/install` / `bin/uninstall` — symlink `bin/pikuri-tui-chat`,
+  `bin/pikuri-tui-code` and `bin/pikuri-tui-os` into `$PREFIX` (default
+  `~/.local/bin`) and remove them again. Uninstall only removes symlinks
+  that point back into this checkout.
 
 ## Conventions
 

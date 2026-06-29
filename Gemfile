@@ -60,32 +60,52 @@ gem 'pikuri-core', path: '../pikuri'
 # deliberately deferred until a concrete need — see AGENTS.md.
 gem 'pikuri-pdf', '~> 0.0.7'
 
-# The coding shell's extra runtime — the six file/shell tools
-# (pikuri-workspace), the bubblewrap sandbox + git_clone + toolchain
-# paths (pikuri-code), the in-context task list (pikuri-tasks), the
-# skill catalog (pikuri-skills), MCP wiring (pikuri-mcp), and the
-# privilege-separated sub-agent personas (pikuri-subagents). Grouped
-# so +bin/pikuri-tui-chat+, which calls +Bundler.setup(:default,
-# :chat)+, never puts any of this on its load path — chat needs none
-# of it. +bin/pikuri-tui-code+ opts in with +Bundler.setup(:default,
-# :code)+. NOTE: a single Gemfile.lock still resolves all groups
-# together, and +bundle install+ installs them unless +--without
-# code+ is configured; the grouping buys runtime/load-path selection
-# and documents intent, not separate dependency trees.
-group :code do
-  # Line- and character-level LCS diffing for the conversation-pane diff
-  # view of the edit / write tools (PikuriTui::Code::DiffRenderer). The
-  # de-facto standard Ruby diff library (rspec depends on it too). In
-  # :code because only the coding shell registers those tools — the chat
-  # shell never renders a diff, so this stays off its load path.
-  gem 'diff-lcs', '~> 2.0'
+# The two heavier shells (coding + OS) share their runtime across three
+# Bundler groups so each shell's +Bundler.setup+ activates exactly what it
+# needs. +bin/pikuri-tui-chat+ runs +Bundler.setup(:default)+ and never
+# puts any of this on its load path; +bin/pikuri-tui-code+ opts in with
+# +(:default, :code)+; +bin/pikuri-tui-os+ with +(:default, :os)+. NOTE: a
+# single Gemfile.lock still resolves all groups together, and +bundle
+# install+ installs them all unless +--without+ is configured — the
+# grouping buys runtime/load-path selection and documents intent, not
+# separate dependency trees.
 
-  gem 'pikuri-workspace', path: '../pikuri'
-  gem 'pikuri-code', path: '../pikuri'
+# Shared by the coding AND OS shells. Line- and character-level LCS diffing
+# for the conversation-pane diff view of the edit / write tools
+# (PikuriTui::Code::DiffRenderer, which the OS shell reuses). The de-facto
+# standard Ruby diff library (rspec depends on it too). The chat shell
+# never renders a diff, so +groups:+ keeps it off chat's +(:default)+ load
+# path while +(:default, :code)+ and +(:default, :os)+ both activate it.
+gem 'diff-lcs', '~> 2.0', groups: %i[code os]
+
+# Shared by the coding AND OS shells. pikuri-workspace (the five file
+# tools) and pikuri-code (Bash + the bubblewrap / FullFsNoNet sandbox +
+# plan mode) back both: the coding shell composes them directly, the OS
+# shell gets them transitively through pikuri-os and reuses the same
+# Code:: adapters (ConfirmerPopup, the edit/write diff formatters). Shared
+# via +groups:+ so each shell activates them and chat does not.
+gem 'pikuri-workspace', path: '../pikuri', groups: %i[code os]
+gem 'pikuri-code', path: '../pikuri', groups: %i[code os]
+
+# Coding-shell-only runtime: git_clone + toolchain paths (pikuri-code,
+# above), the in-context task list (pikuri-tasks), the skill catalog
+# (pikuri-skills), MCP wiring (pikuri-mcp), and the privilege-separated
+# sub-agent personas (pikuri-subagents). The OS shell is a single offline
+# agent that wires none of these, so they stay off its load path.
+group :code do
   gem 'pikuri-tasks', path: '../pikuri'
   gem 'pikuri-skills', path: '../pikuri'
   gem 'pikuri-mcp', path: '../pikuri'
   gem 'pikuri-subagents', path: '../pikuri'
+end
+
+# OS-assistant-shell-only runtime. pikuri-os is the OS-integration layer +
+# +Pikuri::Os::Extension+ (the five file tools + sandboxed bash + the
+# machine facts / MACHINE.md system-prompt sections); it pulls in
+# pikuri-core + -workspace + -code. Grouped so +bin/pikuri-tui-os+ opts in
+# with +Bundler.setup(:default, :os)+ while chat and code never load it.
+group :os do
+  gem 'pikuri-os', path: '../pikuri'
 end
 
 group :test do

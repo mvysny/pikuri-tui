@@ -1,0 +1,389 @@
+# frozen_string_literal: true
+
+RSpec.describe PikuriTui::Os::App do
+  # Minimal +Pikuri::Agent+ stand-in — same shape as the chat / code specs'.
+  # The Os::App build block yields FOUR args (listener, confirmer,
+  # model_listener, plan_mode_listener); StubAgent only needs the listener
+  # (the real agent's tools / ListenerList would take the rest).
+  class StubAgent
+    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports
+
+    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model')
+      @listener = listener
+      @cancellable = Pikuri::Agent::Control::Cancellable.new
+      @interloper = interloper
+      @model = model
+      @messages = []
+      @transports = []
+      @gate = Queue.new
+      @blocking = false
+    end
+
+    def block_turns! = @blocking = true
+
+    def finish_turn! = @gate << :done
+
+    def run_loop(user_message:, transport: nil)
+      @messages << user_message
+      @transports << transport
+      @gate.pop if @blocking
+    end
+  end
+
+  let(:app) do
+    described_class.new do |listener, confirmer, model_listener, plan_mode_listener|
+      @listener = listener
+      @confirmer = confirmer
+      @model_listener = model_listener
+      @plan_mode_listener = plan_mode_listener
+      StubAgent.new(listener)
+    end
+  end
+
+  before { Tuile::Screen.fake }
+  after  { Tuile::Screen.close }
+
+  it 'mounts an Os::Layout as the screen content with conversation + input panes (no sidebar)' do
+    layout = app.screen.pane.content
+    assert_kind_of PikuriTui::Os::Layout, layout
+    assert_kind_of Tuile::Component::Window, layout.conversation
+    assert_kind_of Tuile::Component::Window, layout.input
+    refute_respond_to layout, :tasks
+    refute_respond_to layout, :git
+  end
+
+  it 'focuses the input TextArea on boot so the user can start typing immediately' do
+    assert_kind_of PikuriTui::Os::Input, app.screen.focused
+  end
+
+  it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
+    assert_kind_of Tuile::Component::LogWindow, app.log_window
+  end
+
+  it 'hands the TuileListener to the build block as the first arg' do
+    app # force construction
+    assert_kind_of PikuriTui::TuileListener, @listener
+  end
+
+  it 'hands a Code::ConfirmerPopup to the build block as the second arg' do
+    app # force construction
+    assert_kind_of PikuriTui::Code::ConfirmerPopup, @confirmer
+  end
+
+  it 'hands a PlanModeListener to the build block as the fourth arg' do
+    app # force construction
+    assert_kind_of PikuriTui::Code::PlanModeListener, @plan_mode_listener
+  end
+
+  it 'exposes the ConfirmerPopup at #confirmer, bound to this app screen' do
+    assert_kind_of PikuriTui::Code::ConfirmerPopup, app.confirmer
+    assert_same app.confirmer, @confirmer
+    assert_same app.screen, app.confirmer.instance_variable_get(:@screen)
+  end
+
+  it 'starts with no errors logged and a discoverable "^K menu" status-bar hint' do
+    app
+    assert_includes status_bar_text, '^K menu'
+    refute_includes status_bar_text, '⚠'
+  end
+
+  it 'also exposes the cancel intent as a "^C cancel" status-bar hint' do
+    app
+    assert_includes status_bar_text, '^C cancel'
+  end
+
+  it 'cancels the in-flight turn when Ctrl+C arrives mid-turn' do
+    agent = app.agent
+    agent.block_turns!
+    app.send(:submit_message, 'work')
+    wait_until { agent.messages.size == 1 }
+
+    press_ctrl_c
+    assert agent.cancellable.cancelled?
+  ensure
+    agent.finish_turn!
+    wait_until { !app.instance_variable_get(:@turn_in_progress) }
+  end
+
+  it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
+    app
+    assert_kind_of PikuriTui::Os::Input, app.screen.focused
+    press_ctrl_c
+    assert_nil app.screen.focused
+  end
+
+  it 'stops the event loop on Ctrl+C when idle and nothing is focused (second press)' do
+    app
+    app.screen.focused = nil
+    stopped = spy_on_stop
+    press_ctrl_c
+    assert stopped.call, 'expected the event loop to be stopped'
+  end
+
+  it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
+    app
+    app.instance_variable_get(:@log_popup).open
+    stopped = spy_on_stop
+
+    press_ctrl_c
+
+    assert app.instance_variable_get(:@log_popup).open?, 'popup should stay open'
+    refute stopped.call, 'the event loop must not stop while a popup is open'
+  end
+
+  it 'shows "^K ⚠ menu (N)" when an error is logged through Tuile.logger' do
+    app
+    Tuile.logger.error('boom')
+    assert_includes status_bar_text, '^K ⚠ menu (1)'
+  end
+
+  it 'clears the hint counter when the log popup is dismissed' do
+    app
+    Tuile.logger.error('boom')
+    assert_includes status_bar_text, '^K ⚠ menu (1)'
+
+    log_popup = app.instance_variable_get(:@log_popup)
+    log_popup.open
+    log_popup.close
+    assert_includes status_bar_text, '^K menu'
+    refute_includes status_bar_text, '⚠'
+  end
+
+  it 'mounts an Os::FooterLabel as the conversation Window footer' do
+    app
+    assert_kind_of PikuriTui::Os::FooterLabel, app.screen.pane.content.conversation.footer
+  end
+
+  it 'sizes the footer wrap_content so the unused border stays drawn' do
+    app
+    assert_equal Tuile::Sizing::WRAP_CONTENT, app.screen.pane.content.conversation.footer_sizing
+  end
+
+  it "hands the agent's interloper to the FooterLabel for the queued-count display" do
+    footer = app.screen.pane.content.conversation.footer
+    assert_same app.agent.interloper, footer.interloper
+  end
+
+  it 'queues a mid-turn submission into the interloper instead of starting a second run_loop' do
+    agent = app.agent
+    agent.block_turns!
+    app.send(:submit_message, 'first')
+    wait_until { agent.messages.size == 1 }
+
+    app.send(:submit_message, 'second')
+    assert_equal ['second'], agent.interloper.peek
+    assert_equal ['first'], agent.messages
+  ensure
+    2.times { agent.finish_turn! }
+    wait_until { agent.messages.size == 2 && !app.instance_variable_get(:@turn_in_progress) }
+  end
+
+  it 'delivers injections still queued when the turn ends as a fresh turn (in order)' do
+    agent = app.agent
+    agent.block_turns!
+    app.send(:submit_message, 'first')
+    wait_until { agent.messages.size == 1 }
+
+    app.send(:submit_message, 'queued while busy')
+    agent.finish_turn!
+    wait_until { agent.messages.size == 2 }
+    assert_equal ['first', 'queued while busy'], agent.messages
+    assert_empty agent.interloper.peek
+  ensure
+    agent.finish_turn!
+    wait_until { !app.instance_variable_get(:@turn_in_progress) }
+  end
+
+  it 'drops a mid-turn submission with a warn when the agent has no interloper wired' do
+    no_interloper_app = described_class.new do |listener, _confirmer|
+      StubAgent.new(listener, interloper: nil)
+    end
+    agent = no_interloper_app.agent
+    agent.block_turns!
+    no_interloper_app.send(:submit_message, 'first')
+    wait_until { agent.messages.size == 1 }
+
+    no_interloper_app.send(:submit_message, 'second')
+    agent.finish_turn!
+    wait_until { !no_interloper_app.instance_variable_get(:@turn_in_progress) }
+    assert_equal ['first'], agent.messages
+    rendered = no_interloper_app.log_window.content.text.to_s
+    assert_includes rendered, 'mid-turn message dropped'
+  end
+
+  it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do
+    app
+    Pikuri.logger_for('TestSubsystem').info('pikuri-side message')
+    rendered = app.log_window.content.text.to_s
+    assert_includes rendered, 'pikuri-side message'
+  end
+
+  it 'raises without a build block (no agent → no app)' do
+    assert_raises(LocalJumpError) { described_class.new }
+  end
+
+  it 'installs an on_error handler that funnels uncaught exceptions to the pikuri log' do
+    app
+    log = capture_log { app.screen.on_error.call(RuntimeError.new('oops')) }
+    assert_includes log, 'RuntimeError'
+    assert_includes log, 'oops'
+  end
+
+  describe 'model picker' do
+    let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
+    let(:picker_app) do
+      described_class.new(models: choices) do |listener, _confirmer, _model_listener, _plan_listener|
+        StubAgent.new(listener, model: 'm1')
+      end
+    end
+
+    it 'seeds the footer with the boot model display name' do
+      footer = picker_app.instance_variable_get(:@footer_label)
+      assert_equal 'Local', footer.current_model
+    end
+
+    it 'builds options flagging the active model and selecting one stashes its transport' do
+      options, block = capture_picker { picker_app.send(:open_model_picker) }
+
+      assert_equal '1', options[0][0]
+      assert_match(/●\s*Local/, options[0][1])
+      assert_match(/Cloud/,     options[1][1])
+
+      block.call('2')
+      assert_equal choices[1].transport, picker_app.instance_variable_get(:@pending_transport)
+    end
+
+    it 'applies the pending transport to the next run_loop, then clears it' do
+      agent = picker_app.agent
+      picker_app.instance_variable_set(:@pending_transport, choices[1].transport)
+
+      picker_app.send(:submit_message, 'go')
+      wait_until { agent.messages.size == 1 }
+      assert_equal choices[1].transport, agent.transports[0]
+
+      picker_app.send(:submit_message, 'again')
+      wait_until { agent.messages.size == 2 }
+      assert_nil agent.transports[1], 'a switch must apply at most once'
+    end
+  end
+
+  describe 'plan mode' do
+    let(:plan_mode) { Pikuri::Agent::Control::PlanMode.new }
+    let(:plan_app) do
+      described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _model_listener, _plan_listener|
+        StubAgent.new(listener)
+      end
+    end
+
+    it 'defaults to a control that is not in plan mode' do
+      refute app.instance_variable_get(:@plan_mode).active?
+    end
+
+    it 'toggle_plan_mode flips the shared control on, then off' do
+      plan_app.send(:toggle_plan_mode)
+      assert plan_mode.active?
+      plan_app.send(:toggle_plan_mode)
+      refute plan_mode.active?
+    end
+  end
+
+  describe 'leader menu (Ctrl+K)' do
+    it 'advertises the ^K menu status-bar hint' do
+      assert_includes app.screen.pane.status_bar.text.to_s, '^K menu'
+    end
+
+    it 'offers logs, plan mode and quit for a single-model shell (no git diff)' do
+      keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
+      assert_equal %w[l p q], keys
+    end
+
+    it 'adds a switch-model action when more than one model is configured' do
+      picker_app = described_class.new(models: [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')]) do |listener, _c, _ml, _pl|
+        StubAgent.new(listener, model: 'm1')
+      end
+      keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
+      assert_equal %w[l p m q], keys
+    end
+
+    it "picking 'p' toggles plan mode" do
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'p')
+      assert app.instance_variable_get(:@plan_mode).active?
+    end
+
+    it "picking 'q' stops the event loop" do
+      app
+      stopped = spy_on_stop
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'q')
+      assert stopped.call, 'expected the leader menu quit action to stop the loop'
+    end
+
+    it 'closes the menu on Ctrl+C, like ESC' do
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      refute_nil app.screen.pane.modal_popup
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+      assert_nil app.screen.pane.modal_popup, 'Ctrl+C should cancel the menu'
+    end
+  end
+
+  private
+
+  def model_choice(name, model)
+    PikuriTui::ModelChoice.new(
+      name: name,
+      transport: Pikuri::Agent::ChatTransport.new(
+        model: model, provider: :openai, assume_model_exists: true,
+        api_base: 'http://x/v1', api_key: 'k'
+      )
+    )
+  end
+
+  # Swap +PickerWindow.open+ for a recorder (restored after), run the
+  # block that triggers it, and return the captured +[options, callback]+
+  # so a spec can assert the option list and drive selection without
+  # exercising Tuile's popup/focus machinery.
+  def capture_picker
+    original = Tuile::Component::PickerWindow.method(:open)
+    captured_options = nil
+    captured_block = nil
+    Tuile::Component::PickerWindow.define_singleton_method(:open) do |_caption, options, &block|
+      captured_options = options
+      captured_block = block
+      nil
+    end
+    yield
+    [captured_options, captured_block]
+  ensure
+    Tuile::Component::PickerWindow.define_singleton_method(:open, original)
+  end
+
+  def status_bar_text
+    app.screen.pane.status_bar.text.to_s
+  end
+
+  # Dispatch Ctrl+C through the screen's real key handler (private in the
+  # release gem) so the test exercises the full chain: global-shortcut
+  # lookup, the +over_popups: false+ gate, then {Os::App#on_interrupt}.
+  def press_ctrl_c
+    app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+  end
+
+  # Replaces the (no-op) FakeEventQueue#stop with a recorder and returns a
+  # callable that reports whether it has fired — the only observable effect
+  # of the quit branch, since the fake queue runs no loop to actually stop.
+  def spy_on_stop
+    stopped = false
+    app.screen.event_queue.define_singleton_method(:stop) { stopped = true }
+    -> { stopped }
+  end
+
+  def wait_until(timeout: 2)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+    until yield
+      raise 'timed out waiting for condition' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+      sleep 0.005
+    end
+  end
+end
