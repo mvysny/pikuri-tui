@@ -281,6 +281,19 @@ app = PikuriTui::Code::App.new(
   # disabled (--no-confirm / --yolo), in which case approve everything.
   confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE
 
+  # Bash auto-gates provably read-only commands on top of the human
+  # confirmer (mirrors pikuri's own bin/pikuri-code): the frequent harmless
+  # inspections (ls, cat, grep, ps, `cd x && ls`, `ps aux | grep`) stop
+  # popping the modal, while every mutation — and anything not provably
+  # read-only — still reaches the y/n popup. Safe even with the sandbox's
+  # shared network: no allowlisted binary can write or exfiltrate, so this
+  # grants nothing the agent's own non-confirming Read/Grep/Glob don't. The
+  # wrap is asymmetric — only Code::Extension (Bash) gets it; Write/Edit
+  # (Workspace::Extension) keep the bare confirmer, so every overwrite still
+  # confirms. Wrapping AUTO_APPROVE would be a no-op, so only the confirming
+  # branch is wrapped.
+  code_confirmer = confirm_enabled ? Pikuri::Code::Bash::ReadOnlyAutoConfirmer.new(confirmer) : confirmer
+
   # Coalesce streaming delta chunks at 15 fps before they reach the
   # Markdown-rendering TuileListener (see bin/pikuri-tui-chat for the
   # rationale). flush_pending_on_non_delta: false because the bookend
@@ -340,7 +353,7 @@ app = PikuriTui::Code::App.new(
     c.add_sub_agent_tool Pikuri::Tool::FETCH
     c.add_extension Pikuri::Code::Extension.new(
       filesystem: filesystem,
-      confirmer: confirmer,
+      confirmer: code_confirmer,
       sandbox: sandbox
     )
     c.add_extension Pikuri::Skill::Extension.new(catalog: skill_catalog)
