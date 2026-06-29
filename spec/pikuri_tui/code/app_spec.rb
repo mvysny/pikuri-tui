@@ -292,7 +292,7 @@ RSpec.describe PikuriTui::Code::App do
   end
 
   describe 'plan mode' do
-    let(:plan_mode) { Pikuri::Agent::Control::PlanMode.new }
+    let(:plan_mode) { Pikuri::Workspace::ReadOnly.new }
     let(:plan_app) do
       described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _task_listener, _model_listener, _plan_listener|
         StubAgent.new(listener)

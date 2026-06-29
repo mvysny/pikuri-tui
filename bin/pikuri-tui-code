@@ -267,13 +267,19 @@ Pikuri::Extractors::PDF.register
 
 cancel_flag = Pikuri::Agent::Control::Cancellable.new
 
-# Shared plan-mode flag: a read-only posture in which Edit/Write refuse to
-# write. Handed to BOTH Agent.new (so Code::Extension wires the model's
-# enter_plan_mode/exit_plan_mode tools, the per-turn reminder, and the
-# PlanModeChanged event) AND Code::App (so the leader menu's p entry toggles
-# the same flag from the keyboard). Whoever flips it — model or menu — the
-# footer badge tracks it through the one PlanModeChanged stream.
-plan_mode = Pikuri::Agent::Control::PlanMode.new
+# Shared plan-mode flag: a Pikuri::Workspace::ReadOnly posture in which
+# Edit/Write refuse to write (it gates those two only, NOT bash). Handed to
+# BOTH the Workspace/Code extensions below as read_only: (so Code::Extension
+# wires the model's enter_plan_mode/exit_plan_mode tools, the per-turn
+# reminder, and the PlanModeChanged event, and Edit/Write refuse while it is
+# active) AND Code::App (so the leader menu's p entry toggles the same flag
+# from the keyboard). Whoever flips it — model or menu — the footer badge
+# tracks it through the one PlanModeChanged stream. The message: is the
+# plan-mode-specific refusal wording Edit/Write splice into their "cannot
+# write …" observation (ReadOnly's generic default is posture-agnostic).
+plan_mode = Pikuri::Workspace::ReadOnly.new(
+  message: Pikuri::Code::Extension::PLAN_MODE_READONLY_MESSAGE
+)
 
 # Mid-loop input channel: PikuriTui::Code::App injects messages submitted
 # while a turn is in flight; the agent drains the queue at every
@@ -361,11 +367,6 @@ app = PikuriTui::Code::App.new(
     step_limit: Pikuri::Agent::Control::StepLimit.new(max: 100),
     cancellable: cancel_flag,
     interloper: interloper,
-    # Code::Extension reads this off the configurator to wire the
-    # enter/exit plan tools + the PlanModeChanged event, and threads it
-    # into Edit/Write so they refuse while it is active. The same instance
-    # Code::App's leader-menu 'p' toggle flips.
-    plan_mode: plan_mode,
     streaming: true
   ) do |c|
     c.add_listener rate_limited_listener
@@ -392,8 +393,9 @@ app = PikuriTui::Code::App.new(
     # them — and replaces the five add_tool lines this used to repeat.
     # Bash and git_clone are NOT here (they aren't read/edit/write tools
     # and take the raw Filesystem, not the read record) — they come from
-    # Pikuri::Code::Extension below.
-    c.add_extension Pikuri::Workspace::Extension.new(filesystem: filesystem, confirmer: confirmer)
+    # Pikuri::Code::Extension below. The shared read-only flag is threaded
+    # in so Edit/Write refuse while plan mode is active.
+    c.add_extension Pikuri::Workspace::Extension.new(filesystem: filesystem, confirmer: confirmer, read_only: plan_mode)
     c.add_tool Pikuri::Tool::CALCULATOR
     c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(brave_key: config.search.brave_key,
                                                        exa_key: config.search.exa_key)
@@ -402,7 +404,11 @@ app = PikuriTui::Code::App.new(
     c.add_extension Pikuri::Code::Extension.new(
       filesystem: filesystem,
       confirmer: code_confirmer,
-      sandbox: sandbox
+      sandbox: sandbox,
+      # The same shared flag handed to Workspace::Extension above: wires the
+      # enter/exit plan tools + the PlanModeChanged event the footer badge
+      # tracks, the same flag Code::App's leader-menu 'p' toggle flips.
+      read_only: plan_mode
     )
     c.add_extension Pikuri::Skill::Extension.new(catalog: skill_catalog)
     c.add_extension Pikuri::Tasks::Extension.new

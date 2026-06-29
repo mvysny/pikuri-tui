@@ -139,13 +139,20 @@ models = config.llms.map { |llm| PikuriTui::ModelChoice.from_llm(llm) }
 
 cancel_flag = Pikuri::Agent::Control::Cancellable.new
 
-# Shared plan-mode flag: a read-only posture in which Edit/Write refuse to
-# write. Handed to BOTH Agent.new (so Os::Extension's Code::Extension wires
-# the model's enter_plan_mode/exit_plan_mode tools, the per-turn reminder,
-# and the PlanModeChanged event) AND Os::App (so the leader menu's p entry
-# toggles the same flag from the keyboard). Whoever flips it — model or menu
-# — the footer badge tracks it through the one PlanModeChanged stream.
-plan_mode = Pikuri::Agent::Control::PlanMode.new
+# Shared plan-mode flag: a Pikuri::Workspace::ReadOnly posture in which
+# Edit/Write refuse to write (it gates those two only, NOT bash). Handed to
+# BOTH Os::Extension below as read_only: (which threads it into its
+# Workspace::Extension so Edit/Write refuse, and its Code::Extension so the
+# model's enter_plan_mode/exit_plan_mode tools, the per-turn reminder, and
+# the PlanModeChanged event are wired) AND Os::App (so the leader menu's p
+# entry toggles the same flag from the keyboard). Whoever flips it — model or
+# menu — the footer badge tracks it through the one PlanModeChanged stream.
+# The message: is the plan-mode-specific refusal wording Edit/Write splice
+# into their "cannot write …" observation (ReadOnly's generic default is
+# posture-agnostic).
+plan_mode = Pikuri::Workspace::ReadOnly.new(
+  message: Pikuri::Code::Extension::PLAN_MODE_READONLY_MESSAGE
+)
 
 # Mid-loop input channel: PikuriTui::Os::App injects messages submitted
 # while a turn is in flight; the agent drains the queue at every
@@ -208,11 +215,6 @@ app = PikuriTui::Os::App.new(
     step_limit: Pikuri::Agent::Control::StepLimit.new(max: 40),
     cancellable: cancel_flag,
     interloper: interloper,
-    # Os::Extension's Code::Extension reads this off the configurator to wire
-    # the enter/exit plan tools + the PlanModeChanged event, and threads it
-    # into Edit/Write so they refuse while it is active. The same instance
-    # Os::App's leader-menu 'p' toggle flips.
-    plan_mode: plan_mode,
     streaming: true
   ) do |c|
     c.add_listener rate_limited_listener
@@ -230,7 +232,11 @@ app = PikuriTui::Os::App.new(
     c.add_extension Pikuri::Os::Extension.new(
       filesystem: filesystem,
       confirmer: confirmer,
-      sandbox: sandbox
+      sandbox: sandbox,
+      # Threaded into both sub-extensions (Workspace gates Edit/Write, Code
+      # wires the plan-mode tools + the PlanModeChanged event the footer
+      # badge tracks), the same flag Os::App's leader-menu 'p' toggle flips.
+      read_only: plan_mode
     )
   end
 end

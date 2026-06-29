@@ -118,13 +118,13 @@ module PikuriTui
       #   registered only when more than one is given; the model id → name
       #   map drives the footer's model segment regardless. Defaults to
       #   empty.
-      # @param plan_mode [Pikuri::Agent::Control::PlanMode] the shared
-      #   plan-mode flag — pass the *same* instance the host handed to
-      #   +Agent.new(plan_mode:)+, so the leader menu's +p+ toggle and the
-      #   model's +enter_plan_mode+/+exit_plan_mode+ tools flip one flag. The
-      #   +p+ toggle is always registered; the default is a fresh control
-      #   starting *not* in plan mode. The footer badge tracks it via
-      #   {Code::PlanModeListener}.
+      # @param plan_mode [Pikuri::Workspace::ReadOnly] the shared plan-mode
+      #   (read-only) flag — pass the *same* instance the host threaded into
+      #   +Pikuri::Os::Extension+'s +read_only:+, so the leader menu's +p+
+      #   toggle and the model's +enter_plan_mode+/+exit_plan_mode+ tools
+      #   flip one flag. The +p+ toggle is always registered; the default is
+      #   a fresh flag starting *not* in plan mode. The footer badge tracks
+      #   it via {Code::PlanModeListener}.
       # @yield [listener, confirmer, model_listener, plan_mode_listener]
       #   one-shot factory invoked exactly once during construction.
       #   Receives the {TuileListener} bound to this app's conversation
@@ -146,7 +146,7 @@ module PikuriTui
       #   (alongside the +Os::Extension+ that emits the events it renders).
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given.
-      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, title: 'OS Assistant', markdown: true, tool_formatters: {}, models: [], plan_mode: Pikuri::Agent::Control::PlanMode.new, capture_mouse: true, &build_agent)
+      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, title: 'OS Assistant', markdown: true, tool_formatters: {}, models: [], plan_mode: Pikuri::Workspace::ReadOnly.new, capture_mouse: true, &build_agent)
         raise LocalJumpError, 'Os::App requires a block that builds the Pikuri::Agent' unless block_given?
 
         @screen = Tuile::Screen.instance
@@ -291,17 +291,18 @@ module PikuriTui
         @screen.event_queue.stop
       end
 
-      # Flip the shared {Pikuri::Agent::Control::PlanMode} flag — enter if
-      # off, exit if on. Runs on the UI thread (global-shortcut dispatch);
-      # the control is thread-safe, and the footer badge updates through
-      # {Code::PlanModeListener} off the +PlanModeChanged+ event the flip
-      # emits, so this stays a one-liner and the model-flip path renders the
-      # same way. Idempotent transitions ({PlanMode#enter!}/{#exit!}) make a
+      # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
+      # enter if off, exit if on. Runs on the UI thread (global-shortcut
+      # dispatch); the flag is thread-safe, and the footer badge updates
+      # through {Code::PlanModeListener} off the +PlanModeChanged+ event the
+      # flip emits, so this stays a one-liner and the model-flip path
+      # renders the same way. Idempotent transitions
+      # ({Pikuri::Workspace::ReadOnly#activate!}/{#deactivate!}) make a
       # double-press harmless.
       #
       # @return [void]
       def toggle_plan_mode
-        @plan_mode.active? ? @plan_mode.exit! : @plan_mode.enter!
+        @plan_mode.active? ? @plan_mode.deactivate! : @plan_mode.activate!
       end
 
       # Open the model picker: a {Tuile::Component::PickerWindow} popup

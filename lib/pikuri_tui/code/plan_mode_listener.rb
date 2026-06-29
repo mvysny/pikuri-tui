@@ -6,7 +6,7 @@ require 'pikuri-code'
 module PikuriTui
   module Code
     # Keeps the conversation-window footer's plan-mode badge in step with
-    # the agent's shared {Pikuri::Agent::Control::PlanMode} flag. A
+    # the agent's shared {Pikuri::Workspace::ReadOnly} flag. A
     # {Pikuri::Agent::Listener::Base} subclass that consumes the
     # {Pikuri::Code::PlanModeChanged} event +Pikuri::Code::Extension+
     # re-emits on every real transition, and pushes the new posture onto
@@ -23,10 +23,10 @@ module PikuriTui
     # == Why the event, not the control
     #
     # The badge is driven off the *event* rather than the host reading the
-    # {Pikuri::Agent::Control::PlanMode} flag directly, so a
+    # {Pikuri::Workspace::ReadOnly} flag directly, so a
     # **model**-initiated entry (the +enter_plan_mode+ tool) lights up the
     # footer exactly like the leader menu's +p+ toggle does — both flips fire the
-    # control's +on_change+, which +Code::Extension+ bridges onto this
+    # flag's +on_change+, which +Code::Extension+ bridges onto this
     # event stream. The footer therefore reflects the authoritative flag,
     # never an inference about who toggled it.
     #

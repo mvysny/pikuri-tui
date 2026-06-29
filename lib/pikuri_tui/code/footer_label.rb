@@ -93,7 +93,7 @@ module PikuriTui
       # leads with a notice-toned "‖ Plan Mode" badge so the posture is
       # impossible to miss against the dim hint chrome. Driven by
       # {PlanModeListener} off the +Pikuri::Code::PlanModeChanged+ event —
-      # so it tracks the shared +Pikuri::Agent::Control::PlanMode+ flag
+      # so it tracks the shared +Pikuri::Workspace::ReadOnly+ flag
       # whether the model or the leader menu's +p+ toggle flipped it. Assigning
       # re-runs {#refresh}; must be set on the UI thread.
       #
