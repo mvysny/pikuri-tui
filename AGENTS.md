@@ -27,7 +27,9 @@ place. `bin/pikuri-tui-code` (the `PikuriTui::Code` namespace) is
 the in-repo coding shell: the same Tuile UI plus a project-rooted
 workspace, the bubblewrap sandbox, the six file/shell tools wired
 with a modal y/n confirmer (`Code::ConfirmerPopup`) on writes and
-bash, sub-agent-only network tools, the skill / task / MCP /
+bash (provably read-only bash commands auto-approve via pikuri's
+`Code::Bash::ReadOnlyAutoConfirmer`, leaving the popup for mutations),
+sub-agent-only network tools, the skill / task / MCP /
 sub-agent extensions, and a plan-mode toggle (a read-only
 posture surfaced as a footer badge) — all ported from pikuri's
 `bin/pikuri-code` demo onto the Tuile shell. Both shells route
@@ -458,7 +460,10 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   code extension, not the workspace one). Both replace the per-tool
   `add_tool` lines this bin used to repeat. The `Write` / `Bash` tools
   take the `Code::ConfirmerPopup` the `App` yields, or `AUTO_APPROVE`
-  under `--no-confirm`/`--yolo`. Also sub-agent-only network tools, and
+  under `--no-confirm`/`--yolo`; `Bash`'s copy is additionally wrapped in
+  `Pikuri::Code::Bash::ReadOnlyAutoConfirmer` (so provably read-only
+  commands skip the popup), an asymmetric wrap `Write`/`Edit` don't get,
+  and a no-op-avoiding skip when confirmations are off. Also sub-agent-only network tools, and
   the skill / task / MCP / sub-agent extensions. Constructs a shared
   `Pikuri::Agent::Control::PlanMode` and hands it to BOTH `Agent.new`
   (so `Code::Extension` wires the model's `enter_plan_mode`/`exit_plan_mode`
