@@ -28,7 +28,9 @@ the in-repo coding shell: the same Tuile UI plus a project-rooted
 workspace, the bubblewrap sandbox, the six file/shell tools wired
 with a modal y/n confirmer (`Code::ConfirmerPopup`) on writes and
 bash (provably read-only bash commands auto-approve via pikuri's
-`Code::Bash::ReadOnlyAutoConfirmer`, leaving the popup for mutations),
+`Code::Bash::ReadOnlyAutoConfirmer`, leaving the popup for mutations;
+read-only git additionally auto-approves once the user affirms a
+one-time, persisted git-config trust prompt — `Code::TrustStore`),
 sub-agent-only network tools, the skill / task / MCP /
 sub-agent extensions, and a plan-mode toggle (a read-only
 posture surfaced as a footer badge) — all ported from pikuri's
@@ -403,6 +405,20 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   neutralized text + per-attack-class warnings are rendered in the
   popup body (warnings in the `AppTheme` `:notice` tone + bold,
   detail in `:detail`, like `Confirmer::Terminal`).
+- `lib/pikuri_tui/code/trust_store.rb` —
+  `PikuriTui::Code::TrustStore`, the persisted set of git-config-trusted
+  project roots that gates `Code::Bash::ReadOnlyAutoConfirmer`'s `allow_git:`.
+  A plain newline-delimited file of realpath'd roots under
+  `Pikuri::Paths.state` (`~/.local/state/pikuri/trusted-projects`, mode 600;
+  no TOML — `tomlrb` is parse-only). `#trusted?` / `#trust!` realpath-normalize
+  on both ends (symlink aliases + trailing slashes collapse; exact match, never
+  prefix), append idempotently, and degrade to untrusted on any `SystemCallError`
+  (logged via `Pikuri.logger_for('trust')`, never raised — a persistence
+  failure must not tear down boot). Trust is keyed to the path only and asked at
+  most once per project (the bin's prompt); the class header documents the two
+  accepted residuals (a repo that turns hostile post-trust isn't re-prompted;
+  the lock-free append race is harmless, deduped on read). Its one Pikuri touch
+  is `Pikuri::Paths` (pikuri-core), a thin-adapter touch like `Config`'s.
 - `lib/pikuri_tui/code/diff_renderer.rb` —
   `PikuriTui::Code::DiffRenderer`, renders a before/after string pair as a
   two-tier ANSI unified diff for the conversation pane: a full-width dim
@@ -463,7 +479,13 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   under `--no-confirm`/`--yolo`; `Bash`'s copy is additionally wrapped in
   `Pikuri::Code::Bash::ReadOnlyAutoConfirmer` (so provably read-only
   commands skip the popup), an asymmetric wrap `Write`/`Edit` don't get,
-  and a no-op-avoiding skip when confirmations are off. Also sub-agent-only network tools, and
+  and a no-op-avoiding skip when confirmations are off. Before the screen
+  is up, computes `trusted_repo` to feed that wrap's `allow_git:` — gated
+  on confirmations-on + a `.git` at the project root + `Code::TrustStore`
+  (already trusted → silent; else, on an interactive TTY, a plain
+  `Confirmer::TERMINAL` y/n that persists a `yes`). All prompting/persistence
+  stays out of the `App.new` block (which may re-run); the outcome is logged
+  to the diagnostic pane, never the transcript. Also sub-agent-only network tools, and
   the skill / task / MCP / sub-agent extensions. Constructs a shared
   `Pikuri::Agent::Control::PlanMode` and hands it to BOTH `Agent.new`
   (so `Code::Extension` wires the model's `enter_plan_mode`/`exit_plan_mode`

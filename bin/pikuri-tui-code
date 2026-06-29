@@ -184,6 +184,54 @@ sandbox = if sandbox_enabled
             Pikuri::Code::Bash::Sandbox::NONE
           end
 
+# Git-config trust gate. trusted_repo flips ReadOnlyAutoConfirmer's allow_git:
+# (wired in the App block below) so a trusted repo also auto-approves read-only
+# git (status/diff/log/show/…). Sound ONLY with the user's affirmation: even a
+# bare `git diff` executes whatever the repo's .git/config / .gitattributes
+# direct (textconv, fsmonitor), and the sandbox's shared network could
+# exfiltrate. Trust is per-path, persisted in TrustStore so we ask at most once
+# per project. Gates, cheapest first:
+#   - confirm_enabled: under --no-confirm/--yolo the confirmer is AUTO_APPROVE,
+#     so allow_git is moot AND we must not persist a grant the user didn't make.
+#   - .git exists: git repos only (.exist?, not .directory? — linked worktrees
+#     and submodules carry a .git *file*).
+#   - already trusted: honored even under piped stdin; no prompt needed.
+#   - else prompt, but only on an interactive TTY. Reuses Confirmer::TERMINAL
+#     (sanitized puts/gets straight to the terminal — NOT the BufferingLogIO),
+#     the same primitive upstream bin/pikuri-code uses; we add persistence.
+# This must run before Tuile::Screen.new (a prompt is invisible once the
+# alternate screen buffer is up) and stay OUT of the App block (which may
+# re-run — re-prompting/re-persisting there would be a bug; the block only
+# reads the captured boolean).
+trust_store = PikuriTui::Code::TrustStore.new
+trusted_repo =
+  confirm_enabled &&
+  filesystem.project_root.join('.git').exist? &&
+  (trust_store.trusted?(filesystem.project_root) ||
+   ($stdin.tty? &&
+    begin
+      granted = Pikuri::Workspace::Confirmer::TERMINAL.confirm?(
+        request: Pikuri::Workspace::Confirmer::Request.new(
+          question: "Trust this directory's git config? Read-only git " \
+                    '(status/diff/log/show/…) will then run WITHOUT confirmation.',
+          detail: "#{filesystem.project_root}\n\nSay yes ONLY if you control this repo's " \
+                  '.git/config and committed .gitattributes: a hostile one can make even ' \
+                  "`git diff` execute arbitrary code on every read-only git call — and with " \
+                  "the sandbox's network shared, exfiltrate. Default is no."
+        )
+      )
+      trust_store.trust!(filesystem.project_root) if granted
+      granted
+    end))
+# Logged after App.new rewires Pikuri.log_io to the LogWindow (with the safety
+# block below), never echoed into the conversation pane.
+trust_notice =
+  if trusted_repo
+    'Trusted repo: read-only git (status/diff/log/show/…) auto-approved.'
+  elsif confirm_enabled && filesystem.project_root.join('.git').exist?
+    'Untrusted repo: every git command will confirm.'
+  end
+
 # Build the system prompt: static base + optional project context +
 # footer. AGENTS.md wins over CLAUDE.md when both exist.
 system_prompt = Pikuri.prompt(:'coding-system-prompt')
@@ -292,7 +340,7 @@ app = PikuriTui::Code::App.new(
   # (Workspace::Extension) keep the bare confirmer, so every overwrite still
   # confirms. Wrapping AUTO_APPROVE would be a no-op, so only the confirming
   # branch is wrapped.
-  code_confirmer = confirm_enabled ? Pikuri::Code::Bash::ReadOnlyAutoConfirmer.new(confirmer) : confirmer
+  code_confirmer = confirm_enabled ? Pikuri::Code::Bash::ReadOnlyAutoConfirmer.new(confirmer, allow_git: trusted_repo) : confirmer
 
   # Coalesce streaming delta chunks at 15 fps before they reach the
   # Markdown-rendering TuileListener (see bin/pikuri-tui-chat for the
@@ -388,6 +436,7 @@ unless skill_catalog.empty?
   names = skill_catalog.list.map(&:name).sort.join(', ')
   main_log.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
 end
+main_log.info(trust_notice) if trust_notice
 safety = []
 safety << 'Sandbox: DISABLED.' unless sandbox_enabled
 safety << 'Confirmer: AUTO-APPROVE.' unless confirm_enabled
