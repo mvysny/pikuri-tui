@@ -270,7 +270,8 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   lazyvim-style "which-key" command menu: a leader shortcut
   (`Ctrl+K`) opens a modal `PickerWindow` popup listing app actions,
   each bound to a single printable follow-up key (`l` logs / `d` git
-  diff / `p` plan mode / `m` switch model / `q` quit). One reserved
+  diff / `p` plan mode / `m` switch model / `c` clear conversation +
+  context / `q` quit). One reserved
   unprintable leader key replaces a fistful of per-action global
   shortcuts (and dodges the tmux/flow-control collisions in that
   scarce namespace); the follow-up keys can be printable because the
@@ -298,7 +299,8 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   (registered only when more than one model is configured) opens a
   `Tuile::Component::PickerWindow` popup whose pick stashes a pending
   `ChatTransport`, applied at the top of the next `run_loop` via its
-  `transport:` arg. Builds its `LeaderMenu` (logs / switch model / quit)
+  `transport:` arg. Builds its `LeaderMenu` (logs / switch model / clear
+  conversation / quit; `c` calls `Pikuri::Agent#clear_conversation`)
   and registers the `Ctrl+K` leader + `Ctrl+C` cancel shortcuts in
   `#register_shortcuts`.
 - `lib/pikuri_tui/chat/layout.rb` — `PikuriTui::Chat::Layout`,
@@ -488,7 +490,8 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   the model picker + footer model segment off a `models:` list. Yields
   `(listener, confirmer, model_listener, plan_mode_listener)` to the build
   block. Its `LeaderMenu` carries `l` logs / `p` plan mode / `m` switch
-  model / `q` quit — the chat set plus `p`, but without the coding shell's
+  model / `c` clear conversation + context / `q` quit — the chat set plus
+  `p`, but without the coding shell's
   `d` git diff.
 - `lib/pikuri_tui/os/layout.rb` — `PikuriTui::Os::Layout`, a parallel copy
   of `Chat::Layout` (vertical split: conversation top, fixed-height input

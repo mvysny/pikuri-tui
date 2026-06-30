@@ -145,7 +145,8 @@ module PikuriTui
     #   Pikuri::Agent::Event::Assistant, Pikuri::Agent::Event::AssistantDelta,
     #   Pikuri::Agent::Event::ToolCall, Pikuri::Agent::Event::ToolResult,
     #   Pikuri::Agent::Event::FallbackNotice, Pikuri::Agent::Event::Cancelled,
-    #   Pikuri::Agent::Event::Tokens, Pikuri::Agent::Event::ContextCap]
+    #   Pikuri::Agent::Event::Reset, Pikuri::Agent::Event::Tokens,
+    #   Pikuri::Agent::Event::ContextCap]
     # @return [void]
     def on_event(event)
       File.open(EVENT_DUMP_PATH, 'a') { |f| f.puts(event.inspect) } if @dump_events
@@ -215,10 +216,31 @@ module PikuriTui
         flush_assistant(:preserve)
         release_thinking
         add_block(@screen.theme.error('! cancelled'))
+      in Pikuri::Agent::Event::Reset
+        reset_conversation
       else
         # Tokens / ContextCap: silent here. TokenLog handles them if the
         # host registered one.
       end
+    end
+
+    # Wipe the conversation pane and drop every per-turn render handle in
+    # response to {Pikuri::Agent::Event::Reset} — the host cleared the
+    # conversation via {Pikuri::Agent#clear_conversation}. The +TextView+ is
+    # cleared (which detaches all regions, including any the open buffers
+    # were writing into), and the streaming-buffer / region / pairing slots
+    # are reset to their construction state so the next turn renders into a
+    # clean view rather than extending a stale region.
+    #
+    # @return [void]
+    def reset_conversation
+      @text_view.clear
+      @buffer = nil
+      @assistant_region = nil
+      @thinking_buffer = nil
+      @thinking_region = nil
+      @thinking_streamed = false
+      @pending_formatter = nil
     end
 
     # Render a {Pikuri::Agent::Event::ToolCall}. A registered formatter for

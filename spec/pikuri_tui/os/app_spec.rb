@@ -6,7 +6,7 @@ RSpec.describe PikuriTui::Os::App do
   # model_listener, plan_mode_listener); StubAgent only needs the listener
   # (the real agent's tools / ListenerList would take the rest).
   class StubAgent
-    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports
+    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports, :clear_count
 
     def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model')
       @listener = listener
@@ -15,6 +15,7 @@ RSpec.describe PikuriTui::Os::App do
       @model = model
       @messages = []
       @transports = []
+      @clear_count = 0
       @gate = Queue.new
       @blocking = false
     end
@@ -22,6 +23,8 @@ RSpec.describe PikuriTui::Os::App do
     def block_turns! = @blocking = true
 
     def finish_turn! = @gate << :done
+
+    def clear_conversation = @clear_count += 1
 
     def run_loop(user_message:, transport: nil)
       @messages << user_message
@@ -292,9 +295,9 @@ RSpec.describe PikuriTui::Os::App do
       assert_includes app.screen.pane.status_bar.text.to_s, '^K menu'
     end
 
-    it 'offers logs, plan mode and quit for a single-model shell (no git diff)' do
+    it 'offers logs, plan mode, clear and quit for a single-model shell (no git diff)' do
       keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l p q], keys
+      assert_equal %w[l p c q], keys
     end
 
     it 'adds a switch-model action when more than one model is configured' do
@@ -302,7 +305,14 @@ RSpec.describe PikuriTui::Os::App do
         StubAgent.new(listener, model: 'm1')
       end
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l p m q], keys
+      assert_equal %w[l p m c q], keys
+    end
+
+    it "picking 'c' clears the agent's conversation" do
+      agent = app.agent
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'c')
+      assert_equal 1, agent.clear_count
     end
 
     it "picking 'p' toggles plan mode" do

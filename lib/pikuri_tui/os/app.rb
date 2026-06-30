@@ -277,8 +277,35 @@ module PikuriTui
         menu.add('l', 'logs') { open_log_popup }
         menu.add('p', 'plan mode') { toggle_plan_mode }
         menu.add('m', 'switch model') { open_model_picker } if @models.size > 1
+        menu.add('c', 'clear conversation + context') { clear_conversation }
         menu.add('q', 'quit') { quit }
         menu
+      end
+
+      # Reset the agent to a fresh-conversation state via
+      # +Pikuri::Agent#clear_conversation+ (chat history, controls, and
+      # each extension's conversation-scoped state — the workspace
+      # read-record drops). That emits a single
+      # +Pikuri::Agent::Event::Reset+, off which the {TuileListener} wipes
+      # the conversation pane and the +TokenLog+ zeroes the footer's context
+      # snapshot — so this method only kicks the agent; the visible reset
+      # falls out of the event stream. The leader menu's +c+ action.
+      #
+      # Confined to between-turns: +clear_conversation+ is not designed to
+      # race an in-flight +run_loop+ (the chat is single-thread-confined,
+      # like a mid-conversation model switch), so while a turn is running
+      # this is a no-op, logged to the diagnostic pane. Runs on the
+      # event-loop thread (deferred by {LeaderMenu}), so the
+      # +@turn_in_progress+ read is safe.
+      #
+      # @return [void]
+      def clear_conversation
+        if @turn_in_progress
+          LOG.warn('clear conversation ignored: a turn is in progress')
+          return
+        end
+
+        @agent.clear_conversation
       end
 
       # Stop the event loop, unwinding {#run} into +Screen#close+. The leader

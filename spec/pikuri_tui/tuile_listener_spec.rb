@@ -76,6 +76,28 @@ RSpec.describe PikuriTui::TuileListener do
     assert_includes rendered, '! cancelled'
   end
 
+  it 'wipes the conversation pane on Reset (clear_conversation)' do
+    listener.on_event(Pikuri::Agent::Event::UserTurn.new(content: 'hello?'))
+    listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'hi there'))
+    refute_equal '', rendered
+
+    listener.on_event(Pikuri::Agent::Event::Reset.new)
+    assert_equal '', rendered
+  end
+
+  it 'drops the open streaming buffer on Reset so the next turn starts clean' do
+    # A Reset arriving mid-stream (e.g. clear while a preview region is
+    # open) must not leave the buffer extending a now-detached region.
+    listener.on_event(Pikuri::Agent::Event::AssistantDelta.new(content: 'partial'))
+    listener.on_event(Pikuri::Agent::Event::Reset.new)
+    assert_equal '', rendered
+
+    # The next turn renders into a fresh region rather than raising on the
+    # detached one.
+    listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'fresh answer'))
+    assert_includes rendered, 'fresh answer'
+  end
+
   it 'is silent for Tokens (TokenLog handles them)' do
     tokens = Pikuri::Agent::Event::Tokens.new(input: 10, output: 5, cached: nil,
                                               cache_creation: nil, thinking: nil, model_id: nil)

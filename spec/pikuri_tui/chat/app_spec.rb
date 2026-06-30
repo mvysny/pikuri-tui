@@ -12,7 +12,7 @@ RSpec.describe PikuriTui::Chat::App do
   # spec calls {#finish_turn!}, so a spec can hold a turn open and observe
   # the mid-turn paths.
   class StubAgent
-    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports
+    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports, :clear_count
 
     def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model')
       @listener = listener
@@ -21,6 +21,7 @@ RSpec.describe PikuriTui::Chat::App do
       @model = model
       @messages = []
       @transports = []
+      @clear_count = 0
       @gate = Queue.new
       @blocking = false
     end
@@ -28,6 +29,8 @@ RSpec.describe PikuriTui::Chat::App do
     def block_turns! = @blocking = true
 
     def finish_turn! = @gate << :done
+
+    def clear_conversation = @clear_count += 1
 
     def run_loop(user_message:, transport: nil)
       @messages << user_message
@@ -83,9 +86,9 @@ RSpec.describe PikuriTui::Chat::App do
       assert_includes status_bar_text, '^K menu'
     end
 
-    it 'offers logs + quit for a single-model shell' do
+    it 'offers logs + clear + quit for a single-model shell' do
       keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l q], keys
+      assert_equal %w[l c q], keys
     end
 
     it 'includes a switch-model action only when more than one model is configured' do
@@ -93,7 +96,24 @@ RSpec.describe PikuriTui::Chat::App do
         StubAgent.new(listener, model: 'm1')
       end
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l m q], keys
+      assert_equal %w[l m c q], keys
+    end
+
+    it "picking 'c' clears the agent's conversation" do
+      agent = app.agent
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'c')
+      assert_equal 1, agent.clear_count
+    end
+
+    it "picking 'c' mid-turn is a no-op (clear_conversation must not race run_loop)" do
+      app.agent.block_turns!
+      app.send(:submit_message, 'work on this')
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'c')
+      assert_equal 0, app.agent.clear_count
+    ensure
+      app.agent.finish_turn!
     end
 
     it 'opens a modal menu popup on Ctrl+K' do

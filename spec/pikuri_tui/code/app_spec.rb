@@ -6,7 +6,7 @@ RSpec.describe PikuriTui::Code::App do
   # task_listener), so StubAgent ignores the confirmer and task listener
   # (the real agent's tools / ListenerList would take them).
   class StubAgent
-    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports
+    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports, :clear_count
 
     def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model')
       @listener = listener
@@ -15,6 +15,7 @@ RSpec.describe PikuriTui::Code::App do
       @model = model
       @messages = []
       @transports = []
+      @clear_count = 0
       @gate = Queue.new
       @blocking = false
     end
@@ -22,6 +23,8 @@ RSpec.describe PikuriTui::Code::App do
     def block_turns! = @blocking = true
 
     def finish_turn! = @gate << :done
+
+    def clear_conversation = @clear_count += 1
 
     def run_loop(user_message:, transport: nil)
       @messages << user_message
@@ -316,9 +319,9 @@ RSpec.describe PikuriTui::Code::App do
       assert_includes app.screen.pane.status_bar.text.to_s, '^K menu'
     end
 
-    it 'offers logs, git diff, plan mode and quit for a single-model shell' do
+    it 'offers logs, git diff, plan mode, clear and quit for a single-model shell' do
       keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l d p q], keys
+      assert_equal %w[l d p c q], keys
     end
 
     it 'adds a switch-model action when more than one model is configured' do
@@ -326,7 +329,14 @@ RSpec.describe PikuriTui::Code::App do
         StubAgent.new(listener, model: 'm1')
       end
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l d p m q], keys
+      assert_equal %w[l d p m c q], keys
+    end
+
+    it "picking 'c' clears the agent's conversation" do
+      agent = app.agent
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 'c')
+      assert_equal 1, agent.clear_count
     end
 
     it "picking 'd' opens the git diff popup" do
