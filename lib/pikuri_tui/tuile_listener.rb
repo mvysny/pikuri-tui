@@ -344,13 +344,31 @@ module PikuriTui
     end
 
     # Builds a callable +String -> String+ that snapshots the current
-    # {#buffer_width} and routes through {MarkdownRenderer.render}. Used
-    # by {#make_buffer} and {#make_thinking_buffer} as the +render:+ arg
-    # (the thinking variant composes it with recolor).
+    # {#buffer_width} and terminal scheme, then routes through
+    # {MarkdownRenderer.render}. Used by {#make_buffer} and
+    # {#make_thinking_buffer} as the +render:+ arg (the thinking variant
+    # composes it with recolor, which flattens the colors away — so the
+    # +dark:+ snapshot only matters on the assistant path). Both are
+    # snapshot at build time (one buffer per block), the same way the
+    # reasoning tone is, so an OS appearance flip mid-block keeps the
+    # scheme it started with rather than splicing two palettes into one.
     # @return [Proc]
     def build_markdown_renderer
       width = buffer_width
-      ->(md) { MarkdownRenderer.render(md, width: width) }
+      dark = dark_scheme?
+      ->(md) { MarkdownRenderer.render(md, width: width, dark: dark) }
+    end
+
+    # Whether the conversation pane is on a dark terminal background, so
+    # {MarkdownRenderer} can pick a code-highlighting theme legible against
+    # it ({MarkdownRenderer::AnsiConverter}'s default Rouge theme has
+    # near-white base text that vanishes on light). The screen holds
+    # exactly the {AppTheme::DARK} / {AppTheme::LIGHT} constant its
+    # {Tuile::ThemeDef} resolved — re-picked on every OS appearance flip —
+    # so identity against {AppTheme::LIGHT} is the live scheme.
+    # @return [Boolean]
+    def dark_scheme?
+      !@screen.theme.equal?(AppTheme::LIGHT)
     end
 
     # @return [Integer] render width for a fresh streaming buffer. Reads
@@ -418,7 +436,7 @@ module PikuriTui
     def render_markdown(content)
       return content unless @markdown
 
-      MarkdownRenderer.render(content, width: buffer_width)
+      MarkdownRenderer.render(content, width: buffer_width, dark: dark_scheme?)
     rescue StandardError => e
       LOG.warn("MarkdownRenderer.render failed (#{e.class}: #{e.message}); falling back to raw text")
       content

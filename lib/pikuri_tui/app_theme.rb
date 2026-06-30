@@ -50,7 +50,13 @@ module PikuriTui
   # converter is a screen-agnostic +Kramdown::Converter+ used in specs
   # without a {Tuile::Screen}, and its output is flattened away on the
   # thinking path by {AnsiGrayscale} anyway — it renders content, not
-  # chrome accents, which is what theming is for.
+  # chrome accents, which is what theming is for. Its accents are
+  # named-ANSI, so they track the terminal's own light/dark remapping
+  # for free. The one exception is rouge code-block highlighting, which
+  # emits absolute 256-colors: {MarkdownRenderer.render} passes the
+  # current scheme as a plain +dark:+ boolean (not a theme token, so the
+  # converter stays screen-agnostic) and {MarkdownRenderer::AnsiConverter}
+  # picks a light-legible code theme on light.
   #
   # Install the {THEME_DEF} pair at boot (+screen.theme_def=+) so OS
   # light/dark flips re-pick the legible variant; tests point

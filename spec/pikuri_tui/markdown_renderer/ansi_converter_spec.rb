@@ -88,6 +88,22 @@ RSpec.describe PikuriTui::MarkdownRenderer::AnsiConverter do
       out = render("```\nplain code\n```")
       assert_includes out, "\e[33mplain code\e[0m"
     end
+
+    it 'highlights with the dark-tuned rouge default by default' do
+      # ThankfulEyes base (unhighlighted) text is 256-color 230, near-white.
+      assert_includes render("```ruby\ndef hi\n  :hi\nend\n```"), "\e[38;5;230m"
+    end
+
+    it 'highlights with a light-legible code theme when dark: false' do
+      ENV.delete('NO_COLOR')
+      out = PikuriTui::MarkdownRenderer.render("```ruby\ndef hi\n  :hi\nend\n```", width: width, dark: false)
+      # github.light base text is 256-color 235, near-black — legible on light;
+      # the dark default's near-white 230 must be gone.
+      assert_includes out, "\e[38;5;235m"
+      refute_includes out, "\e[38;5;230m"
+    ensure
+      ENV['NO_COLOR'] = '1'
+    end
   end
 
   context 'tables' do

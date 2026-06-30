@@ -129,6 +129,17 @@ module PikuriTui
       ANSI_RE = /\e\[[0-9;]*m/
       private_constant :ANSI_RE
 
+      # Rouge code-highlighting theme for light terminal backgrounds. The
+      # +Terminal256+ formatter's default theme (+ThankfulEyes+, used on
+      # dark) renders its base — i.e. unhighlighted — code text in a
+      # near-white 256-color (+#ffffd7+) that all but vanishes on a light
+      # background; +github.light+ renders dark-on-light, so plain code
+      # stays legible. Picked in {#highlight} by the +dark:+ converter
+      # option ({#initialize}). Built once (a Rouge theme is immutable and
+      # the formatter only reads it).
+      LIGHT_CODE_THEME = Rouge::Theme.find('github.light').new
+      private_constant :LIGHT_CODE_THEME
+
       # Indent added per header level, mirroring tty-markdown's layout
       # convention: content under an H2 sits 2 columns deep, under an
       # H3 4 columns, and so on.
@@ -144,12 +155,15 @@ module PikuriTui
 
       # @param root [Kramdown::Element] the +:root+ element.
       # @param options [Hash] kramdown document options; reads +:width+
-      #   (target render width, default 80) and +:color+ (+false+
-      #   disables all styling; default on unless +NO_COLOR+ is set).
+      #   (target render width, default 80), +:color+ (+false+
+      #   disables all styling; default on unless +NO_COLOR+ is set), and
+      #   +:dark+ (+false+ picks {LIGHT_CODE_THEME} for code blocks;
+      #   default +true+ keeps the dark-tuned +Terminal256+ default).
       def initialize(root, options)
         super
         @width = options[:width] || 80
         @color = options[:color] != false && ENV['NO_COLOR'].to_s.empty?
+        @dark = options[:dark] != false
         @current_indent = 0
       end
 
@@ -514,6 +528,14 @@ module PikuriTui
       # unstyled code plus a collected warning — never a raise on the
       # render path.
       #
+      # On a light terminal ({@dark} false) the formatter is themed with
+      # {LIGHT_CODE_THEME}; on dark it uses +Terminal256+'s default theme
+      # (+ThankfulEyes+), whose near-white base text only reads on a dark
+      # background. This is the one render path that is appearance-aware:
+      # the rest of the body palette ({STYLES}) is named-ANSI and so tracks
+      # the terminal's own remapping, but +Terminal256+ emits absolute
+      # 256-colors that don't.
+      #
       # @param code [String] code without the trailing fence newline.
       # @param lang [String, nil] the fence's language tag.
       # @return [Array<String>] styled lines, no trailing newlines.
@@ -523,10 +545,23 @@ module PikuriTui
         lexer = lang && Rouge::Lexer.find_fancy(lang, code)
         return code.lines.map { |l| styled(STYLES[:code], l.chomp) } unless lexer
 
-        Rouge::Formatters::Terminal256.new.format(lexer.lex(code)).lines.map(&:chomp)
+        code_formatter.format(lexer.lex(code)).lines.map(&:chomp)
       rescue StandardError => e
         warning("rouge highlighting failed (#{e.class}: #{e.message}); rendering plain")
         code.lines.map(&:chomp)
+      end
+
+      # The rouge formatter for code blocks, themed for the terminal
+      # background. Memoized per converter (one converter per render).
+      #
+      # @return [Rouge::Formatters::Terminal256]
+      def code_formatter
+        @code_formatter ||=
+          if @dark
+            Rouge::Formatters::Terminal256.new
+          else
+            Rouge::Formatters::Terminal256.new(LIGHT_CODE_THEME)
+          end
       end
 
       # --- table helpers ----------------------------------------------

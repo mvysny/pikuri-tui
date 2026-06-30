@@ -66,14 +66,19 @@ module PikuriTui
     # @param source [String] Markdown source.
     # @param width [Integer] target render width, forwarded to
     #   {AnsiConverter}.
+    # @param dark [Boolean] whether the terminal background is dark,
+    #   forwarded to {AnsiConverter} to pick a legible code-block
+    #   highlighting theme. Defaults to +true+ (the "inconclusive means
+    #   dark" convention), so callers that don't know the scheme keep the
+    #   dark-tuned output.
     # @return [String] rendered ANSI, with internal newlines preserved
     #   (callers that want hard lines should +#split("\n")+ the result).
     # @raise [StandardError] whatever kramdown parsing or {AnsiConverter}
     #   raises. Callers handle this — both the streaming buffer and
     #   {TuileListener#render_markdown} catch and degrade.
-    def render(source, width:)
+    def render(source, width:, dark: true)
       patched = fix_table_separators(source)
-      doc = Kramdown::Document.new(patched, input: 'GFM', hard_wrap: false, width: width)
+      doc = Kramdown::Document.new(patched, input: 'GFM', hard_wrap: false, width: width, dark: dark)
       ansi, warnings = AnsiConverter.convert(doc.root, doc.options)
       doc.warnings.each { |w| LOG.debug("MarkdownRenderer: kramdown: #{w}") }
       warnings.each { |w| LOG.warn("MarkdownRenderer: #{w}") }

@@ -323,6 +323,30 @@ RSpec.describe PikuriTui::TuileListener do
     end
   end
 
+  context 'code-highlighting scheme' do
+    # Capture the dark: flag the listener forwards to the renderer, so we
+    # can prove it tracks the screen's current theme (the converter spec
+    # owns what dark:/light actually does to the output).
+    before do
+      captured = @captured_dark = []
+      PikuriTui::MarkdownRenderer.define_singleton_method(:render) do |text, **kw|
+        captured << kw[:dark]
+        text
+      end
+    end
+
+    it 'forwards dark: true on a dark screen (Screen.fake pins :dark)' do
+      listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'hi'))
+      assert_equal [true], @captured_dark
+    end
+
+    it 'forwards dark: false once the screen holds the light theme' do
+      Tuile::Screen.instance.theme = PikuriTui::AppTheme::LIGHT
+      listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'hi'))
+      assert_equal [false], @captured_dark
+    end
+  end
+
   describe 'per-tool formatters' do
     # A stand-in formatter recording its calls; the real EditFormatter /
     # WriteFormatter are exercised by their own specs. render_call returns a
