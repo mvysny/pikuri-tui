@@ -4,10 +4,11 @@
 
 Terminal UI front-ends for [pikuri](https://codeberg.org/mvysny/pikuri) — a Ruby LLM agent framework.
 
-Two shells:
+Three shells:
 
 - **`pikuri-tui-chat`** — general-purpose chat with web search and calculator tools.
-- **`pikuri-tui-code`** — in-repo coding agent.
+- **`pikuri-tui-code`** — in-repo coding agent (sandboxed file/shell tools, git diff view, plan mode).
+- **`pikuri-tui-os`** — offline, network-severed OS assistant for the local host (file + sandboxed bash tools, no web access).
 
 Pikuri owns the agent loop, tool execution, and LLM transport. This project owns nothing but the TUI shell: a conversation pane, a diagnostic log pane, an input field, and a status bar.
 
@@ -34,6 +35,31 @@ Defaults to `http://localhost:8080` and model `unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K
 ```sh
 bin/pikuri-tui-chat --server http://localhost:8082 --model my-model
 ```
+
+## Run the coding shell
+
+```sh
+bin/pikuri-tui-code
+```
+
+Discovers the project root (VCS marker), `chdir`s to it, and roots the
+workspace + bubblewrap sandbox there. `--no-sandbox` / `--no-confirm` /
+`--yolo` relax the safety machinery (see `[code]` below); `--server` /
+`--model` override the connection.
+
+## Run the OS assistant
+
+```sh
+bin/pikuri-tui-os
+```
+
+An offline assistant for understanding and operating the local host: the
+five file tools plus a **network-severed** sandboxed `bash` (no web tools at
+all). The sandbox requires [bubblewrap](https://github.com/containers/bubblewrap)
+(`bwrap`) and refuses to start without it. `--no-sandbox` lifts the no-egress
+guarantee (bash can then reach the internet — use only in a throwaway
+environment); `--no-confirm` / `--yolo` / `--server` / `--model` behave as in
+the other shells.
 
 ## Configuration
 
@@ -65,9 +91,10 @@ never exported to children, and (being outside the project root) is not even
 visible to the sandboxed agent's filesystem.
 
 ```toml
-# Model connections. This is an array of tables — list as many as you like;
-# for now both shells use the FIRST entry. Each `name` must be unique (a
-# future release will let you switch between them by name in the TUI).
+# Model connections. This is an array of tables — list as many as you like.
+# The FIRST entry is the boot connection; if you list more than one, the
+# leader menu (Ctrl+K → m) lets you switch between them live by name. Each
+# `name` must be unique.
 [[llm]]
 name    = "Local Qwen 3.6"
 server  = "http://localhost:8080"
@@ -88,9 +115,20 @@ model   = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
 # footer (omit it and the cap simply stays blank).
 # context_window = 1000000
 
-# Coding-shell settings (bin/pikuri-tui-code only).
+# Web-search provider keys. Used by the chat shell (web_search is a main
+# tool) and the coding shell (a sub-agent-only research tool); the OS
+# assistant is offline and ignores them. Both fields are optional — set one,
+# both, or neither — and, like api_key, go in verbatim (keep this file
+# chmod 600). pikuri's search cascade decides what to do when a key is unset.
+[search]
+brave_key = "BSA..."   # Brave Search API key
+exa_key   = "..."      # Exa API key
+
+# Sandbox + confirmation settings. Applies to BOTH the coding shell
+# (bubblewrap sandbox around bash) and the OS assistant (network-severed
+# sandbox); the chat shell has no sandbox and ignores this table.
 [code]
-sandbox = true   # bubblewrap sandbox around bash; --no-sandbox / --yolo force false
+sandbox = true   # sandbox around bash; --no-sandbox / --yolo force false
 confirm = true   # y/n prompt before writes + bash;  --no-confirm / --yolo force false
 
 # MCP (Model Context Protocol) servers for the coding shell. Declare a local
@@ -141,7 +179,7 @@ bearer_token = "sk-..."
 Secrets in the config file — `api_key` and any MCP
 `bearer_token` / `basic_auth` / `headers` / `env` value — should be kept
 private; pikuri-tui prints a `chmod 600` advisory to the diagnostic log
-(`Ctrl+L`) when a file holding one is group- or world-readable.
+when a file holding one is group- or world-readable.
 
 ## Layout
 
@@ -159,4 +197,8 @@ private; pikuri-tui prints a `chmod 600` advisory to the diagnostic log
 └──────────────────────────────────┘
 ```
 
-`Ctrl+L` toggles the diagnostic log pane (pikuri internals, library errors, agent-loop diagnostics).
+All commands route through one leader key: **`Ctrl+K`** opens a which-key-style menu
+(`l` logs, `d` git diff, `p` plan mode, `m` switch model, `c` clear conversation,
+`q` quit); the entries vary per shell. The diagnostic log pane (`l`) shows pikuri
+internals, library errors, and agent-loop diagnostics. `Ctrl+C` cancels the
+current turn or quits — it is the only other direct shortcut.
