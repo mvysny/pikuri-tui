@@ -14,11 +14,13 @@ module PikuriTui
     #
     # The companion to {ModelListener} / {TaskListener}: same
     # worker-thread-to-UI-thread marshaling, the smallest possible slice of
-    # the event stream (one event class). Coding-shell-only — it lives in
+    # the event stream (one event class). Coding/OS-shell-only — it lives in
     # +PikuriTui::Code+ (not at the +PikuriTui+ top level like
-    # {ModelListener}) because plan mode is a coding concern: the event is a
-    # +:code+-group constant the chat shell never loads, and only
-    # {Code::FooterLabel} exposes +plan_active=+.
+    # {ModelListener}) because plan mode is a +:code+-group concern: the
+    # event is a +:code+-group constant the chat shell never loads. The
+    # shared {FooterLabel} exposes +plan_active=+ for every shell, but only
+    # the coding and OS shells wire this listener to drive it; the chat
+    # shell never sets it, so its badge stays hidden.
     #
     # == Why the event, not the control
     #

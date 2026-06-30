@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Code::FooterLabel do
+RSpec.describe PikuriTui::FooterLabel do
   let(:token_log)   { Pikuri::Agent::Listener::TokenLog.new }
   let(:event_queue) { Tuile::Screen.instance.event_queue }
   let(:label)       { described_class.new(screen: Tuile::Screen.instance, token_log: token_log) }

@@ -2,9 +2,9 @@
 
 module PikuriTui
   # Namespace for the +bin/pikuri-tui-os+ TUI: the offline OS-assistant
-  # shell ({Os::App}), its vertical-split root layout ({Os::Layout}), the
-  # Enter-submits text input ({Os::Input}), and the conversation-window
-  # footer ({Os::FooterLabel}). The shell is driven by one
+  # shell ({Os::App}) and its vertical-split root layout ({Os::Layout}); the
+  # Enter-submits text input ({Input}) and conversation-window footer
+  # ({FooterLabel}) are shared top-level components. The shell is driven by one
   # +Pikuri::Os::Extension+ (wired in the bin): the five file tools, a
   # network-severed sandboxed +bash+, and the machine-facts / MACHINE.md
   # system-prompt sections — a single local agent for understanding and
@@ -30,10 +30,9 @@ module PikuriTui
   # shell, readable not obfuscated" ceiling favors a little duplication
   # over a base-class abstraction (see {Code} for the longer rationale).
   # The OS shell reuses the cross-cutting adapters ({TuileListener},
-  # {ModelListener}, {LeaderMenu}, {LogPopup}, …) and the +Code::*+
-  # confirmer / diff classes directly, and copies only the four
-  # shell-specific pieces ({Os::App}, {Os::Layout}, {Os::Input},
-  # {Os::FooterLabel}).
+  # {ModelListener}, {LeaderMenu}, {LogPopup}, {Input}, {FooterLabel}, …)
+  # and the +Code::*+ confirmer / diff classes directly, and copies only the
+  # genuinely-divergent shell-specific pieces ({Os::App}, {Os::Layout}).
   #
   # == OS-only dependencies
   #

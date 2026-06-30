@@ -50,10 +50,15 @@ verbatim, ported from pikuri's `bin/pikuri-os-assistant` demo. All
 three shells route every command through one leader key (`Ctrl+K` →
 `LeaderMenu`); only `Ctrl+C` (cancel/quit) stays a direct shortcut.
 
-The three shells share their UI machinery as deliberate parallel
-copies, not a common base (see `lib/pikuri_tui/code.rb` and
-`lib/pikuri_tui/os.rb`; the OS shell additionally reuses the
-`Code::*` confirmer / diff adapters directly). Their dependencies are
+The three shells keep their genuinely-divergent scaffolding (`App` /
+`Layout`) as deliberate parallel copies, not a common base (see
+`lib/pikuri_tui/code.rb` and `lib/pikuri_tui/os.rb`; the OS shell
+additionally reuses the `Code::*` confirmer / diff adapters directly).
+The pieces that carried no divergence are shared top-level components
+instead: the Enter-submits input (`PikuriTui::Input`) and the
+conversation-window footer (`PikuriTui::FooterLabel`) — the footer's
+only cross-shell difference, chat's lack of a plan-mode badge, collapses
+to chat simply never calling `FooterLabel#plan_active=`. Their dependencies are
 split across Bundler groups: `bin/pikuri-tui-chat` runs
 `Bundler.setup(:default)`, `bin/pikuri-tui-code` runs
 `Bundler.setup(:default, :code)`, and `bin/pikuri-tui-os` runs
@@ -289,6 +294,29 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   shortcuts — every other binding lives behind the leader. The
   always-visible `^K` status-bar hint also carries the unread-error
   tally (`^K ⚠ menu (N)`), the role the old `^L` hint played.
+- `lib/pikuri_tui/input.rb` — `PikuriTui::Input`, the bottom-pane
+  `TextArea` subclass that rebinds Enter to submit-and-clear (blank
+  buffers are a no-op). Shared by all three shells — its behaviour
+  carried no shell-specific divergence, so there is nothing for parallel
+  copies to drift into.
+- `lib/pikuri_tui/footer_label.rb` — `PikuriTui::FooterLabel`, the
+  conversation-window footer label, shared by all three shells: shows
+  the current model's display name as the leading segment (set once to
+  the boot model, then updated by `ModelListener` when a model switch
+  lands), ticks a spinner while the agent is mid-turn, shows an
+  "N queued" count while the agent's `Control::Interloper` holds
+  pending mid-turn injections, renders the main agent's context-window
+  snapshot off a `Pikuri::Agent::Listener::TokenLog` — claiming the
+  log's `on_status_line` observer slot so each fresh line repaints the
+  footer the moment the `Tokens` event lands (sub-agent pushes, which
+  inherit the observer, are filtered out by their non-empty id) — and
+  leads with a notice-toned "‖ Plan Mode" badge when `plan_active=` is
+  set. The chat shell wires no `PlanModeListener`, so it never sets that
+  and its badge stays hidden; the coding and OS shells drive it off
+  `Code::PlanModeListener`. Painted in the current theme's `hint_color`
+  (the footer is status-hint chrome, the badge in `:notice`), read at
+  paint time per Tuile's theming rule so OS light/dark appearance flips
+  restyle it.
 - `lib/pikuri_tui/chat.rb` — `PikuriTui::Chat` namespace shell
   for the chat front-end.
 - `lib/pikuri_tui/chat/app.rb` — `PikuriTui::Chat::App`, the
@@ -305,25 +333,6 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `#register_shortcuts`.
 - `lib/pikuri_tui/chat/layout.rb` — `PikuriTui::Chat::Layout`,
   the vertical-split root layout (conversation top, input bottom).
-- `lib/pikuri_tui/chat/input.rb` — `PikuriTui::Chat::Input`, the
-  `TextArea` subclass that rebinds Enter to submit-and-clear.
-- `lib/pikuri_tui/chat/footer_label.rb` —
-  `PikuriTui::Chat::FooterLabel`, the conversation-window footer
-  label: shows the current model's display name as the leading segment
-  (set once to the boot model, then updated by `ModelListener` when a
-  model switch lands), ticks a spinner while the agent is mid-turn,
-  shows an
-  "N queued" count while the agent's `Control::Interloper` holds
-  pending mid-turn injections, and renders the main agent's
-  context-window snapshot off a
-  `Pikuri::Agent::Listener::TokenLog` — claiming the log's
-  `on_status_line` observer slot so each fresh line repaints the
-  footer the moment the `Tokens` event lands (sub-agent pushes,
-  which inherit the observer, are filtered out by their non-empty
-  id). Painted in the current
-  theme's `hint_color` (the footer is status-hint chrome), read at
-  paint time per Tuile's theming rule so OS light/dark appearance
-  flips restyle it.
 - `lib/pikuri_tui/code.rb` — `PikuriTui::Code` namespace shell for
   the coding front-end, and the home of the duplicate-don't-share
   rationale for the parallel `Code::*` copies.
@@ -370,9 +379,11 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   subclass that consumes the `Pikuri::Code::PlanModeChanged` event
   `Pikuri::Code::Extension` re-emits on every real plan-mode transition
   and pushes the new posture onto the footer (`plan_active=`, marshaled to
-  the UI thread). Coding-shell-only (not top-level like `ModelListener`):
-  the event is a `:code`-group constant and only `Code::FooterLabel` shows
-  the badge. Driven off the *event*, not the control, so a model-initiated
+  the UI thread). Coding/OS-shell-only (not top-level like `ModelListener`):
+  the event is a `:code`-group constant the chat shell never loads (the
+  shared `FooterLabel` exposes the badge for every shell, but only the
+  coding and OS shells wire this listener to light it).
+  Driven off the *event*, not the control, so a model-initiated
   `enter_plan_mode` lights the footer exactly like the leader menu's
   `p` toggle.
 - `lib/pikuri_tui/code/git_watcher.rb` —
@@ -410,12 +421,6 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   `theme` and a width, renders without a `Tuile::Screen`. Handles
   new/deleted/binary sections (header markers; binary shows a `(binary)`
   note).
-- `lib/pikuri_tui/code/input.rb` / `code/footer_label.rb` —
-  parallel copies of the `Chat::` equivalents (Enter-submits input,
-  footer spinner + queued-count + token status). The coding shell's
-  `FooterLabel` additionally leads with a notice-toned "‖ Plan Mode"
-  badge (`plan_active=`, driven by `PlanModeListener`) when plan mode is
-  active.
 - `lib/pikuri_tui/code/confirmer_popup.rb` —
   `PikuriTui::Code::ConfirmerPopup`, a `Pikuri::Workspace::Confirmer`
   rendered as a modal Tuile popup instead of stdin. `confirm?` is
@@ -475,10 +480,10 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   unreadable, outside the workspace, a directory, or binary.
 - `lib/pikuri_tui/os.rb` — `PikuriTui::Os` namespace shell for the
   OS-assistant front-end, and the home of the duplicate-only-the-shell
-  rationale: the OS shell copies the four shell-specific pieces
-  (`Os::App` / `Os::Layout` / `Os::Input` / `Os::FooterLabel`) but reuses
-  the cross-cutting adapters and the `Code::*` confirmer / diff classes
-  directly.
+  rationale: the OS shell copies only the genuinely-divergent shell-specific
+  pieces (`Os::App` / `Os::Layout`) but reuses the cross-cutting adapters
+  (including the shared `Input` / `FooterLabel`) and the `Code::*` confirmer
+  / diff classes directly.
 - `lib/pikuri_tui/os/app.rb` — `PikuriTui::Os::App`, the Tuile shell for
   `bin/pikuri-tui-os`. Laid out like `Chat::App` (one conversation pane
   over an input strip, no sidebar — no task or git window) but carrying the
@@ -496,10 +501,6 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 - `lib/pikuri_tui/os/layout.rb` — `PikuriTui::Os::Layout`, a parallel copy
   of `Chat::Layout` (vertical split: conversation top, fixed-height input
   strip bottom, no sidebar).
-- `lib/pikuri_tui/os/input.rb` / `os/footer_label.rb` — parallel copies of
-  the shell-specific input (Enter-submits) and footer. The OS shell's
-  `FooterLabel` is a copy of `Code::FooterLabel` (it carries the
-  notice-toned "‖ Plan Mode" badge, since the OS agent has plan mode too).
 - `bin/pikuri-tui-chat` — boot script for the chat agent
   (`Bundler.setup(:default)`): maps every `Config#llms` connection to a
   `ModelChoice` (via `ModelChoice.from_llm`) carrying a connection-bearing

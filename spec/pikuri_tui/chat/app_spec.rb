@@ -57,7 +57,7 @@ RSpec.describe PikuriTui::Chat::App do
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
-    assert_kind_of PikuriTui::Chat::Input, app.screen.focused
+    assert_kind_of PikuriTui::Input, app.screen.focused
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
@@ -159,7 +159,7 @@ RSpec.describe PikuriTui::Chat::App do
 
   it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
     app
-    assert_kind_of PikuriTui::Chat::Input, app.screen.focused
+    assert_kind_of PikuriTui::Input, app.screen.focused
     press_ctrl_c
     assert_nil app.screen.focused
   end
@@ -213,7 +213,7 @@ RSpec.describe PikuriTui::Chat::App do
 
   it 'mounts a FooterLabel as the conversation Window footer (token status + spinner slot)' do
     app
-    assert_kind_of PikuriTui::Chat::FooterLabel, app.screen.pane.content.conversation.footer
+    assert_kind_of PikuriTui::FooterLabel, app.screen.pane.content.conversation.footer
   end
 
   it 'sizes the footer wrap_content so the unused border stays drawn' do
