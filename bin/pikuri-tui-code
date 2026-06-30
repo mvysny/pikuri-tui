@@ -238,11 +238,6 @@ system_prompt = Pikuri.prompt(:'coding-system-prompt')
 md_path = ['AGENTS.md', 'CLAUDE.md'].map { |f| filesystem.project_root.join(f) }.find(&:file?)
 system_prompt += "\n\n# Project Context\n\n#{File.read(md_path)}" if md_path
 system_prompt += "\n\nToday's date is: #{Time.now.strftime('%Y-%m-%d')}"
-# TODO read this from screen.color_scheme in the future
-light_theme = Tuile::TerminalBackground.detect == :light
-# Grok produces colored output for code examples and defaults to theming
-# for dark terminal; I wonder whether this setting nudges it to change the theme
-system_prompt += "\nTerminal color theme: #{light_theme ? 'light' : 'dark'}"
 system_prompt += "\nProject root: #{filesystem.project_root}"
 unless yolo || extra_writable.empty?
   system_prompt += "\nAdditional writable paths: #{extra_writable.join(', ')}"
