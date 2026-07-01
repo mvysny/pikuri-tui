@@ -86,11 +86,21 @@ RSpec.describe PikuriTui::FooterLabel do
     label.stop_animation
   end
 
-  it "ignores sub-agent pushes (inherited observer, non-empty id) — the footer is the main agent's" do
+  it 'surfaces a sub-agent push in the token slot, labeled with its id' do
     label # construct first so the on_status_line observer is installed
     sub_log = token_log.for_sub_agent(id: 'researcher 0')
-    sub_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
-    assert_equal '', label.text.to_s
+    sub_log.on_event(tokens(input: 1024, cached: 3072, output: 1024))
+    assert_includes label.text.to_s, '⤷ researcher 0  msg #1: ctx=5.0k'
+  end
+
+  it 'reverts to the main agent line once the main agent emits its next push' do
+    label
+    sub_log = token_log.for_sub_agent(id: 'researcher 0')
+    sub_log.on_event(tokens(input: 1024, cached: 3072, output: 1024))
+    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+    text = label.text.to_s
+    assert_includes text, 'msg #1: ctx=11.0k'
+    refute_includes text, 'researcher 0'
   end
 
   it 'shows a spinner glyph + status after a tick lands' do

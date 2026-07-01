@@ -439,4 +439,31 @@ RSpec.describe PikuriTui::TuileListener do
       refute_includes rendered, 'DIFF'
     end
   end
+
+  describe '#for_sub_agent' do
+    let(:sub) { listener.for_sub_agent(id: 'researcher 0') }
+    let(:pad) { ' ' * described_class::SUB_AGENT_INDENT }
+
+    it 'renders into the same conversation pane, indented by SUB_AGENT_INDENT' do
+      sub.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'web_search', arguments: { 'q' => 'x' }))
+      assert_includes rendered, "#{pad}→ web_search"
+    end
+
+    it 'indents a streamed assistant answer (first line pads)' do
+      sub.on_event(Pikuri::Agent::Event::AssistantDelta.new(content: 'found it'))
+      sub.on_event(Pikuri::Agent::Event::Assistant.new(content: 'found it'))
+      assert_includes rendered, "#{pad}found it"
+    end
+
+    it 'indents a tool result' do
+      sub.on_event(Pikuri::Agent::Event::ToolResult.new(content: '42'))
+      assert_includes rendered, "#{pad}= 42"
+    end
+
+    it 'leaves the parent listener unindented' do
+      listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: '42'))
+      assert_includes rendered, '= 42'
+      refute_includes rendered, "#{pad}= 42"
+    end
+  end
 end

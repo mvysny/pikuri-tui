@@ -42,12 +42,17 @@ module PikuriTui
   # slot (it's a single-callable accessor, so the label owns it):
   # every freshly formatted line triggers a {#refresh} the moment the
   # +Tokens+ event lands, instead of waiting up to {FRAME_INTERVAL_S}
-  # for the next spinner tick to poll it. "Main agent only" is
-  # enforced by the observer's +id+ parameter: sub-agents derived via
-  # +#for_sub_agent+ inherit the observer by reference, so their
-  # pushes arrive here too — with their non-empty id — and are
-  # dropped; their context windows are theirs, not the
-  # conversation's.
+  # for the next spinner tick to poll it. Sub-agents derived via
+  # +TokenLog#for_sub_agent+ inherit the observer by reference, so
+  # their pushes arrive here too — with their non-empty id. Rather
+  # than drop them, the footer surfaces a running sub-agent's line in
+  # the token slot, labeled with its id (a leading "⤷") so it reads as
+  # the delegate's own context window, not the conversation's: during
+  # a long delegation (e.g. a RESEARCHER web-research turn) the main
+  # agent is blocked in the +agent+ tool and emits no lines of its
+  # own, so without this the footer's token readout would freeze. The
+  # sub-agent segment clears the moment the main agent resumes and
+  # emits its next line (see {#on_status_line}).
   #
   # == Theming
   #
@@ -150,6 +155,7 @@ module PikuriTui
       @interloper = nil
       @current_model = nil
       @plan_active = false
+      @sub_status = nil
       @ticker = nil
       @spinner_frame = nil
       token_log.on_status_line = method(:on_status_line)
@@ -228,21 +234,37 @@ module PikuriTui
     private
 
     # +TokenLog#on_status_line+ observer: a fresh status line was
-    # formatted. Fires on the agent-loop thread, so the actual
-    # {#refresh} marshals to the UI thread via +submit+. Lines pushed
-    # by sub-agent +TokenLog+s (which inherit this observer through
-    # +#for_sub_agent+) arrive with a non-empty +id+ and are dropped —
-    # the footer tracks the main agent's context window only.
+    # formatted. Fires on the agent-loop thread, so the mutation +
+    # {#refresh} marshal to the UI thread via +submit+.
+    #
+    # A main-agent line (+id+ empty) clears any transient sub-agent
+    # segment and the footer reverts to the main context window (read
+    # from +TokenLog#status_line+ in {#refresh}). A sub-agent line
+    # (+id+ non-empty, inherited through +TokenLog#for_sub_agent+)
+    # stashes the *pushed* line under {@sub_status} — the sub-agent's
+    # own {TokenLog} is a different instance, so {#refresh} can't poll
+    # it — and the footer shows it labeled with the id while the
+    # delegation runs (e.g. a long RESEARCHER turn, during which the
+    # main agent is blocked in the +agent+ tool and emits no lines of
+    # its own). It reverts the moment the main agent resumes and emits
+    # its next line. A sub-agent that pushes an empty line (e.g. a
+    # reset) clears the segment too.
     #
     # @param id [String] owning agent's id; +""+ for the main agent.
-    # @param _status_line [String] the freshly formatted line
-    #   (unused — {#refresh} re-reads +TokenLog#status_line+, which
-    #   is documented as safe from any thread).
+    # @param status_line [String] the freshly formatted line (used
+    #   only for the sub-agent path; the main path re-reads
+    #   +TokenLog#status_line+, safe from any thread).
     # @return [void]
-    def on_status_line(id, _status_line)
-      return unless id.empty?
-
-      @screen.event_queue.submit { refresh }
+    def on_status_line(id, status_line)
+      @screen.event_queue.submit do
+        @sub_status =
+          if id.empty? || status_line.empty?
+            nil
+          else
+            "⤷ #{id}  #{status_line}"
+          end
+        refresh
+      end
     end
 
     # Recompute the label text from the plan-mode badge, the current
@@ -258,7 +280,10 @@ module PikuriTui
       segments << @current_model if @current_model && !@current_model.empty?
       pending = @interloper ? @interloper.size : 0
       segments << "#{pending} queued" if pending.positive?
-      status = @token_log.status_line
+      # A running sub-agent's line takes the token slot (labeled with its
+      # id so it reads as the delegate's context, not the conversation's);
+      # otherwise the main agent's own snapshot.
+      status = @sub_status || @token_log.status_line
       segments << status unless status.empty?
       tail = segments.join(' · ')
       plain =

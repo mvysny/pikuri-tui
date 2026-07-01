@@ -74,6 +74,19 @@ module PikuriTui
     # @return [Integer]
     MAX_TOOL_RESULT_CHARS = 200
 
+    # Leading spaces prepended to every block a sub-agent's listener
+    # renders, so its stream reads as visually indented under the parent's
+    # +→ agent(...)+ call. Mirrors +Pikuri::Agent::Listener::Terminal+'s
+    # +SUB_AGENT_PADDING+. The pad lands on the block's first line only —
+    # wrapped continuation lines and the streamed markdown body aren't
+    # re-indented per line (the render width is unchanged), which is the
+    # agreed, cheap "first line pads" treatment. Sub-agent recursion is
+    # blocked (a persona's tool set excludes +agent+), so depth never
+    # exceeds 1 and a fixed indent reads cleanly.
+    #
+    # @return [Integer]
+    SUB_AGENT_INDENT = 2
+
     # Path of the debug event-dump file. Truncated on construction when
     # the listener is built with +dump_events: true+, and appended to on
     # every {#on_event} call thereafter.
@@ -115,13 +128,19 @@ module PikuriTui
     #   {#on_event} is also +inspect+-ed and appended to
     #   {EVENT_DUMP_PATH}. The file is truncated here so each run starts
     #   clean. Off by default; intended as a local debugging aid.
-    def initialize(text_view:, screen:, markdown: true, tool_formatters: {}, dump_events: false)
+    # @param indent [Integer] leading spaces prepended to every rendered
+    #   block (see {SUB_AGENT_INDENT}). +0+ for the main agent; set to
+    #   {SUB_AGENT_INDENT} on the instance {#for_sub_agent} returns so a
+    #   delegate's output is indented under the parent's stream.
+    def initialize(text_view:, screen:, markdown: true, tool_formatters: {}, dump_events: false, indent: 0)
       super()
       @text_view = text_view
       @screen = screen
       @markdown = markdown
       @tool_formatters = tool_formatters
       @dump_events = dump_events
+      @indent = indent
+      @pad = ' ' * indent
       @buffer = nil
       @assistant_region = nil
       @thinking_buffer = nil
@@ -156,6 +175,27 @@ module PikuriTui
     # @return [String] short label used by +Pikuri::Agent#to_s+ when this
     #   listener is in its +ListenerList+.
     def to_s = 'TuileListener'
+
+    # Sub-agent variant (dispatched by +Pikuri::Agent::ListenerList#for_sub_agent+
+    # when the +agent+ tool spawns a delegate): a fresh listener rendering into
+    # the *same* conversation pane but with its output indented by
+    # {SUB_AGENT_INDENT}, so a RESEARCHER's stream reads as nested under the
+    # parent's +→ agent(...)+ call. It carries its own streaming/thinking state
+    # (the parent's buffers are flushed before the tool call runs and the parent
+    # is blocked until the delegate returns, so there's nothing to clobber) and
+    # shares the parent's +markdown+ / +tool_formatters+ config. Event dumping
+    # is left off so a spawn doesn't re-truncate {EVENT_DUMP_PATH} mid-run.
+    #
+    # @return [TuileListener]
+    def for_sub_agent(**)
+      self.class.new(
+        text_view: @text_view,
+        screen: @screen,
+        markdown: @markdown,
+        tool_formatters: @tool_formatters,
+        indent: SUB_AGENT_INDENT
+      )
+    end
 
     private
 
@@ -291,12 +331,27 @@ module PikuriTui
     # mutations (a later +flush_assistant(:wipe)+, a re-render on resize)
     # can address it in isolation.
     #
-    # @param text [String] the block's content (one or more lines;
-    #   embedded +\n+ produce further hard lines), possibly with embedded
-    #   ANSI styling.
+    # @param text [String, Tuile::StyledString] the block's content (one
+    #   or more lines; embedded +\n+ produce further hard lines), possibly
+    #   with embedded ANSI styling.
     # @return [void]
     def add_block(text)
-      @text_view.create_region.text = text
+      @text_view.create_region.text = indent_block(text)
+    end
+
+    # Prepend the sub-agent indent ({@pad}) to a block, handling both the
+    # ANSI +String+ blocks (theme helpers, rendered markdown) and the
+    # +Tuile::StyledString+ blocks (the diff formatters). A no-op for the
+    # main agent ({@indent} zero). The pad lands on the first line only —
+    # per {SUB_AGENT_INDENT}, continuation lines aren't re-indented.
+    #
+    # @param text [String, Tuile::StyledString]
+    # @return [String, Tuile::StyledString]
+    def indent_block(text)
+      return text if @indent.zero?
+      return @pad + text if text.is_a?(String)
+
+      Tuile::StyledString.plain(@pad) + text
     end
 
     # Construct a streaming buffer wired to +region+. The buffer rewrites
@@ -308,10 +363,26 @@ module PikuriTui
     # @return [StreamingMarkdownBuffer, PassthroughBuffer]
     def make_buffer(region)
       if @markdown
-        StreamingMarkdownBuffer.new(render: build_markdown_renderer, region: region)
+        StreamingMarkdownBuffer.new(render: indent_render(build_markdown_renderer), region: region)
       else
         PassthroughBuffer.new(region: region)
       end
+    end
+
+    # Wrap a +String -> String+ render proc so its output carries the
+    # sub-agent indent ({@pad}) — prepended once, so only the rendered
+    # block's first line is padded (see {SUB_AGENT_INDENT}). A no-op for
+    # the main agent ({@indent} zero), returning the proc unchanged. The
+    # {StreamingMarkdownBuffer}'s commit-probe sentinel is unaffected: the
+    # pad lands on the first line, the sentinel sits on the last.
+    #
+    # @param render [#call] the underlying render proc.
+    # @return [#call]
+    def indent_render(render)
+      return render if @indent.zero?
+
+      pad = @pad
+      ->(md) { pad + render.call(md) }
     end
 
     # Twin of {#make_buffer} for the reasoning pane. Always returns a
@@ -340,7 +411,7 @@ module PikuriTui
                else
                  ->(md) { AnsiGrayscale.recolor(md, fg: thinking) }
                end
-      StreamingMarkdownBuffer.new(render: render, region: region)
+      StreamingMarkdownBuffer.new(render: indent_render(render), region: region)
     end
 
     # Builds a callable +String -> String+ that snapshots the current

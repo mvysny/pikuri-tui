@@ -199,7 +199,12 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   registered, otherwise the default `→ name(args)` / `= result` lines; the
   formatter handling a `ToolCall` is stashed so the paired `ToolResult`
   routes back to it. The chat shell registers none; the coding shell wires
-  the `edit` / `write` diff formatters.
+  the `edit` / `write` diff formatters. `#for_sub_agent` (dispatched by
+  `ListenerList#for_sub_agent` when the `agent` tool spawns a delegate)
+  returns a variant that renders into the same pane with each block's first
+  line indented by `SUB_AGENT_INDENT` (two spaces), so a RESEARCHER's stream
+  reads as nested under the parent's `→ agent(...)` call — the same role
+  pikuri's `Terminal` listener's `SUB_AGENT_PADDING` plays.
 - `lib/pikuri_tui/markdown_renderer.rb` —
   `PikuriTui::MarkdownRenderer`, the single entry point for
   turning Markdown into ANSI for the conversation pane. Parses
@@ -317,7 +322,11 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   snapshot off a `Pikuri::Agent::Listener::TokenLog` — claiming the
   log's `on_status_line` observer slot so each fresh line repaints the
   footer the moment the `Tokens` event lands (sub-agent pushes, which
-  inherit the observer, are filtered out by their non-empty id) — and
+  inherit the observer with a non-empty id, take the token slot while a
+  delegation runs — labeled with a leading "⤷ <id>" so they read as the
+  delegate's own context, not the conversation's; the main agent's next
+  push clears them, so during a long RESEARCHER turn the readout keeps
+  updating instead of freezing) — and
   leads with a notice-toned "‖ Plan Mode" badge when `plan_active=` is
   set. The chat shell wires no `PlanModeListener`, so it never sets that
   and its badge stays hidden; the coding and OS shells drive it off

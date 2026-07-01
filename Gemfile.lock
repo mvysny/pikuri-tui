@@ -20,6 +20,7 @@ PATH
     pikuri-os (0.0.7)
       pikuri-code (= 0.0.7)
       pikuri-core (= 0.0.7)
+      pikuri-pdf (= 0.0.7)
       pikuri-subagents (= 0.0.7)
       pikuri-workspace (= 0.0.7)
     pikuri-skills (0.0.7)
