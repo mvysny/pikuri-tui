@@ -87,16 +87,22 @@ gem 'diff-lcs', '~> 2.0', groups: %i[code os]
 gem 'pikuri-workspace', path: '../pikuri', groups: %i[code os]
 gem 'pikuri-code', path: '../pikuri', groups: %i[code os]
 
+# Shared by the coding AND OS shells. The privilege-separated sub-agent
+# personas + the `agent` tool. The coding shell spawns FILE_MINER /
+# RESEARCHER / GIT_REPO_RESEARCHER; the OS shell always wires the RESEARCHER
+# persona so its otherwise network-severed agent can delegate web research to
+# an isolated sub-agent (web tools, no filesystem) — see bin/pikuri-tui-os.
+# +groups:+ so each shell activates it and chat does not.
+gem 'pikuri-subagents', path: '../pikuri', groups: %i[code os]
+
 # Coding-shell-only runtime: git_clone + toolchain paths (pikuri-code,
 # above), the in-context task list (pikuri-tasks), the skill catalog
-# (pikuri-skills), MCP wiring (pikuri-mcp), and the privilege-separated
-# sub-agent personas (pikuri-subagents). The OS shell is a single offline
-# agent that wires none of these, so they stay off its load path.
+# (pikuri-skills), and MCP wiring (pikuri-mcp). The OS shell is a single
+# offline agent that wires none of these, so they stay off its load path.
 group :code do
   gem 'pikuri-tasks', path: '../pikuri'
   gem 'pikuri-skills', path: '../pikuri'
   gem 'pikuri-mcp', path: '../pikuri'
-  gem 'pikuri-subagents', path: '../pikuri'
 end
 
 # OS-assistant-shell-only runtime. pikuri-os is the OS-integration layer +

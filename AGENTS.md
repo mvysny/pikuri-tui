@@ -42,8 +42,14 @@ chat shell's layout (one conversation pane over an input strip, no
 sidebar — no git or task window) carrying the coding shell's safety
 machinery, driven by one `Pikuri::Os::Extension` (the five file
 tools + a network-severed `FullFsNoNet`-sandboxed `bash` + the
-machine-facts / MACHINE.md system-prompt sections, offline — no web
-tools). It owns a `Code::ConfirmerPopup` on writes/bash, surfaces
+machine-facts / MACHINE.md system-prompt sections). Web research is
+always on but quarantined: the web tools (`web_search` / `web_scrape`
+/ `fetch`) are registered sub-agent-only, so the main agent holds no
+direct egress and delegates via the `agent` tool to an isolated
+`Pikuri::SubAgent::RESEARCHER` (web tools, no filesystem), with the
+`Code::ConfirmerPopup` gating each research task before it runs (the
+same always-on wiring pikuri's demo puts behind `--with-internet`).
+It owns a `Code::ConfirmerPopup` on writes/bash, surfaces
 plan mode (footer badge + leader `p` toggle), and renders `edit` /
 `write` diffs — all reusing the coding shell's `Code::*` adapters
 verbatim, ported from pikuri's `bin/pikuri-os-assistant` demo. All
@@ -64,9 +70,11 @@ split across Bundler groups: `bin/pikuri-tui-chat` runs
 `Bundler.setup(:default, :code)`, and `bin/pikuri-tui-os` runs
 `Bundler.setup(:default, :os)` — so the heavier gems stay off the
 chat process's load path, and the coding-only gems
-(tasks/skills/mcp/subagents) stay off the OS process's. The shared
-heavier gems (`pikuri-workspace`/`pikuri-code`/`diff-lcs`) sit in
-both `:code` and `:os` via `groups:`; `pikuri-os` is `:os`-only.
+(tasks/skills/mcp) stay off the OS process's. The shared
+heavier gems (`pikuri-workspace`/`pikuri-code`/`diff-lcs`/`pikuri-subagents`)
+sit in both `:code` and `:os` via `groups:` (the coding shell spawns
+several personas, the OS shell just the RESEARCHER for web research);
+`pikuri-os` is `:os`-only.
 `lib/pikuri_tui.rb` ignores both the `PikuriTui::Code` and
 `PikuriTui::Os` subtrees entirely when the heavier gems aren't
 loaded (gated on `Pikuri::Workspace` — the OS subtree reuses the
@@ -572,7 +580,13 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   the optional fileindex tools. The `Write`/`bash` confirmer is the
   `App`-yielded `Code::ConfirmerPopup`, or `AUTO_APPROVE` under
   `--no-confirm`/`--yolo` (no `TrustStore` prompt — the extension handles
-  read-only-git auto-approval itself). Reuses the `Code::EditFormatter` /
+  read-only-git auto-approval itself). Always wires web research,
+  quarantined: registers `web_search` (keyed off `Config#search`) /
+  `web_scrape` / `fetch` as sub-agent-only tools (so the main agent holds
+  no direct egress) plus a `Pikuri::SubAgent::Extension` carrying only
+  `Pikuri::SubAgent::RESEARCHER`, with the same confirmer gating each
+  research delegation — the always-on form of pikuri's demo
+  `--with-internet` flag. Reuses the `Code::EditFormatter` /
   `Code::WriteFormatter` diff formatters as `Os::App`'s `tool_formatters`,
   and maps `Config#llms` through `ModelChoice.from_llm` to the `models:`
   list. Hands it to `PikuriTui::Os::App`. Ports pikuri's own

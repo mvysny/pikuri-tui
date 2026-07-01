@@ -6,9 +6,12 @@
 # Linux host. Same Tuile shell as bin/pikuri-tui-chat (one conversation pane
 # over an input strip, no sidebar), but wired with the five file tools + a
 # sandboxed bash via one Pikuri::Os::Extension, a Tuile modal confirmer for
-# mutations, plan mode, and the edit/write diff view. The pikuri-side wiring
-# is ported from pikuri's own bin/pikuri-os-assistant demo; everything Tuile
-# is PikuriTui::Os::App's job.
+# mutations, plan mode, and the edit/write diff view. Web research is always
+# on but quarantined in an isolated RESEARCHER sub-agent (web tools, no
+# filesystem), so the main agent keeps zero direct egress. The pikuri-side
+# wiring is ported from pikuri's own bin/pikuri-os-assistant demo (whose
+# research rides its --with-internet flag); everything Tuile is
+# PikuriTui::Os::App's job.
 #
 # Pin Bundler to this project's Gemfile so locked dependency versions win
 # and the script works when invoked via a symlink (e.g.
@@ -35,6 +38,7 @@ $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 
 require 'pikuri-core'
 require 'pikuri-os' # pulls in pikuri-workspace + pikuri-code
+require 'pikuri-subagents' # the `agent` tool + RESEARCHER persona (web research)
 require 'pikuri_tui'
 
 # Boot-time logging goes to stderr until the screen is up. A BufferingLogIO
@@ -238,6 +242,27 @@ app = PikuriTui::Os::App.new(
       # badge tracks), the same flag Os::App's leader-menu 'p' toggle flips.
       read_only: plan_mode
     )
+    # Web research, always on but quarantined: the web tools go on as
+    # *sub-agent-only* (add_sub_agent_tool), so the main OS agent never holds
+    # them and keeps zero direct egress — it delegates via the `agent` tool to
+    # an isolated RESEARCHER sub-agent that has the web tools but NO filesystem.
+    # The confirmer gates each delegation's task prompt, so the human (not an
+    # injection-driven parent) approves what leaves this machine; the
+    # researcher, having no private data, can at worst leak that approved task
+    # plus the public pages it read. Bash stays kernel-severed regardless —
+    # that's a separate network boundary. The add_sub_agent_tool calls must
+    # precede the SubAgent extension, whose configure validates the persona's
+    # tool_names. Ported from pikuri's bin/pikuri-os-assistant --with-internet.
+    c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(
+      brave_key: config.search.brave_key,
+      exa_key: config.search.exa_key
+    )
+    c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
+    c.add_sub_agent_tool Pikuri::Tool::FETCH
+    c.add_extension Pikuri::SubAgent::Extension.new(
+      personas: [Pikuri::SubAgent::RESEARCHER],
+      confirmer: confirmer
+    )
   end
 end
 
@@ -247,6 +272,9 @@ end
 # safety notices go to the diagnostic pane the user opens from the leader
 # menu. Safety reductions are logged at warn so they stand out.
 main_log.info("Working from #{filesystem.project_root}")
+main_log.info('Web research enabled via an isolated RESEARCHER sub-agent (web tools, no filesystem); ' \
+              'you approve each research task before it runs. The main agent has no direct web access; ' \
+              'bash stays network-severed regardless.')
 safety = []
 safety << 'Network sandbox: DISABLED — bash can reach the internet (egress is OPEN).' unless sandbox_enabled
 safety << 'Confirmer: AUTO-APPROVE — mutations run without asking.' unless confirm_enabled
