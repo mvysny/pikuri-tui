@@ -129,10 +129,18 @@ sandbox = if sandbox_enabled
             Pikuri::Code::Bash::Sandbox::NONE
           end
 
-# Base prompt + date. The "# This machine" facts and the MACHINE.md memory
-# section are appended by Os::Extension (via append_system_prompt), so this
-# script doesn't assemble them.
+# Base prompt + a network-posture block + date. Upstream split the network
+# posture out of the base :'os-assistant' prompt into two mode-specific
+# blocks: offline ("your tools can't reach the net, hand networked commands
+# to the user") and online ("your shell is still severed, but you may
+# delegate a web lookup to the research agent, and the user approves what
+# leaves the machine"). This shell always wires the quarantined RESEARCHER
+# sub-agent (web research is always on — see below), so it appends the
+# online block. The "# This machine" facts and the MACHINE.md memory section
+# are appended by Os::Extension (via append_system_prompt), so this script
+# doesn't assemble them.
 system_prompt = Pikuri.prompt(:'os-assistant')
+system_prompt += "\n\n" + Pikuri.prompt(:'os-network-online')
 system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
 
 # All configured connections become picker entries (ModelChoice); the

@@ -577,8 +577,10 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   directory (full host, minus the file tools' credential denylist), a
   `Pikuri::Code::Bash::Sandbox::FullFsNoNet` (network-severed, probes
   bwrap at construction and raises if unavailable; `NONE` under
-  `--no-sandbox`/`--yolo`), and the `:'os-assistant'` system prompt + date
-  (machine facts + MACHINE.md are appended by the extension). Builds a
+  `--no-sandbox`/`--yolo`), and the `:'os-assistant'` system prompt + the
+  `:'os-network-online'` posture block + date (this shell always wires the
+  quarantined RESEARCHER, so it appends the online block, not the offline
+  one; machine facts + MACHINE.md are appended by the extension). Builds a
   streaming `Pikuri::Agent` (step limit 40, `Cancellable`, `Interloper`,
   shared `PlanMode`) wired with the App-yielded `ModelListener` /
   `PlanModeListener`, a rate-limited `TuileListener`, a `TokenLog`,
