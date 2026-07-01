@@ -440,15 +440,26 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   note).
 - `lib/pikuri_tui/code/confirmer_popup.rb` —
   `PikuriTui::Code::ConfirmerPopup`, a `Pikuri::Workspace::Confirmer`
-  rendered as a modal Tuile popup instead of stdin. `confirm?` is
-  called by the `Write` / `Bash` tools on the agent worker thread; it
+  rendered as a modal Tuile popup instead of stdin. Implements the
+  upstream `decide` primitive (returning `Approved`/`Rejected`; the base
+  derives `confirm?` for the `Write`/`ExitPlanMode` gates) — called by
+  the `Write` / `Bash` / `agent` tools on the agent worker thread. It
   marshals popup construction to the UI thread via
-  `screen.event_queue.submit` and blocks the worker on a `Queue`
-  until a `y`/`n` (or ESC/`q` decline) resolves it. LLM-supplied
-  question/detail pass through `Pikuri::Sanitizer`, whose
-  neutralized text + per-attack-class warnings are rendered in the
-  popup body (warnings in the `AppTheme` `:notice` tone + bold,
-  detail in `:detail`, like `Confirmer::Terminal`).
+  `screen.event_queue.submit` and blocks the worker on a `Queue` per
+  step. The decision popup offers approve (`y`) / reject-now (`n`) /
+  reject-with-reason (`r`) and — only for an editable `Request` (the
+  sub-agent `agent` task) — edit (`e`); reject-with-reason and edit each
+  open a second `PromptDialog` text-entry popup (reason: optional
+  steering text folded into the model's next observation; edit: the
+  "author, not approver" seat, whose rewritten task is what the
+  sub-agent receives). LLM-supplied question/detail pass through
+  `Pikuri::Sanitizer`, whose neutralized text + per-attack-class
+  warnings are rendered in the popup body (warnings in the `AppTheme`
+  `:notice` tone + bold, detail in `:detail`, like `Confirmer::Terminal`);
+  the sanitizer verdict also gates the edit pre-fill — a clean task
+  pre-fills the raw payload, a flagged one forces a full retype and drops
+  the bare-approve path (mirroring `Confirmer::Terminal`). ESC/`q`
+  dismissal declines (decline-by-default).
 - `lib/pikuri_tui/code/trust_store.rb` —
   `PikuriTui::Code::TrustStore`, the persisted set of git-config-trusted
   project roots that gates `Code::Bash::ReadOnlyAutoConfirmer`'s `allow_git:`.
