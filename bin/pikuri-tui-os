@@ -39,6 +39,7 @@ $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'pikuri-core'
 require 'pikuri-os' # pulls in pikuri-workspace + pikuri-code
 require 'pikuri-subagents' # the `agent` tool + RESEARCHER persona (web research)
+require 'pikuri-pdf' # PDF text extraction for the RESEARCHER's web_scrape
 require 'pikuri_tui'
 
 # Boot-time logging goes to stderr until the screen is up. A BufferingLogIO
@@ -140,6 +141,11 @@ system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
 # Pikuri-free Config), so the context-window probe and a model switch
 # both target the right server.
 models = config.llms.map { |llm| PikuriTui::ModelChoice.from_llm(llm) }
+
+# Opt the PDF extractor into Pikuri::Extractor.registry (requiring the gem
+# defines it but registers nothing) so the RESEARCHER sub-agent's web_scrape
+# extracts application/pdf — by header or %PDF- magic — instead of refusing it.
+Pikuri::Extractors::PDF.register
 
 cancel_flag = Pikuri::Agent::Control::Cancellable.new
 

@@ -586,7 +586,10 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   no direct egress) plus a `Pikuri::SubAgent::Extension` carrying only
   `Pikuri::SubAgent::RESEARCHER`, with the same confirmer gating each
   research delegation — the always-on form of pikuri's demo
-  `--with-internet` flag. Reuses the `Code::EditFormatter` /
+  `--with-internet` flag — and registers `Pikuri::Extractors::PDF` (from
+  pikuri-pdf, in `:default`) into the extractor registry so that
+  researcher's `web_scrape` extracts `application/pdf` instead of refusing
+  it. Reuses the `Code::EditFormatter` /
   `Code::WriteFormatter` diff formatters as `Os::App`'s `tool_formatters`,
   and maps `Config#llms` through `ModelChoice.from_llm` to the `models:`
   list. Hands it to `PikuriTui::Os::App`. Ports pikuri's own
