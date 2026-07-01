@@ -8,7 +8,7 @@ Three shells:
 
 - **`pikuri-tui-chat`** — general-purpose chat with web search and calculator tools.
 - **`pikuri-tui-code`** — in-repo coding agent (sandboxed file/shell tools, git diff view, plan mode).
-- **`pikuri-tui-os`** — offline, network-severed OS assistant for the local host (file + sandboxed bash tools, no web access).
+- **`pikuri-tui-os`** — OS assistant for the local host (file + network-severed sandboxed bash tools), with web research quarantined behind an isolated sub-agent.
 
 Pikuri owns the agent loop, tool execution, and LLM transport. This project owns nothing but the TUI shell: a conversation pane, a diagnostic log pane, an input field, and a status bar.
 
@@ -53,13 +53,18 @@ workspace + bubblewrap sandbox there. `--no-sandbox` / `--no-confirm` /
 bin/pikuri-tui-os
 ```
 
-An offline assistant for understanding and operating the local host: the
-five file tools plus a **network-severed** sandboxed `bash` (no web tools at
-all). The sandbox requires [bubblewrap](https://github.com/containers/bubblewrap)
-(`bwrap`) and refuses to start without it. `--no-sandbox` lifts the no-egress
-guarantee (bash can then reach the internet — use only in a throwaway
-environment); `--no-confirm` / `--yolo` / `--server` / `--model` behave as in
-the other shells.
+An assistant for understanding and operating the local host: the five file
+tools plus a **network-severed** sandboxed `bash`. The main agent holds no
+direct network egress; web research is always on but **quarantined** — the
+`web_search` / `web_scrape` / `fetch` tools are registered sub-agent-only, so
+the main agent delegates each research task to an isolated `RESEARCHER`
+sub-agent (web tools, no filesystem), gated by the same y/n confirmation as
+writes and bash. The sandbox requires
+[bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) and refuses to
+start without it. `--no-sandbox` lifts the no-egress guarantee on `bash` (it
+can then reach the internet directly — use only in a throwaway environment);
+`--no-confirm` / `--yolo` / `--server` / `--model` behave as in the other
+shells.
 
 ## Configuration
 
@@ -116,8 +121,8 @@ model   = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
 # context_window = 1000000
 
 # Web-search provider keys. Used by the chat shell (web_search is a main
-# tool) and the coding shell (a sub-agent-only research tool); the OS
-# assistant is offline and ignores them. Both fields are optional — set one,
+# tool) and by the sub-agent-only research tools of the coding and OS shells.
+# Both fields are optional — set one,
 # both, or neither — and, like api_key, go in verbatim (keep this file
 # chmod 600). pikuri's search cascade decides what to do when a key is unset.
 [search]
