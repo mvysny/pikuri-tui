@@ -19,25 +19,17 @@ module PikuriTui
     # the window on each {#open}, which is why the same instance can be
     # reopened.
     #
-    # The base +Popup+ auto-sizes to its content but caps {#max_height} at 12
-    # rows — far too short for a diff. Overriding it to the screen height
-    # lets +update_rect+'s 4/5-of-screen clamp take over, so the popup fills
-    # most of the terminal and the wrapped +TextView+ scrolls within it.
+    # A diff needs room, so the popup is sized {Tuile::Fraction::FULL}
+    # (fullscreen) rather than the default half-screen; the wrapped +TextView+
+    # scrolls within it.
     class GitDiffPopup < Tuile::Component::Popup
       # @param diff_window [Tuile::Component::Window] the framed, scrollable
       #   "Git diff" window this popup wraps. Its +TextView+ is owned and
       #   rewritten by {GitWatcher}; the popup only shows/hides it. Its
       #   parent is set to +self+ here — do not re-parent it elsewhere.
       def initialize(diff_window:)
-        super(content: diff_window)
+        super(content: diff_window, size: Tuile::Fraction::FULL)
       end
-
-      # The full diff dwarfs the base 12-row cap; allow growth to the screen
-      # height so +Tuile::Component::Popup#update_rect+'s 4/5-of-screen clamp
-      # decides the final size.
-      #
-      # @return [Integer]
-      def max_height = screen.size.height
     end
   end
 end

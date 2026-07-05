@@ -179,8 +179,7 @@ module PikuriTui
 
       # Open a text-entry popup and block until the user submits or cancels.
       #
-      # @param caption [String] the window caption / instruction line (also
-      #   floors the popup width via +Window#update_content_size+).
+      # @param caption [String] the window caption / instruction line.
       # @param initial [String] pre-fill text ("" for none).
       # @param rows [Integer] the field's visible height in rows.
       # @return [String, Symbol] the submitted text, or +:cancel+ on ESC /
@@ -288,17 +287,16 @@ module PikuriTui
         # come from the {AppTheme} +theme+ so they track light/dark; lines
         # are ANSI strings the +TextView+ re-parses via +StyledString.parse+.
         #
-        # A +TextView+ (not a +List+) so long lines word-wrap inside the
-        # popup instead of clipping. Each logical line is pre-wrapped here to
-        # the popup's eventual inner width so the hard-line count the +Popup+
-        # sizes from matches the rendered row count.
+        # A +TextView+ (not a +List+) so long lines word-wrap and scroll
+        # inside the popup instead of clipping. The popup is sized top-down
+        # (half the screen; see {#initialize}), so the +TextView+ wraps to its
+        # own granted width — no pre-wrapping here.
         #
         # @param question [Pikuri::Sanitizer::Result]
         # @param detail [Pikuri::Sanitizer::Result, nil]
         # @param warnings [Array<Pikuri::Sanitizer::Warning>]
-        # @param screen [Tuile::Screen] supplies the {AppTheme} tones and the
-        #   width the body is pre-wrapped to.
-        # @return [Tuile::Component::TextView] the sanitized, wrapped body.
+        # @param screen [Tuile::Screen] supplies the {AppTheme} tones.
+        # @return [Tuile::Component::TextView] the sanitized body.
         def build_body(question, detail, warnings, screen)
           theme = screen.theme
           lines = []
@@ -312,7 +310,7 @@ module PikuriTui
           lines << cue
 
           view = Tuile::Component::TextView.new
-          view.text = wrap_lines(lines, body_width(screen)).join("\n")
+          view.text = lines.join("\n")
           view
         end
 
@@ -331,55 +329,38 @@ module PikuriTui
             '(y) approve   (n) reject   (r) reject w/ reason'
           end
         end
-
-        # Word-wrap each ANSI +line+ to +width+ columns, preserving styling
-        # across the wrap (via {Tuile::StyledString#wrap}).
-        #
-        # @param lines [Array<String>] ANSI-encoded logical lines.
-        # @param width [Integer] column width to wrap to.
-        # @return [Array<String>] ANSI-encoded physical (wrapped) lines.
-        def wrap_lines(lines, width)
-          lines.flat_map do |line|
-            Tuile::StyledString.parse(line).wrap(width).map(&:to_ansi)
-          end
-        end
-
-        # The inner content width the body is pre-wrapped to: 4/5 of the
-        # screen width (the +Popup+ cap) minus the +Window+'s two border
-        # columns, floored at a sane minimum.
-        #
-        # @param screen [Tuile::Screen]
-        # @return [Integer]
-        def body_width(screen)
-          [(screen.size.width * 4 / 5) - 2, 20].max
-        end
       end
 
       # A text-entry popup: a framed +Window+ (its caption doubles as the
-      # instruction line and floors the popup width) wrapping one editable
-      # {Field}. Reused for both the edit prompt and the reason prompt.
-      # Enter submits the field's text; ESC (or dismissal) cancels. Owns the
-      # answer channel, resolving it exactly once.
+      # instruction line) wrapping one editable {Tuile::Component::TextArea}.
+      # Reused for both the edit prompt and the reason prompt. Enter submits
+      # the field's text; ESC (or dismissal) cancels. Owns the answer channel,
+      # resolving it exactly once.
+      #
+      # The popup is sized top-down: a wide box +rows+ tall (plus the +Window+'s
+      # two border rows), so the field fills it and wraps/scrolls within.
       #
       # Built and driven on the UI thread — constructed inside the
       # {ConfirmerPopup#ask_prompt} +submit+ block.
       class PromptDialog < Tuile::Component::Popup
         # @param caption [String] window caption / instruction line.
         # @param initial [String] pre-fill text ("" for none).
-        # @param rows [Integer] the field's visible height.
+        # @param rows [Integer] the field's visible height in rows.
         # @param channel [Queue] one-shot channel; the submitted text or
         #   +:cancel+ is pushed exactly once.
-        # @param screen [Tuile::Screen] the screen the popup mounts on.
+        # @param screen [Tuile::Screen] the screen the popup mounts on; its
+        #   size sets the prompt's top-down width.
         def initialize(caption:, initial:, rows:, channel:, screen:)
           @channel = channel
           @resolved = false
-          @field = Field.new(rows: rows)
+          @field = Tuile::Component::TextArea.new
           @field.text = initial unless initial.empty?
           @field.on_key = method(:field_key)
           @field.on_escape = -> { resolve(:cancel) }
           window = Tuile::Component::Window.new(caption)
           window.content = @field
-          super(content: window)
+          # Wide box, rows tall + the Window's top/bottom border rows.
+          super(content: window, size: Tuile::Size.new(screen.size.width * 4 / 5, rows + 2))
         end
 
         # Opens the popup and moves focus onto the field so keystrokes edit
@@ -428,25 +409,6 @@ module PikuriTui
           @resolved = true
           @channel << value
           close
-        end
-
-        # A {Tuile::Component::TextArea} that reports a fixed natural size so
-        # the wrapping +Window+/+Popup+ size to it — a bare text input
-        # reports a zero content size, which would collapse the popup.
-        # Multi-line (so long input wraps and scrolls rather than truncating,
-        # unlike a single-line +TextField+); Enter-submits is imposed by the
-        # {PromptDialog#field_key} interceptor, so the newline it would
-        # otherwise insert is only reachable in a pre-filled payload.
-        class Field < Tuile::Component::TextArea
-          # @param rows [Integer] the field's visible height in rows.
-          def initialize(rows:)
-            super()
-            @rows = rows
-          end
-
-          # @return [Tuile::Size] a wide-ish natural size; the +Popup+ caps
-          #   width at 4/5 of the screen and the field wraps within it.
-          def content_size = Tuile::Size.new(70, @rows)
         end
       end
     end

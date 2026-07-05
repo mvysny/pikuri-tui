@@ -223,14 +223,20 @@ RSpec.describe PikuriTui::Code::ConfirmerPopup do
       cmd = 'find . -type f -name "*.rb" -exec grep -l "needle" {} + | ' \
             'xargs wc -l | sort -n | head -20 | awk "{ print \$2 }" | ' \
             'tr "\\n" " " | sed "s/  */ /g" | cut -c1-200'
-      lines = body_lines(dialog(question: 'Run this?', detail: cmd))
-      # The command is longer than the wrapped body width (126 cols on the
-      # 160-wide fake screen), so it spans more than one rendered line.
-      assert_operator lines.length, :>, 3
-      assert(lines.all? { |l| l.length <= 126 }, "a line exceeded the wrap width: #{lines.inspect}")
-      detail = lines.first(lines.length - 1).join("\n")
-      assert_includes detail, 'find .'
-      assert_includes detail, 'tr'
+      d = dialog(question: 'Run this?', detail: cmd)
+      d.open
+      Tuile::Screen.instance.repaint
+      # The body is a TextView sized top-down (half-screen); it wraps the long
+      # command to its granted width at paint time rather than clipping. Read
+      # the painted rows back from the buffer.
+      view = d.content.content
+      rows = Tuile::Screen.instance.buffer.region_text(view.rect).map(&:rstrip).reject(&:empty?)
+      # More than the 3 logical lines (question + detail + cue) means the
+      # detail wrapped across several rows.
+      assert_operator rows.length, :>, 3
+      joined = rows.join(' ')
+      assert_includes joined, 'find .'
+      assert_includes joined, 'tr'
     end
   end
 

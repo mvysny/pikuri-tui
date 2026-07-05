@@ -20,7 +20,9 @@ RSpec.describe PikuriTui::Code::GitDiffPopup do
     refute popup.open?
   end
 
-  it 'allows a far taller popup than the base 12-row cap' do
-    assert_operator popup.max_height, :>, Tuile::Component::Popup.new.max_height
+  it 'is sized fullscreen so the diff has room' do
+    popup.open
+    assert_equal Tuile::Screen.instance.size.width, popup.rect.width
+    assert_equal Tuile::Screen.instance.size.height, popup.rect.height
   end
 end
