@@ -197,7 +197,7 @@ module PikuriTui
     def start_animation
       return if @ticker
 
-      @ticker = @screen.event_queue.tick(1.0 / FRAME_INTERVAL_S) do |tick|
+      @ticker = @screen.event_queue.tick(FRAME_INTERVAL_S) do |tick|
         @spinner_frame = SPINNER[tick % SPINNER.length]
         refresh
       end
