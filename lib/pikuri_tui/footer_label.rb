@@ -3,8 +3,9 @@
 require 'tuile'
 
 module PikuriTui
-  # A {Tuile::Component::Label} that mounts in the conversation window's
-  # footer slot and surfaces the agent's status: an optional plan-mode badge
+  # Keeps the conversation window's bottom-border chrome
+  # ({Tuile::Component::Window#footer_text}) current, surfacing the agent's
+  # status: an optional plan-mode badge
   # (a leading notice-toned "‖ Plan Mode" when active), the current model's
   # display name (the leading segment after any badge, updated by
   # {ModelListener} when a +run_loop+ model switch lands), whether the agent
@@ -61,11 +62,12 @@ module PikuriTui
   # chrome, the same family as the status bar's "^K menu" hints — on the
   # terminal-default background, matching Tuile's "tokens cover only
   # accents; everything else inherits the terminal" strategy. {#refresh}
-  # bakes the color in when it rebuilds the text, and {#on_theme_changed}
-  # re-runs it on OS light/dark appearance flips (+Tuile::Screen#theme=+
-  # fires the hook tree-wide), so a baked-in color never survives a
-  # palette change. The plan-mode badge leads in the +:notice+ accent so
-  # it pops against the dim hint chrome.
+  # bakes the color in when it rebuilds the text; the composer registers it
+  # as the window's +Tuile::Component#on_theme_changed=+ listener, which
+  # +Tuile::Screen#theme=+ fires tree-wide on OS light/dark appearance
+  # flips — so a baked-in color never survives a palette change. The
+  # plan-mode badge leads in the +:notice+ accent so it pops against the
+  # dim hint chrome.
   #
   # == Threading
   #
@@ -88,7 +90,7 @@ module PikuriTui
   # host calls them from {App#start_turn} (pre-spawn) and from the
   # +ensure+ block's +event_queue.submit+ (post-loop), which is the
   # UI thread in both cases.
-  class FooterLabel < Tuile::Component::Label
+  class FooterLabel
     # Braille-spinner frames; standard +dots+ animation. Picked over
     # ASCII +|/-\+ because the Braille glyphs stay a single column
     # wide regardless of font, so the trailing token line doesn't
@@ -144,13 +146,17 @@ module PikuriTui
 
     # @param screen [Tuile::Screen] screen whose +event_queue+ drives
     #   the spinner ticker.
+    # @param window [Tuile::Component::Window] the conversation window
+    #   whose {Tuile::Component::Window#footer_text} this keeps current.
+    #   Its +on_theme_changed+ listener slot is claimed so a palette flip
+    #   re-bakes the chrome in the new theme's +hint_color+.
     # @param token_log [Pikuri::Agent::Listener::TokenLog] main
     #   agent's token log; +#status_line+ is read on every refresh,
     #   and its +on_status_line+ observer slot is claimed so each new
     #   line refreshes the footer immediately (see the class docs).
-    def initialize(screen:, token_log:)
-      super()
+    def initialize(screen:, window:, token_log:)
       @screen = screen
+      @window = window
       @token_log = token_log
       @interloper = nil
       @current_model = nil
@@ -159,6 +165,7 @@ module PikuriTui
       @ticker = nil
       @spinner_frame = nil
       token_log.on_status_line = method(:on_status_line)
+      window.on_theme_changed = method(:refresh)
       refresh
     end
 
@@ -217,20 +224,6 @@ module PikuriTui
       refresh
     end
 
-    # Theme changed (+Tuile::Screen#theme=+, fired on OS light/dark
-    # appearance flips, dispatches this tree-wide): re-run {#refresh}
-    # so the text is re-baked in the *new* theme's +hint_color+ —
-    # the baked-in color is exactly the "content styled from the old
-    # theme" case this hook exists for. +super+ keeps any assigned
-    # +on_theme_changed=+ listener firing, per the base-class
-    # contract.
-    #
-    # @return [void]
-    def on_theme_changed
-      super
-      refresh
-    end
-
     private
 
     # +TokenLog#on_status_line+ observer: a fresh status line was
@@ -267,11 +260,13 @@ module PikuriTui
       end
     end
 
-    # Recompute the label text from the plan-mode badge, the current
-    # spinner frame, the interloper's pending count, and the token log's
-    # status line. The badge is notice-toned so it stands out; the rest
-    # is baked in the current theme's +hint_color+ (re-derived on theme
-    # flips by {#on_theme_changed}). Must run on the UI thread.
+    # Recompute the window's footer chrome from the plan-mode badge, the
+    # current spinner frame, the interloper's pending count, and the token
+    # log's status line, and assign it to
+    # {Tuile::Component::Window#footer_text}. The badge is notice-toned so it
+    # stands out; the rest is baked in the current theme's +hint_color+
+    # (re-derived on theme flips via the window's +on_theme_changed+
+    # listener). Must run on the UI thread.
     #
     # @return [void]
     def refresh
@@ -310,10 +305,11 @@ module PikuriTui
         end
 
       # Pad non-empty text with a hint-colored space on each side so it
-      # doesn't butt up against the border dashes the wrap-content footer
-      # sits in (hint so the non-plan path stays uniformly hint_color).
+      # doesn't butt up against the border corner or the dashes filling the
+      # rest of the bottom border (hint so the non-plan path stays uniformly
+      # hint_color).
       pad = Tuile::StyledString.plain(' ').with_fg(hint)
-      self.text = content.nil? ? Tuile::StyledString.plain('') : pad + content + pad
+      @window.footer_text = content.nil? ? Tuile::StyledString.plain('') : pad + content + pad
     end
   end
 end

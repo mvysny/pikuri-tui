@@ -225,11 +225,10 @@ module PikuriTui
         @conversation_window = Tuile::Component::Window.new(@project_root.to_s)
         @conversation_window.content = @conversation_view
         @conversation_window.scrollbar = true
-        @footer_label = FooterLabel.new(screen: @screen, token_log: @token_log)
-        @conversation_window.footer = @footer_label
-        # Wrap-content: the footer covers only as much of the bottom
-        # border as its text needs (and none of it while idle/empty).
-        @conversation_window.footer_sizing = Tuile::Sizing::WRAP_CONTENT
+        # Border chrome, not a widget slot: the FooterLabel embeds the
+        # agent status into the conversation window's bottom border (and
+        # leaves a clean border while idle/empty).
+        @footer_label = FooterLabel.new(screen: @screen, window: @conversation_window, token_log: @token_log)
 
         @input = Input.new(on_submit: method(:submit_message))
         @input_window = Tuile::Component::Window.new('You')

@@ -152,19 +152,15 @@ RSpec.describe PikuriTui::Os::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'mounts an FooterLabel as the conversation Window footer' do
+  it 'wires a FooterLabel that drives the conversation Window as border chrome (not a widget slot)' do
     app
-    assert_kind_of PikuriTui::FooterLabel, app.screen.pane.content.conversation.footer
-  end
-
-  it 'sizes the footer wrap_content so the unused border stays drawn' do
-    app
-    assert_equal Tuile::Sizing::WRAP_CONTENT, app.screen.pane.content.conversation.footer_sizing
+    assert_kind_of PikuriTui::FooterLabel, app.instance_variable_get(:@footer_label)
+    assert_nil app.screen.pane.content.conversation.footer
   end
 
   it "hands the agent's interloper to the FooterLabel for the queued-count display" do
-    footer = app.screen.pane.content.conversation.footer
-    assert_same app.agent.interloper, footer.interloper
+    app
+    assert_same app.agent.interloper, app.instance_variable_get(:@footer_label).interloper
   end
 
   it 'queues a mid-turn submission into the interloper instead of starting a second run_loop' do
