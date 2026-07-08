@@ -13,7 +13,7 @@ RSpec.describe PikuriTui::Code::ConfirmerPopup do
     Pikuri::Workspace::Confirmer::Request.new(question: question, detail: detail, editable: editable)
   end
 
-  # Spin until the block yields truthy. decide blocks the calling thread on
+  # Spin until the block yields truthy. ask blocks the calling thread on
   # Queue#pop, so the integration specs drive it from a worker and answer the
   # popups from the main thread.
   def wait_until(timeout: 2)
@@ -25,10 +25,10 @@ RSpec.describe PikuriTui::Code::ConfirmerPopup do
     end
   end
 
-  # Run +decide+ (or +confirm?+) on a worker and drive its popups from the
+  # Run +ask+ (or +confirm?+) on a worker and drive its popups from the
   # main thread via the block (which calls #decision / #prompt), returning
   # what the confirmer produced.
-  def run(confirmer, req, method: :decide)
+  def run(confirmer, req, method: :ask)
     result = nil
     worker = Thread.new { result = confirmer.public_send(method, request: req) }
     yield
@@ -63,7 +63,7 @@ RSpec.describe PikuriTui::Code::ConfirmerPopup do
     assert_kind_of Pikuri::Workspace::Confirmer, described_class.new(screen: screen)
   end
 
-  describe '#decide — non-editable (Write / Bash)' do
+  describe '#ask — non-editable (Write / Bash)' do
     it 'approves with the detail unchanged on y' do
       result = run(described_class.new(screen: screen), request(detail: 'ls -la')) { decision('y') }
       assert_equal approved('ls -la'), result
@@ -114,7 +114,7 @@ RSpec.describe PikuriTui::Code::ConfirmerPopup do
     end
   end
 
-  describe '#decide — editable (agent delegation)' do
+  describe '#ask — editable (agent delegation)' do
     it 'approves the original task unchanged on y (clean task)' do
       result = run(described_class.new(screen: screen), request(detail: 'summarize CVEs', editable: true)) do
         decision('y')
@@ -170,7 +170,7 @@ RSpec.describe PikuriTui::Code::ConfirmerPopup do
   end
 
   describe described_class::Dialog do
-    # Build a decision Dialog the way #decide does: sanitize first, then hand
+    # Build a decision Dialog the way #ask does: sanitize first, then hand
     # the results (and editable/clean) to the constructor.
     def dialog(question: 'OK to run this?', detail: nil, editable: false)
       q = Pikuri::Sanitizer.sanitize(question)

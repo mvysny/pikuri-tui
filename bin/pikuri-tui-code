@@ -184,7 +184,7 @@ sandbox = if sandbox_enabled
             Pikuri::Code::Bash::Sandbox::NONE
           end
 
-# Git-config trust gate. trusted_repo flips ReadOnlyAutoConfirmer's allow_git:
+# Git-config trust gate. trusted_repo flips ReadOnlyCommandApprover's allow_git:
 # (wired in the App block below) so a trusted repo also auto-approves read-only
 # git (status/diff/log/show/…). Sound ONLY with the user's affirmation: even a
 # bare `git diff` executes whatever the repo's .git/config / .gitattributes
@@ -196,7 +196,7 @@ sandbox = if sandbox_enabled
 #   - .git exists: git repos only (.exist?, not .directory? — linked worktrees
 #     and submodules carry a .git *file*).
 #   - already trusted: honored even under piped stdin; no prompt needed.
-#   - else prompt, but only on an interactive TTY. Reuses Confirmer::TERMINAL
+#   - else prompt, but only on an interactive TTY. Reuses Confirmer::Terminal
 #     (sanitized puts/gets straight to the terminal — NOT the BufferingLogIO),
 #     the same primitive upstream bin/pikuri-code uses; we add persistence.
 # This must run before Tuile::Screen.new (a prompt is invisible once the
@@ -210,7 +210,7 @@ trusted_repo =
   (trust_store.trusted?(filesystem.project_root) ||
    ($stdin.tty? &&
     begin
-      granted = Pikuri::Workspace::Confirmer::TERMINAL.confirm?(
+      granted = Pikuri::Workspace::Confirmer::Terminal.new.confirm?(
         request: Pikuri::Workspace::Confirmer::Request.new(
           question: "Trust this directory's git config? Read-only git " \
                     '(status/diff/log/show/…) will then run WITHOUT confirmation.',
@@ -337,11 +337,11 @@ app = PikuriTui::Code::App.new(
   # read-only — still reaches the y/n popup. Safe even with the sandbox's
   # shared network: no allowlisted binary can write or exfiltrate, so this
   # grants nothing the agent's own non-confirming Read/Grep/Glob don't. The
-  # wrap is asymmetric — only Code::Extension (Bash) gets it; Write/Edit
-  # (Workspace::Extension) keep the bare confirmer, so every overwrite still
-  # confirms. Wrapping AUTO_APPROVE would be a no-op, so only the confirming
-  # branch is wrapped.
-  code_confirmer = confirm_enabled ? Pikuri::Code::Bash::ReadOnlyAutoConfirmer.new(confirmer, allow_git: trusted_repo) : confirmer
+  # gate is asymmetric — only Code::Extension (Bash) gets a command_approver;
+  # Write/Edit (Workspace::Extension) keep the bare confirmer, so every
+  # overwrite still confirms. Under --no-confirm/--yolo there is nothing to
+  # skip, so no approver is built.
+  code_command_approver = confirm_enabled ? Pikuri::Code::Bash::ReadOnlyCommandApprover.new(allow_git: trusted_repo) : nil
 
   # Coalesce streaming delta chunks at 15 fps before they reach the
   # Markdown-rendering TuileListener (see bin/pikuri-tui-chat for the
@@ -398,7 +398,8 @@ app = PikuriTui::Code::App.new(
     c.add_sub_agent_tool Pikuri::Tool::FETCH
     c.add_extension Pikuri::Code::Extension.new(
       filesystem: filesystem,
-      confirmer: code_confirmer,
+      confirmer: confirmer,
+      command_approver: code_command_approver,
       sandbox: sandbox,
       # The same shared flag handed to Workspace::Extension above: wires the
       # enter/exit plan tools + the PlanModeChanged event the footer badge

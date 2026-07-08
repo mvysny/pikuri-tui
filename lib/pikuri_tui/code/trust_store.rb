@@ -6,7 +6,7 @@ module PikuriTui
     # *git-config-trusted*, so the coding shell prompts for that trust at
     # most once per project across runs.
     #
-    # The coding bin gates +Pikuri::Code::Bash::ReadOnlyAutoConfirmer+'s
+    # The coding bin gates +Pikuri::Code::Bash::ReadOnlyCommandApprover+'s
     # +allow_git:+ on this store: a trusted repo additionally auto-approves
     # read-only git (+status+/+diff+/+log+/+show+/…). That is sound only
     # because the user has vouched for the repo's +.git/config+ +
@@ -36,7 +36,7 @@ module PikuriTui
     #   the worse race of clobbering a concurrent writer.
     #
     # Mirrors the candid "Residual the allowlist does NOT close" framing in
-    # pikuri's +ReadOnlyAutoConfirmer+.
+    # pikuri's +ReadOnlyCommandApprover+.
     class TrustStore
       LOG = Pikuri.logger_for('trust')
       private_constant :LOG

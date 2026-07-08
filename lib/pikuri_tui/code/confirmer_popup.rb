@@ -16,11 +16,11 @@ module PikuriTui
     # == The decision: approve / edit / reject
     #
     # Upstream pikuri replaced the boolean confirmer with the richer
-    # {Pikuri::Workspace::Confirmer#decide} primitive, which returns a sum
+    # {Pikuri::Workspace::Confirmer#ask} primitive, which returns a sum
     # type — {Pikuri::Workspace::Confirmer::Approved} (carrying the
     # possibly-edited {Pikuri::Workspace::Confirmer::Request#detail}) or
     # {Pikuri::Workspace::Confirmer::Rejected} (carrying an optional
-    # steering reason). This popup implements {#decide} (the base derives
+    # steering reason). This popup implements {#ask} (the base derives
     # {#confirm?} from it for the mutation gates that need only a Boolean).
     # It surfaces three outcomes across up to two stacked popups:
     #
@@ -41,12 +41,12 @@ module PikuriTui
     #
     # == Threading (the hard part)
     #
-    # {#decide} is called *synchronously by the tool*, and the tool runs on
+    # {#ask} is called *synchronously by the tool*, and the tool runs on
     # the agent worker thread (per CLAUDE.md the agent loop never runs on
     # the UI thread). But every UI mutation — building a popup, opening it —
     # must run on the thread that owns +run_event_loop+. So each popup step
     # (the decision, then optionally an edit / reason prompt) is one
-    # round-trip: {#decide}
+    # round-trip: {#ask}
     #
     # 1. creates a one-shot +Queue+ as the cross-thread answer channel,
     # 2. +screen.event_queue.submit+s a block that builds and opens the
@@ -63,7 +63,7 @@ module PikuriTui
     # == Sanitizing
     #
     # +request.question+ and +request.detail+ are RAW LLM-composed bytes
-    # (see {Pikuri::Workspace::Confirmer::Request}). {#decide} runs them
+    # (see {Pikuri::Workspace::Confirmer::Request}). {#ask} runs them
     # through {Pikuri::Sanitizer} once (off the UI thread — it is pure) —
     # the same chrome-independent primitive +Confirmer::Terminal+ uses —
     # which (a) neutralizes the dangerous bytes for literal display (control
@@ -115,7 +115,7 @@ module PikuriTui
       #   Pikuri::Workspace::Confirmer::Rejected] the resolved decision —
       #   {Approved} carrying the (possibly edited) detail, or {Rejected}
       #   carrying the optional steering reason.
-      def decide(request:)
+      def ask(request:)
         question = Pikuri::Sanitizer.sanitize(request.question)
         detail   = request.detail ? Pikuri::Sanitizer.sanitize(request.detail) : nil
         warnings = question.warnings + (detail ? detail.warnings : [])
