@@ -109,12 +109,19 @@ end
 sandbox_enabled = config.sandbox
 confirm_enabled = config.confirm
 
-# The whole host is in scope (that's the point) — AllowAll, minus the
-# credential denylist for the *file* tools (~/.ssh, ~/.aws, …; bash can
-# still reach those as the user). project_root is the relative-path base
-# and the bash chdir target: the launch directory is the intuitive anchor
-# ("what's in this folder?"), and absolute paths reach everywhere anyway.
-filesystem = Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd)
+# The whole host is in scope (that's the point). denylist: [] drops the
+# credential floor for the *file* tools too, so Read/Write/Edit see
+# exactly what bash already sees under FullFsNoNet — a half-denylist bash
+# bypasses via an auto-approved `cat` is security theater. Safe because
+# egress is *user-confirmed*, not open: bash is kernel-severed and every
+# outbound research task is human-approved, so nothing leaves the machine
+# the user hasn't seen; and every writable write is confirmed with a diff
+# (confirm_all_writes, wired by Os::Extension), unwritable ones
+# short-circuit to "sudo it yourself". Re-instate the floor the moment this
+# parent ever gains unmediated egress. project_root is the relative-path
+# base and the bash chdir target (the launch dir is the intuitive anchor;
+# absolute paths reach everywhere).
+filesystem = Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd, denylist: [])
 
 # Default sandbox: FullFsNoNet — binds / read-write (full host control) but
 # unshares the network namespace, so bash cannot exfiltrate. This is the

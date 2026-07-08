@@ -585,7 +585,10 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
 - `bin/pikuri-tui-os` — boot script for the OS assistant
   (`Bundler.setup(:default, :os)`): builds a
   `Pikuri::Workspace::Filesystem::AllowAll` rooted at the launch
-  directory (full host, minus the file tools' credential denylist), a
+  directory (`denylist: []` — full host with no credential floor, so the
+  file tools see exactly what the network-severed bash already sees; every
+  writable Write/Edit still confirms via `Os::Extension`'s
+  `confirm_all_writes`), a
   `Pikuri::Code::Bash::Sandbox::FullFsNoNet` (network-severed, probes
   bwrap at construction and raises if unavailable; `NONE` under
   `--no-sandbox`/`--yolo`), and the `:'os-assistant'` system prompt + the
