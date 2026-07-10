@@ -6,7 +6,7 @@
 # the six file/shell tools, a project-rooted workspace, the bubblewrap
 # sandbox, and a Tuile modal confirmer instead of the stdin one. The
 # pikuri-side wiring is ported from pikuri's own bin/pikuri-code demo;
-# everything Tuile is PikuriTui::Code::App's job.
+# everything Tuile is Code::App's job.
 #
 # Pin Bundler to this project's Gemfile so locked dependency versions win
 # and the script works when invoked via a symlink (e.g.
@@ -27,7 +27,7 @@ require 'optparse'
 # dependency from this Gemfile — so its +lib/+ is not on Bundler's load
 # path. Adding it here lets +require 'pikuri_tui'+ resolve through
 # Zeitwerk. The :code gems are required BEFORE pikuri_tui so its loader
-# sees the :code runtime and eager-loads the PikuriTui::Code subtree (see
+# sees the :code runtime and eager-loads the Code subtree (see
 # lib/pikuri_tui.rb).
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 
@@ -41,23 +41,23 @@ require 'pikuri-mcp'
 require 'pikuri-subagents'
 require 'pikuri_tui'
 
-# Boot-time logging goes to stderr until the screen is up. A BufferingLogIO
+# Boot-time logging goes to stderr until the screen is up. A Shared::Log::BufferingIO
 # tees every pre-screen log line to stderr (so a crash before the screen still
 # prints) AND retains it, so App#wire_logging can replay those lines — config
 # file reads, chmod 600 advisories, model wiring — into the diagnostic
 # LogWindow once it rewires Pikuri.log_io there. pikuri's loggers
 # (Pikuri.logger_for) default to $stderr; we override that with the buffer.
-Pikuri.log_io = PikuriTui::BufferingLogIO.new
+Pikuri.log_io = Shared::Log::BufferingIO.new
 
 # This bin's own logger. Like every pikuri-tui logger it goes through
 # Pikuri.logger_for (NOT Tuile.logger — see AGENTS.md), so it writes to
 # stderr now and to the LogWindow once App rewires Pikuri.log_io.
 main_log = Pikuri.logger_for('main')
 
-# CLI overrides start nil ("flag not given") so PikuriTui::Config can tell
+# CLI overrides start nil ("flag not given") so Shared::Config can tell
 # an explicit flag from an absent one. The sandbox/confirm flags only ever
 # force false (there is no --sandbox / --confirm); config sets the baseline.
-# Built-in defaults live in PikuriTui::Config, shown in --help.
+# Built-in defaults live in Shared::Config, shown in --help.
 yolo = false
 extra_readable = []
 extra_writable = []
@@ -87,8 +87,8 @@ parser = OptionParser.new do |opts|
     cli_confirm = false
     yolo = true
   end
-  opts.on('--server URL', "LLM server base URL (default: #{PikuriTui::Config::DEFAULT_SERVER})") { |v| cli_server = v }
-  opts.on('--model NAME', "Model identifier (default: #{PikuriTui::Config::DEFAULT_MODEL})") { |v| cli_model = v }
+  opts.on('--server URL', "LLM server base URL (default: #{Shared::Config::DEFAULT_SERVER})") { |v| cli_server = v }
+  opts.on('--model NAME', "Model identifier (default: #{Shared::Config::DEFAULT_MODEL})") { |v| cli_model = v }
   opts.on('-h', '--help', 'Print this help and exit') do
     puts opts
     exit
@@ -130,10 +130,10 @@ Dir.chdir(project_root.to_s) if chdir_notice
 # before the screen is up, so a bad file is a plain warn + exit rather than a
 # torn-down TUI.
 begin
-  config = PikuriTui::Config.load(
+  config = Shared::Config.load(
     overrides: { server: cli_server, model: cli_model, sandbox: cli_sandbox, confirm: cli_confirm }
   )
-rescue PikuriTui::Config::Error => e
+rescue Shared::Config::Error => e
   warn "config error: #{e.message}"
   exit 2
 end
@@ -197,13 +197,13 @@ sandbox = if sandbox_enabled
 #     and submodules carry a .git *file*).
 #   - already trusted: honored even under piped stdin; no prompt needed.
 #   - else prompt, but only on an interactive TTY. Reuses Confirmer::Terminal
-#     (sanitized puts/gets straight to the terminal — NOT the BufferingLogIO),
+#     (sanitized puts/gets straight to the terminal — NOT the Shared::Log::BufferingIO),
 #     the same primitive upstream bin/pikuri-code uses; we add persistence.
 # This must run before Tuile::Screen.new (a prompt is invisible once the
 # alternate screen buffer is up) and stay OUT of the App block (which may
 # re-run — re-prompting/re-persisting there would be a bug; the block only
 # reads the captured boolean).
-trust_store = PikuriTui::Code::TrustStore.new
+trust_store = Code::TrustStore.new
 trusted_repo =
   confirm_enabled &&
   filesystem.project_root.join('.git').exist? &&
@@ -251,12 +251,12 @@ system_prompt += if sandbox_enabled
                      "(keeps the host's /tmp clean)."
                  end
 
-# All configured connections become picker entries (ModelChoice); the
-# first is the boot model. ModelChoice.from_llm builds each one's
+# All configured connections become picker entries (Shared::Model::Choice); the
+# first is the boot model. Shared::Model::Choice.from_llm builds each one's
 # connection-bearing transport (the Pikuri seam lives there, not in the
 # Pikuri-free Config), so the context-window probe and a model switch
 # both target the right server.
-models = config.llms.map { |llm| PikuriTui::ModelChoice.from_llm(llm) }
+models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
 
 Pikuri::Extractors::PDF.register
 
@@ -276,7 +276,7 @@ plan_mode = Pikuri::Workspace::ReadOnly.new(
   message: Pikuri::Code::Extension::PLAN_MODE_READONLY_MESSAGE
 )
 
-# Mid-loop input channel: PikuriTui::Code::App injects messages submitted
+# Mid-loop input channel: Code::App injects messages submitted
 # while a turn is in flight; the agent drains the queue at every
 # after_tool_result boundary, and App delivers any leftovers as a fresh
 # turn when the loop ends.
@@ -286,7 +286,7 @@ interloper = Pikuri::Agent::Control::Interloper.new
 # by default — the coding shell behaves identically with no MCP wiring
 # until a config entry is added. (Empty registry ⇒ Mcp::Extension's
 # boot-time synthesize/verify LLM calls are no-ops, so Agent construction
-# stays offline.) The translation from PikuriTui::Config's Pikuri-free
+# stays offline.) The translation from Shared::Config's Pikuri-free
 # McpServer value objects into Registry entries lives here, in the wiring
 # layer where Pikuri::* references are allowed (see Config's class header).
 mcp_entries = config.mcp.map do |m|
@@ -303,7 +303,7 @@ Tuile::Screen.new
 # tool/notice/error/thinking/detail tokens) durably, so OS light/dark
 # flips re-pick the legible variant instead of falling back to the
 # stock Tuile theme.
-Tuile::Screen.instance.theme_def = PikuriTui::AppTheme::THEME_DEF
+Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 
 # Constructed up front so both the App (for the footer's status line) and
 # the Agent's ListenerList see the same TokenLog instance.
@@ -313,13 +313,13 @@ token_log = Pikuri::Agent::Listener::TokenLog.new
 # ToolCall renders as a before/after diff (the write side reads the
 # existing file through the same filesystem the Write tool uses) instead of
 # an argument dump, and the paired ToolResult is suppressed on success /
-# surfaced on error. See PikuriTui::Code::TuileListener#tool_formatters.
+# surfaced on error. See Code::Shared::TuileListener#tool_formatters.
 tool_formatters = {
-  'edit'  => PikuriTui::Code::EditFormatter.new,
-  'write' => PikuriTui::Code::WriteFormatter.new(filesystem: filesystem)
+  'edit'  => Code::EditFormatter.new,
+  'write' => Code::WriteFormatter.new(filesystem: filesystem)
 }
 
-app = PikuriTui::Code::App.new(
+app = Code::App.new(
   token_log: token_log,
   project_root: filesystem.project_root,
   tool_formatters: tool_formatters,
@@ -344,7 +344,7 @@ app = PikuriTui::Code::App.new(
   code_command_approver = confirm_enabled ? Pikuri::Code::Bash::ReadOnlyCommandApprover.new(allow_git: trusted_repo) : nil
 
   # Coalesce streaming delta chunks at 15 fps before they reach the
-  # Markdown-rendering TuileListener (see bin/pikuri-tui-chat for the
+  # Markdown-rendering Shared::TuileListener (see bin/pikuri-tui-chat for the
   # rationale). flush_pending_on_non_delta: false because the bookend
   # Assistant / Thinking events re-render the authoritative final content.
   rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(

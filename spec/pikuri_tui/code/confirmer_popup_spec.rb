@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Code::ConfirmerPopup do
+RSpec.describe Code::ConfirmerPopup do
   let(:screen) { Tuile::Screen.instance }
 
   before { Tuile::Screen.fake }

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Code::GitDiffPopup do
+RSpec.describe Code::GitDiffPopup do
   let(:diff_view)   { Tuile::Component::TextView.new }
   let(:diff_window) { Tuile::Component::Window.new('Git diff').tap { _1.content = diff_view } }
   let(:popup)       { described_class.new(diff_window: diff_window) }

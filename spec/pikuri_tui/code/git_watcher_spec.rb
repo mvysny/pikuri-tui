@@ -3,7 +3,7 @@
 require 'tmpdir'
 require 'open3'
 
-RSpec.describe PikuriTui::Code::GitWatcher do
+RSpec.describe Code::GitWatcher do
   around do |example|
     Dir.mktmpdir('pikuri-git-watcher') do |dir|
       @repo = dir
@@ -38,8 +38,8 @@ RSpec.describe PikuriTui::Code::GitWatcher do
 
   it 'shows the placeholder in both panes when the tree matches HEAD' do
     assert watcher.poll_once
-    assert_includes summary, PikuriTui::Code::GitWatcher::PLACEHOLDER
-    assert_includes diff, PikuriTui::Code::GitWatcher::PLACEHOLDER
+    assert_includes summary, Code::GitWatcher::PLACEHOLDER
+    assert_includes diff, Code::GitWatcher::PLACEHOLDER
   end
 
   describe 'the sidebar summary' do

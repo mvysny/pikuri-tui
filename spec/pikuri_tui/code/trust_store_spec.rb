@@ -2,7 +2,7 @@
 
 require 'tmpdir'
 
-RSpec.describe PikuriTui::Code::TrustStore do
+RSpec.describe Code::TrustStore do
   around do |example|
     Dir.mktmpdir('pikuri-trust-store') do |dir|
       @dir = dir

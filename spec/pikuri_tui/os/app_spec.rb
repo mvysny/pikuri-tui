@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Os::App do
+RSpec.describe Os::App do
   # Minimal +Pikuri::Agent+ stand-in — same shape as the chat / code specs'.
   # The Os::App build block yields FOUR args (listener, confirmer,
   # model_listener, plan_mode_listener); StubAgent only needs the listener
@@ -53,7 +53,7 @@ RSpec.describe PikuriTui::Os::App do
 
   it 'mounts an Os::Layout as the screen content with conversation + input panes (no sidebar)' do
     layout = app.screen.pane.content
-    assert_kind_of PikuriTui::Os::Layout, layout
+    assert_kind_of Os::Layout, layout
     assert_kind_of Tuile::Component::Window, layout.conversation
     assert_kind_of Tuile::Component::Window, layout.input
     refute_respond_to layout, :tasks
@@ -61,30 +61,30 @@ RSpec.describe PikuriTui::Os::App do
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
-    assert_kind_of PikuriTui::InputArea, app.screen.focused
+    assert_kind_of Shared::InputArea, app.screen.focused
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
     assert_kind_of Tuile::Component::LogWindow, app.log_window
   end
 
-  it 'hands the TuileListener to the build block as the first arg' do
+  it 'hands the Shared::TuileListener to the build block as the first arg' do
     app # force construction
-    assert_kind_of PikuriTui::TuileListener, @listener
+    assert_kind_of Shared::TuileListener, @listener
   end
 
   it 'hands a Code::ConfirmerPopup to the build block as the second arg' do
     app # force construction
-    assert_kind_of PikuriTui::Code::ConfirmerPopup, @confirmer
+    assert_kind_of Code::ConfirmerPopup, @confirmer
   end
 
   it 'hands a PlanModeListener to the build block as the fourth arg' do
     app # force construction
-    assert_kind_of PikuriTui::Code::PlanModeListener, @plan_mode_listener
+    assert_kind_of Code::PlanModeListener, @plan_mode_listener
   end
 
   it 'exposes the ConfirmerPopup at #confirmer, bound to this app screen' do
-    assert_kind_of PikuriTui::Code::ConfirmerPopup, app.confirmer
+    assert_kind_of Code::ConfirmerPopup, app.confirmer
     assert_same app.confirmer, @confirmer
     assert_same app.screen, app.confirmer.instance_variable_get(:@screen)
   end
@@ -115,7 +115,7 @@ RSpec.describe PikuriTui::Os::App do
 
   it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
     app
-    assert_kind_of PikuriTui::InputArea, app.screen.focused
+    assert_kind_of Shared::InputArea, app.screen.focused
     press_ctrl_c
     assert_nil app.screen.focused
   end
@@ -157,13 +157,13 @@ RSpec.describe PikuriTui::Os::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'wires a StatusLabel that drives the conversation Window as border chrome (not a widget slot)' do
+  it 'wires a Shared::StatusLabel that drives the conversation Window as border chrome (not a widget slot)' do
     app
-    assert_kind_of PikuriTui::StatusLabel, app.instance_variable_get(:@footer_label)
+    assert_kind_of Shared::StatusLabel, app.instance_variable_get(:@footer_label)
     assert_nil app.screen.pane.content.conversation.footer
   end
 
-  it "hands the agent's interloper to the StatusLabel for the queued-count display" do
+  it "hands the agent's interloper to the Shared::StatusLabel for the queued-count display" do
     app
     assert_same app.agent.interloper, app.instance_variable_get(:@footer_label).interloper
   end
@@ -246,7 +246,7 @@ RSpec.describe PikuriTui::Os::App do
       assert_equal 'Local', footer.current_model
     end
 
-    # Integration: a pick made through the app's ModelPicker reaches the next
+    # Integration: a pick made through the app's Shared::Model::Picker reaches the next
     # run_loop and is consumed once. The picker's own option/marker/keying
     # behavior is unit-tested in model_picker_spec.
     it 'applies the picked transport to the next run_loop, then clears it' do
@@ -335,7 +335,7 @@ RSpec.describe PikuriTui::Os::App do
   private
 
   def model_choice(name, model)
-    PikuriTui::ModelChoice.new(
+    Shared::Model::Choice.new(
       name: name,
       transport: Pikuri::Agent::ChatTransport.new(
         model: model, provider: :openai, assume_model_exists: true,

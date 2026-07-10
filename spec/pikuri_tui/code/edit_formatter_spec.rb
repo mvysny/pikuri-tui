@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Code::EditFormatter do
-  let(:theme) { PikuriTui::AppTheme::DARK }
+RSpec.describe Code::EditFormatter do
+  let(:theme) { Shared::AppTheme::DARK }
 
   # Plain text of the rendered output, with the header's ANSI fg stripped.
   def plain(ansi)

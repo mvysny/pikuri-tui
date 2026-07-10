@@ -29,18 +29,18 @@ require 'pikuri-core'
 require 'pikuri-pdf'
 require 'pikuri_tui'
 
-# Boot-time logging goes to stderr until the screen is up. A BufferingLogIO
+# Boot-time logging goes to stderr until the screen is up. A Shared::Log::BufferingIO
 # tees every pre-screen log line to stderr (so a crash before the screen still
 # prints) AND retains it, so App#wire_logging can replay those lines — config
 # file reads, chmod 600 advisories, model wiring — into the diagnostic
 # LogWindow once it rewires Pikuri.log_io there. pikuri's loggers
 # (Pikuri.logger_for) default to $stderr; we override that with the buffer.
-Pikuri.log_io = PikuriTui::BufferingLogIO.new
+Pikuri.log_io = Shared::Log::BufferingIO.new
 
-# CLI overrides start nil ("flag not given") so PikuriTui::Config can tell
+# CLI overrides start nil ("flag not given") so Shared::Config can tell
 # an explicit flag from an absent one; they override the selected
 # connection's fields on top of the config file. Built-in defaults live in
-# PikuriTui::Config, the single source of truth shown in --help.
+# Shared::Config, the single source of truth shown in --help.
 cli_server = nil
 cli_model  = nil
 
@@ -48,8 +48,8 @@ parser = OptionParser.new do |opts|
   opts.banner = 'Usage: pikuri-tui-chat [options]'
   opts.separator ''
   opts.separator 'Options:'
-  opts.on('--server URL', "LLM server base URL (default: #{PikuriTui::Config::DEFAULT_SERVER})") { |v| cli_server = v }
-  opts.on('--model NAME', "Model identifier (default: #{PikuriTui::Config::DEFAULT_MODEL})") { |v| cli_model = v }
+  opts.on('--server URL', "LLM server base URL (default: #{Shared::Config::DEFAULT_SERVER})") { |v| cli_server = v }
+  opts.on('--model NAME', "Model identifier (default: #{Shared::Config::DEFAULT_MODEL})") { |v| cli_model = v }
   opts.on('-h', '--help', 'Print this help and exit') do
     puts opts
     exit
@@ -70,24 +70,24 @@ end
 # before the screen is up, so a bad file is a plain warn + exit, not a
 # torn-down TUI.
 begin
-  config = PikuriTui::Config.load(overrides: { server: cli_server, model: cli_model })
-rescue PikuriTui::Config::Error => e
+  config = Shared::Config.load(overrides: { server: cli_server, model: cli_model })
+rescue Shared::Config::Error => e
   warn "config error: #{e.message}"
   exit 2
 end
 
-# All configured connections become picker entries (ModelChoice); the
-# first is the boot model. ModelChoice.from_llm builds each one's
+# All configured connections become picker entries (Shared::Model::Choice); the
+# first is the boot model. Shared::Model::Choice.from_llm builds each one's
 # connection-bearing transport (the Pikuri seam lives there, not in the
 # Pikuri-light Config), so the context-window probe and a model switch
 # both target the right server.
-models = config.llms.map { |llm| PikuriTui::ModelChoice.from_llm(llm) }
+models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
 
 Pikuri::Extractors::PDF.register
 
 cancel_flag = Pikuri::Agent::Control::Cancellable.new
 
-# Mid-loop input channel: PikuriTui::Chat::App injects messages submitted
+# Mid-loop input channel: Chat::App injects messages submitted
 # while a turn is in flight; the agent drains the queue at every
 # after_tool_result boundary, and App delivers any leftovers as a fresh
 # turn when the loop ends.
@@ -101,19 +101,19 @@ Tuile::Screen.new
 # tool/notice/error/thinking/detail tokens) durably, so OS light/dark
 # flips re-pick the legible variant instead of falling back to the
 # stock Tuile theme.
-Tuile::Screen.instance.theme_def = PikuriTui::AppTheme::THEME_DEF
+Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 
 # Constructed up front so both the App (for the footer's status line) and the
 # Agent's ListenerList see the same TokenLog instance.
 token_log = Pikuri::Agent::Listener::TokenLog.new
 
-app = PikuriTui::Chat::App.new(token_log: token_log, models: models) do |listener, model_listener|
+app = Chat::App.new(token_log: token_log, models: models) do |listener, model_listener|
   # Coalesce streaming delta chunks at 15 fps before they reach the
-  # Markdown-rendering TuileListener: a fast llama.cpp can emit dozens
+  # Markdown-rendering Shared::TuileListener: a fast llama.cpp can emit dozens
   # of deltas per second and re-rendering Markdown on every one is
   # wasted work the user can't perceive. flush_pending_on_non_delta:
   # false because the Assistant / Thinking bookend events re-render
-  # the authoritative final content (see TuileListener#flush_assistant
+  # the authoritative final content (see Shared::TuileListener#flush_assistant
   # / #flush_thinking), so emitting the trailing 0–66 ms of buffered
   # deltas right before the redraw is pure CPU waste.
   rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(

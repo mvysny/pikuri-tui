@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Code::DiffRenderer do
+RSpec.describe Code::DiffRenderer do
   # The palette is theme-sourced: the renderer has no colors of its own, so
-  # every spec builds one from an AppTheme's :diff_* tokens.
+  # every spec builds one from an Shared::AppTheme's :diff_* tokens.
   def palette_for(theme)
     described_class::Palette.new(
       line_add: theme[:diff_line_add],
@@ -12,7 +12,7 @@ RSpec.describe PikuriTui::Code::DiffRenderer do
     )
   end
 
-  let(:theme)   { PikuriTui::AppTheme::DARK }
+  let(:theme)   { Shared::AppTheme::DARK }
   let(:palette) { palette_for(theme) }
 
   # Render with the (required) palette injected, so per-example calls only
@@ -101,18 +101,18 @@ RSpec.describe PikuriTui::Code::DiffRenderer do
   describe 'the palette comes from the theme (light and dark both supported)' do
     it 'paints with the dark theme tones when given the dark palette' do
       line = render("", "added", width: 20, color: true)
-      assert_equal [PikuriTui::AppTheme::DARK[:diff_line_add]], bgs_for(line, 'added').uniq
+      assert_equal [Shared::AppTheme::DARK[:diff_line_add]], bgs_for(line, 'added').uniq
     end
 
     it 'paints with the light theme tones when given the light palette' do
-      light = palette_for(PikuriTui::AppTheme::LIGHT)
+      light = palette_for(Shared::AppTheme::LIGHT)
       line = described_class.render("", "added", width: 20, palette: light, color: true)
-      assert_equal [PikuriTui::AppTheme::LIGHT[:diff_line_add]], bgs_for(line, 'added').uniq
+      assert_equal [Shared::AppTheme::LIGHT[:diff_line_add]], bgs_for(line, 'added').uniq
     end
 
     it 'paints different tones for the two themes' do
-      refute_equal PikuriTui::AppTheme::DARK[:diff_line_add],
-                   PikuriTui::AppTheme::LIGHT[:diff_line_add]
+      refute_equal Shared::AppTheme::DARK[:diff_line_add],
+                   Shared::AppTheme::LIGHT[:diff_line_add]
     end
   end
 

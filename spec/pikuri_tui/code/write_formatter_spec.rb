@@ -4,8 +4,8 @@ require 'tmpdir'
 require 'fileutils'
 require 'pathname'
 
-RSpec.describe PikuriTui::Code::WriteFormatter do
-  let(:theme) { PikuriTui::AppTheme::DARK }
+RSpec.describe Code::WriteFormatter do
+  let(:theme) { Shared::AppTheme::DARK }
   let(:tmp)   { Pathname.new(Dir.mktmpdir) }
 
   after { FileUtils.remove_entry(tmp) if tmp.exist? }

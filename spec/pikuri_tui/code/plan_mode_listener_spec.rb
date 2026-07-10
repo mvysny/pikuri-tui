@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Code::PlanModeListener do
+RSpec.describe Code::PlanModeListener do
   # Minimal footer stand-in: the listener only touches +plan_active=+.
   let(:footer)   { Struct.new(:plan_active).new }
   let(:listener) { described_class.new(footer: footer, screen: Tuile::Screen.instance) }

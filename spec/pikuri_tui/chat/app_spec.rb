@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Chat::App do
+RSpec.describe Chat::App do
   # Minimal +Pikuri::Agent+ stand-in: App only reaches for +run_loop+
   # (from the worker thread), +cancellable+ (from {Chat::App#on_interrupt})
-  # and +interloper+ (mid-turn queueing + the StatusLabel handoff).
+  # and +interloper+ (mid-turn queueing + the Shared::StatusLabel handoff).
   # Anything else stays untouched, so we don't pay the network / RubyLLM
   # cost in a unit spec.
   #
@@ -56,22 +56,22 @@ RSpec.describe PikuriTui::Chat::App do
 
   it 'mounts a Chat::Layout as the screen content with conversation + input panes' do
     layout = app.screen.pane.content
-    assert_kind_of PikuriTui::Chat::Layout, layout
+    assert_kind_of Chat::Layout, layout
     assert_kind_of Tuile::Component::Window, layout.conversation
     assert_kind_of Tuile::Component::Window, layout.input
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
-    assert_kind_of PikuriTui::InputArea, app.screen.focused
+    assert_kind_of Shared::InputArea, app.screen.focused
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
     assert_kind_of Tuile::Component::LogWindow, app.log_window
   end
 
-  it 'hands the TuileListener to the build block (so the agent sees the conversation pane)' do
+  it 'hands the Shared::TuileListener to the build block (so the agent sees the conversation pane)' do
     app # force construction
-    assert_kind_of PikuriTui::TuileListener, @listener
+    assert_kind_of Shared::TuileListener, @listener
   end
 
   it 'starts with no errors logged and a discoverable "^K menu" status-bar hint' do
@@ -123,7 +123,7 @@ RSpec.describe PikuriTui::Chat::App do
 
     it 'opens a modal menu popup on Ctrl+K' do
       app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      assert_kind_of PikuriTui::LeaderMenu, app.instance_variable_get(:@leader_menu)
+      assert_kind_of Shared::LeaderMenu, app.instance_variable_get(:@leader_menu)
       assert_kind_of Tuile::Component::PickerWindow, app.screen.pane.modal_popup&.content
     end
 
@@ -164,7 +164,7 @@ RSpec.describe PikuriTui::Chat::App do
 
   it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
     app
-    assert_kind_of PikuriTui::InputArea, app.screen.focused
+    assert_kind_of Shared::InputArea, app.screen.focused
     press_ctrl_c
     assert_nil app.screen.focused
   end
@@ -216,13 +216,13 @@ RSpec.describe PikuriTui::Chat::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'wires a StatusLabel that drives the conversation Window as border chrome (token status + spinner)' do
+  it 'wires a Shared::StatusLabel that drives the conversation Window as border chrome (token status + spinner)' do
     app
-    assert_kind_of PikuriTui::StatusLabel, app.instance_variable_get(:@footer_label)
+    assert_kind_of Shared::StatusLabel, app.instance_variable_get(:@footer_label)
     assert_nil app.screen.pane.content.conversation.footer
   end
 
-  it "hands the agent's interloper to the StatusLabel for the queued-count display" do
+  it "hands the agent's interloper to the Shared::StatusLabel for the queued-count display" do
     app
     assert_same app.agent.interloper, app.instance_variable_get(:@footer_label).interloper
   end
@@ -293,7 +293,7 @@ RSpec.describe PikuriTui::Chat::App do
     assert_includes rendered, 'mid-turn message dropped'
   end
 
-  it 'feeds the StatusLabel from the same TokenLog the host wires into the agent' do
+  it 'feeds the Shared::StatusLabel from the same TokenLog the host wires into the agent' do
     explicit_token_log = Pikuri::Agent::Listener::TokenLog.new
     explicit_app = described_class.new(token_log: explicit_token_log) do |listener|
       StubAgent.new(listener)
@@ -309,12 +309,12 @@ RSpec.describe PikuriTui::Chat::App do
     assert_includes rendered, 'pikuri-side message'
   end
 
-  it 'forwards markdown: true (the default) to the TuileListener' do
+  it 'forwards markdown: true (the default) to the Shared::TuileListener' do
     app
     assert_equal true, @listener.instance_variable_get(:@markdown)
   end
 
-  it 'forwards markdown: false to the TuileListener when wired off' do
+  it 'forwards markdown: false to the Shared::TuileListener when wired off' do
     explicit_app = described_class.new(markdown: false) do |listener|
       @listener = listener
       StubAgent.new(listener)
@@ -341,7 +341,7 @@ RSpec.describe PikuriTui::Chat::App do
       assert_equal 'Local', footer.current_model
     end
 
-    # Integration: a pick made through the app's ModelPicker reaches the next
+    # Integration: a pick made through the app's Shared::Model::Picker reaches the next
     # run_loop and is consumed once. The picker's own option/marker/keying
     # behavior is unit-tested in model_picker_spec.
     it 'applies the picked transport to the next run_loop, then clears it' do
@@ -375,7 +375,7 @@ RSpec.describe PikuriTui::Chat::App do
   private
 
   def model_choice(name, model, api_base: 'http://x/v1')
-    PikuriTui::ModelChoice.new(
+    Shared::Model::Choice.new(
       name: name,
       transport: Pikuri::Agent::ChatTransport.new(
         model: model, provider: :openai, assume_model_exists: true,

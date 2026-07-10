@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Code::TaskListener do
+RSpec.describe Code::TaskListener do
   let(:text_view) { Tuile::Component::TextView.new }
   let(:listener)  { described_class.new(text_view: text_view, screen: Tuile::Screen.instance) }
 
@@ -19,7 +19,7 @@ RSpec.describe PikuriTui::Code::TaskListener do
 
   it 'shows a placeholder before any tasks exist' do
     listener.on_event(changed)
-    assert_includes rendered, PikuriTui::Code::TaskListener::PLACEHOLDER
+    assert_includes rendered, Code::TaskListener::PLACEHOLDER
   end
 
   it 'renders one line per task with its content' do
@@ -35,9 +35,9 @@ RSpec.describe PikuriTui::Code::TaskListener do
                         item(2, 'busy', 'in_progress'),
                         item(3, 'done', 'completed')
                       ))
-    assert_includes rendered, "#{PikuriTui::Code::TaskListener::GLYPHS['pending']} pend"
-    assert_includes rendered, "#{PikuriTui::Code::TaskListener::GLYPHS['in_progress']} busy"
-    assert_includes rendered, "#{PikuriTui::Code::TaskListener::GLYPHS['completed']} done"
+    assert_includes rendered, "#{Code::TaskListener::GLYPHS['pending']} pend"
+    assert_includes rendered, "#{Code::TaskListener::GLYPHS['in_progress']} busy"
+    assert_includes rendered, "#{Code::TaskListener::GLYPHS['completed']} done"
   end
 
   it 'rewrites the whole pane from the latest snapshot (last-wins, not append)' do
@@ -52,7 +52,7 @@ RSpec.describe PikuriTui::Code::TaskListener do
     listener.on_event(changed(item(1, 'lonely', 'pending')))
     listener.on_event(changed)
     refute_includes rendered, 'lonely'
-    assert_includes rendered, PikuriTui::Code::TaskListener::PLACEHOLDER
+    assert_includes rendered, Code::TaskListener::PLACEHOLDER
   end
 
   it 'ignores non-ListChanged events' do

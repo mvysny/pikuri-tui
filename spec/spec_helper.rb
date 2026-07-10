@@ -2,7 +2,7 @@
 
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 
-# Disable ANSI colorisation in +PikuriTui::MarkdownRenderer::AnsiConverter+
+# Disable ANSI colorisation in +Shared::Markdown::AnsiConverter+
 # for the suite. Spec assertions about Markdown output target *structure*
 # — bullet markers, blank-line placement, table-separator rewriting —
 # not the surrounding ANSI styling. Specs that *are* about styling
@@ -17,7 +17,7 @@ require 'stringio'
 require 'pikuri-core'
 
 # Load the :code-group gems too, BEFORE pikuri_tui, so its loader sees
-# the :code runtime and eager-loads the PikuriTui::Code subtree (see the
+# the :code runtime and eager-loads the Code subtree (see the
 # gate in lib/pikuri_tui.rb) — the suite exercises both shells. +bundle
 # exec+ puts these on the load path; the production chat bin, which runs
 # +Bundler.setup(:default)+, never loads them.
@@ -28,7 +28,7 @@ require 'pikuri-skills'
 require 'pikuri-mcp'
 require 'pikuri-subagents'
 # Also pull in pikuri-os so an Os-shell spec can build the real
-# Pikuri::Os::Extension. The PikuriTui::Os subtree itself eager-loads via
+# Pikuri::Os::Extension. The Os subtree itself eager-loads via
 # the +Pikuri::Workspace+ gate (it reuses the Code:: adapters and
 # references no Pikuri::Os::* constant at load time), so this require is for
 # the extension, not the subtree.
@@ -41,12 +41,12 @@ require 'pikuri_tui'
 # tokens (+theme[:tool]+, +theme.error(…)+, …); without this a component
 # reading one would +KeyError+ against the stock Tuile default. Production
 # bins assign +screen.theme_def=+ once at boot instead.
-Tuile::ThemeDef.default = PikuriTui::AppTheme::THEME_DEF
+Tuile::ThemeDef.default = Shared::AppTheme::THEME_DEF
 
 # Silence pikuri's default $stderr logging during the suite so production
 # log lines don't bleed into rspec output. Specs that exercise logging
 # swap +Pikuri.log_io+ to a +StringIO+ (see +capture_log+ below) or a
-# +CountingLogIO+ wired against a +Tuile::FakeScreen+. A per-example reset
+# +Shared::Log::CountingIO+ wired against a +Tuile::FakeScreen+. A per-example reset
 # (see RSpec.configure) returns it here afterward, so an App spec that wires
 # a now-dead FakeScreen into +Pikuri.log_io+ can't leak it into the next
 # example's logger writes.
@@ -55,7 +55,7 @@ Pikuri.log_io = NULL_LOG
 
 RSpec.configure do |config|
   # Reset the shared pikuri log sink before each example so a prior example's
-  # swap (esp. an App's screen-bound CountingLogIO) never leaks across.
+  # swap (esp. an App's screen-bound Shared::Log::CountingIO) never leaks across.
   config.before { Pikuri.log_io = NULL_LOG }
 
   config.include Minitest::Assertions

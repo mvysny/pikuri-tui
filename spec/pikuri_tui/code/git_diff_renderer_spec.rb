@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-RSpec.describe PikuriTui::Code::GitDiffRenderer do
-  let(:theme) { PikuriTui::AppTheme::DARK }
+RSpec.describe Code::GitDiffRenderer do
+  let(:theme) { Shared::AppTheme::DARK }
 
   # Plain text of the rendered output, with all ANSI parsed away — assertions
   # target structure (headers, gutters, separators), not the styling.
