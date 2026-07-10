@@ -136,489 +136,159 @@ loaded (gated on `Pikuri::Workspace` — the OS subtree reuses the
 
 ## Layout
 
-Per-file rationale lives in each source file's YARD header — this
-is the package map. Everything we ship lives under the `PikuriTui::`
-namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
+Per-file rationale lives in each source file's YARD header (or, for the
+`bin/` scripts, their inline comments) — this is the package map: one-line
+pointers, not a second copy of the docs. Everything we ship lives under the
+`PikuriTui::` namespace; `lib/pikuri_tui.rb` boots Zeitwerk over
+`lib/pikuri_tui/`.
 
 - `lib/pikuri_tui.rb` — Zeitwerk loader + eager-load over
   `lib/pikuri_tui/`; one require for callers.
 - `lib/pikuri_tui/version.rb` — `PikuriTui::VERSION`.
-- `lib/pikuri_tui/app_theme.rb` — `PikuriTui::AppTheme`, a
-  `Tuile::Theme` subclass carrying the app's own color tokens
-  (`:tool` / `:notice` / `:error` / `:thinking` / `:detail` /
-  `:user` / `:added` / `:removed`) on top
-  of the built-in accents, with one coloring helper per token, plus
-  `DARK` / `LIGHT` and the `THEME_DEF` pair the bins install via
-  `screen.theme_def=` (and `spec_helper` via `ThemeDef.default=`).
-  The single source of truth for every UI accent both shells paint;
-  the listener, the apps, and the confirmer read these instead of
-  hardcoding Rainbow colors. The markdown body palette
-  (`AnsiConverter`) is deliberately left out — it renders content,
-  not chrome, and runs screen-agnostically in specs.
+- `lib/pikuri_tui/app_theme.rb` — `PikuriTui::AppTheme`, the
+  `Tuile::Theme` subclass carrying the app's accent tokens; single
+  source of truth for every UI accent all three shells paint.
 - `lib/pikuri_tui/config.rb` — `PikuriTui::Config`, the layered
-  TOML configuration both shells load at boot. Resolves the model
-  connections (`[[llm]]`), the coding shell's `sandbox` / `confirm`
-  switches, and its MCP servers (`[[code.mcp]]`) from the XDG search
-  path (`/etc/xdg` → `$XDG_CONFIG_HOME`, deep-merged, arrays replace)
-  with CLI overrides on top. Parsed with `tomlrb` (parse-only,
-  zero-dep) and validated by hand. References nothing from the
-  `:code`-group gems — it is eager-loaded by the chat shell, whose
-  `Bundler.setup(:default)` lacks `pikuri-mcp` — so MCP servers
-  surface as plain `Config::McpServer` value objects whose field
-  names match `Pikuri::Mcp::Registry`'s entries 1:1, and the coding
-  bin does the trivial pass-through into `Registry::StdioEntry` /
-  `HttpEntry`. Its one `Pikuri` touch is `pikuri-core`'s logging
-  facade (in `:default`, so both shells have it): `load` reports each
-  config file it reads — and any `chmod 600` loose-permissions advisory —
-  through `Pikuri.logger_for('config')`, surfacing on `$stderr` at boot.
-  `Config` only *logs*; it no longer collects advisories for the caller to
-  replay (there is no `#warnings` reader). The bins install a
-  `BufferingLogIO` as the boot `log_io`, so these pre-screen lines are
-  retained and replayed into the LogWindow when each bin's `App` rewires
-  `Pikuri.log_io`. HTTP MCP auth rides `HttpEntry`'s `headers`: an entry's
-  `bearer_token` / `basic_auth` (username+password) conveniences are
-  folded into the `headers` hash at load time alongside any raw custom
-  `headers`. A stdio entry's `env` table passes straight through to
-  `StdioEntry`'s `env` (subprocess environment overrides). An LLM API
-  key is stored **literally** in `[[llm]]`'s
-  `api_key` (never an env var name, never a CLI flag, and with no
-  project-local config layer): the environment is inherited by every
-  subprocess pikuri spawns — sandboxed bash, stdio MCP — so a key
-  there leaks to agent-run code, whereas this file is parent-only and
-  outside the agent's readable tree. `load` logs a non-fatal
-  `chmod 600` advisory when a key-bearing file has loose permissions.
-  Hosts the built-in defaults (`DEFAULT_SERVER` / `DEFAULT_MODEL` / …)
-  the bins show in `--help`.
+  XDG-path TOML config all three shells load at boot (connections,
+  sandbox/confirm switches, MCP servers), CLI overrides on top,
+  hand-validated.
 - `lib/pikuri_tui/tuile_listener.rb` — `PikuriTui::TuileListener`,
-  a `Pikuri::Agent::Listener::Base` subclass that renders the
-  event stream into a `Tuile::Component::TextView` (the
-  conversation pane). The equivalent of pikuri's
-  `Pikuri::Agent::Listener::Terminal`, retargeted at the TUI.
-  Shared by `Chat::App` and `Code::App`. Tool calls render through an
-  injected `tool_formatters` map (tool name → formatter) when one is
-  registered, otherwise the default `→ name(args)` / `= result` lines; the
-  formatter handling a `ToolCall` is stashed so the paired `ToolResult`
-  routes back to it. The chat shell registers none; the coding shell wires
-  the `edit` / `write` diff formatters. `#for_sub_agent` (dispatched by
-  `ListenerList#for_sub_agent` when the `agent` tool spawns a delegate)
-  returns a variant that renders into the same pane with each block's first
-  line indented by `SUB_AGENT_INDENT` (two spaces), so a RESEARCHER's stream
-  reads as nested under the parent's `→ agent(...)` call — the same role
-  pikuri's `Terminal` listener's `SUB_AGENT_PADDING` plays.
+  the `Pikuri::Agent::Listener::Base` rendering the event stream into
+  the conversation `TextView`; shared by all three shells, tool calls
+  via an injected `tool_formatters` map.
 - `lib/pikuri_tui/markdown_renderer.rb` —
-  `PikuriTui::MarkdownRenderer`, the single entry point for
-  turning Markdown into ANSI for the conversation pane. Parses
-  with kramdown (GFM dialect via `kramdown-parser-gfm`, with an
-  LLM-typo table-separator repair pre-pass) and renders through
-  `AnsiConverter`. Both the non-streaming `Assistant` path and
-  the streaming buffer render through it.
+  `PikuriTui::MarkdownRenderer`, the single entry point turning
+  Markdown into ANSI for the conversation pane (kramdown GFM →
+  `AnsiConverter`).
 - `lib/pikuri_tui/markdown_renderer/ansi_converter.rb` —
-  `PikuriTui::MarkdownRenderer::AnsiConverter`, this project's
-  own `Kramdown::Converter::Base` subclass: parse tree → ANSI.
-  Replaced `tty-markdown` (whose stale pins on `strings` and
-  `rouge` blocked dependency updates) and natively fixes what the
-  old renderer needed hacks for — loose lists render loose,
-  ordered-list numbering survives, paragraphs wrap as a whole
-  with inline styles flowing across lines. Emits only the SGR
-  alphabet `Tuile::StyledString` models, since the thinking pane
-  round-trips its output through `AnsiGrayscale`. Syntax
-  highlighting via rouge; honors `NO_COLOR` (the spec suite
-  relies on that).
+  `PikuriTui::MarkdownRenderer::AnsiConverter`, the in-house
+  `Kramdown::Converter::Base` subclass rendering parse tree to ANSI;
+  honors `NO_COLOR`.
 - `lib/pikuri_tui/streaming_markdown_buffer.rb` —
-  `PikuriTui::StreamingMarkdownBuffer`, stateful buffer that
-  turns a stream of Markdown deltas into in-place rewrites of a
-  `Tuile::Component::TextView::Region`, with a block-cutter that
-  bounds per-token re-render cost to the currently-open block.
-  Must be driven from the UI thread.
+  `PikuriTui::StreamingMarkdownBuffer`, buffer rewriting a
+  `TextView::Region` in place from Markdown deltas; must be driven
+  from the UI thread.
 - `lib/pikuri_tui/passthrough_buffer.rb` —
-  `PikuriTui::PassthroughBuffer`, API-compatible variant of
-  `StreamingMarkdownBuffer` (same `#append` / `#finalize` /
-  `#finalized?` / `#source` surface and the same
-  `(remove_last_n, lines_to_add)` sink contract) that skips the
-  Markdown render and the block-cutter entirely — the accumulated
-  source is split on `\n` and passed through to the sink as-is. For
-  streams whose payload is already in display form (plain text,
-  pre-formatted output) where the Markdown renderer would corrupt or
-  re-style it.
+  `PikuriTui::PassthroughBuffer`, the render-free
+  `StreamingMarkdownBuffer` variant for streams already in display
+  form.
 - `lib/pikuri_tui/ansi_grayscale.rb` — `PikuriTui::AnsiGrayscale`,
-  repaints an ANSI-colored string as a single muted fg with
-  structural attributes (bold, italic, underline) preserved. Used
-  on the thinking-pane path so reasoning reads as visually
-  distinct from the assistant's final answer. The tone is the
-  `AppTheme` `:thinking` token the listener passes (`fg:`), so it
-  tracks light/dark; the `GRAY` default is the screen-free fallback.
+  repaints ANSI as one muted fg with structure preserved, for the
+  thinking-pane path.
 - `lib/pikuri_tui/model_choice.rb` — `PikuriTui::ModelChoice`, a
-  `Data.define(:name, :transport)` pairing a connection's display name
-  with the `Pikuri::Agent::ChatTransport` selecting it switches to. Its
-  `.from_llm(llm)` factory builds one per `Config#llms` entry — the single
-  place the Pikuri seam is crossed (the `Pikuri`-free `Config` value object
-  → a connection-bearing transport via `ChatTransport.from_openai_server`,
-  with the `nil`/blank-key → `"not-needed"` fallback) so the bins just map
-  `config.llms` through it. The connection rides the transport's own
-  per-chat `RubyLLM::Context`, so neither bin calls `RubyLLM.configure`. The
-  bins hand the list to each shell's `App` as `models:`; the transport is
-  opaque to the UI (stashed as pending, forwarded to the next `run_loop`).
-- `lib/pikuri_tui/model_listener.rb` — `PikuriTui::ModelListener`, a
-  `Pikuri::Agent::Listener::Base` subclass that consumes
-  `Pikuri::Agent::Event::ModelSwitched` (emitted at the top of `run_loop`
-  when a `transport:` switch lands) and pushes the new model's display
-  name onto the conversation footer (`current_model=`, marshaled to the UI
-  thread). Shared by both shells; the model switch is surfaced in the
-  footer only, never echoed into the transcript, so the footer reflects
-  the model the agent is *actually* on. Resolves the switched-to model to
-  the friendly `ModelChoice#name` via a name map `ModelPicker` builds.
+  `Data.define` pairing a connection's display name with its
+  `ChatTransport`; the one place the Pikuri seam is crossed for model
+  switching.
+- `lib/pikuri_tui/model_listener.rb` — `PikuriTui::ModelListener`,
+  the listener that consumes `ModelSwitched` and pushes the landed
+  model's display name onto the footer. Shared by all three shells.
 - `lib/pikuri_tui/model_picker.rb` — `PikuriTui::ModelPicker`, the shared
   leader-menu model-switch picker (connection catalog, name map, pending
   switch, `PickerWindow` popup) all three shells compose.
 - `lib/pikuri_tui/counting_log_io.rb` — `PikuriTui::CountingLogIO`,
-  the `IO`-shaped sink that forwards every line to the diagnostic
-  `LogWindow` and counts error-class writes so the `Ctrl+K` menu
-  status-bar hint can flag "something broke." Shared by both
-  shells.
+  the `IO`-shaped sink forwarding lines to the diagnostic `LogWindow`
+  and counting error-class writes for the `Ctrl+K` hint. Shared by all
+  three shells.
 - `lib/pikuri_tui/buffering_log_io.rb` — `PikuriTui::BufferingLogIO`,
-  the `IO`-shaped sink the bins install as the boot-time `Pikuri.log_io`.
-  Tees every pre-screen line to `$stderr` (so a crash before the screen
-  still prints) *and* retains it; `#replay_into(sink)` re-feeds the
-  retained lines through the `CountingLogIO` once the `App` wires it, so
-  config-file reads / `chmod 600` advisories / model-wiring lines that
-  only hit `$stderr` at boot land in the `LogWindow` too — error lines
-  among them bumping the counter like a live write. Bounded ring buffer
-  (oldest drop past the cap, noted on replay). Shared by both shells.
-- `lib/pikuri_tui/log_popup.rb` — `PikuriTui::LogPopup`, the
-  `Popup` wrapper around the eager `LogWindow` that resets the
-  unread-error counter on dismiss. Shared by both shells.
+  the boot-time `Pikuri.log_io` sink that tees pre-screen lines to
+  `$stderr` and retains them for `#replay_into` the `LogWindow`. Shared
+  by all three shells.
+- `lib/pikuri_tui/log_popup.rb` — `PikuriTui::LogPopup`, the `Popup`
+  wrapper around the eager `LogWindow` that resets the unread-error
+  counter on dismiss. Shared by all three shells.
 - `lib/pikuri_tui/leader_menu.rb` — `PikuriTui::LeaderMenu`, the
-  lazyvim-style "which-key" command menu: a leader shortcut
-  (`Ctrl+K`) opens a modal `PickerWindow` popup listing app actions,
-  each bound to a single printable follow-up key (`l` logs / `d` git
-  diff / `p` plan mode / `m` switch model / `c` clear conversation +
-  context / `q` quit). One reserved
-  unprintable leader key replaces a fistful of per-action global
-  shortcuts (and dodges the tmux/flow-control collisions in that
-  scarce namespace); the follow-up keys can be printable because the
-  popup consumes them directly (`q` quits the app, not the popup —
-  `PickerWindow` intercepts option keys before the wrapping `Popup`'s
-  `q`-closes handler, while ESC and `Ctrl+C` both cancel the menu via
-  a `CancelPopup` subclass — `Ctrl+C` is otherwise suppressed while a
-  popup is open, so folding it in makes the universal "get me out"
-  key behave like ESC here). Each picked
-  callback is deferred via `screen.event_queue.submit` so the menu
-  closes before an action that opens its own popup runs. Shared by
-  both shells (like `LogPopup`); each `App` registers its own action
-  set via the chainable `#add`. This menu plus `Ctrl+C` (cancel/quit
-  escalation, the one direct accelerator kept) are the only global
-  shortcuts — every other binding lives behind the leader. The
-  always-visible `^K` status-bar hint also carries the unread-error
-  tally (`^K ⚠ menu (N)`), the role the old `^L` hint played.
+  lazyvim-style which-key command menu: `Ctrl+K` opens a modal
+  `PickerWindow` of app actions, each on one follow-up key. Shared by
+  all three shells; each `App` registers its own action set.
 - `lib/pikuri_tui/input.rb` — `PikuriTui::Input`, the bottom-pane
   `TextArea` subclass that rebinds Enter to submit-and-clear (blank
-  buffers are a no-op). Shared by all three shells — its behaviour
-  carried no shell-specific divergence, so there is nothing for parallel
-  copies to drift into.
+  buffers are a no-op). Shared by all three shells.
 - `lib/pikuri_tui/footer_label.rb` — `PikuriTui::FooterLabel`, the
-  conversation-window footer label, shared by all three shells: shows
-  the current model's display name as the leading segment (set once to
-  the boot model, then updated by `ModelListener` when a model switch
-  lands), ticks a spinner while the agent is mid-turn, shows an
-  "N queued" count while the agent's `Control::Interloper` holds
-  pending mid-turn injections, renders the main agent's context-window
-  snapshot off a `Pikuri::Agent::Listener::TokenLog` — claiming the
-  log's `on_status_line` observer slot so each fresh line repaints the
-  footer the moment the `Tokens` event lands (sub-agent pushes, which
-  inherit the observer with a non-empty id, take the token slot while a
-  delegation runs — labeled with a leading "⤷ <id>" so they read as the
-  delegate's own context, not the conversation's; the main agent's next
-  push clears them, so during a long RESEARCHER turn the readout keeps
-  updating instead of freezing) — and
-  leads with a notice-toned "‖ Plan Mode" badge when `plan_active=` is
-  set. The chat shell wires no `PlanModeListener`, so it never sets that
-  and its badge stays hidden; the coding and OS shells drive it off
-  `Code::PlanModeListener`. Painted in the current theme's `hint_color`
-  (the footer is status-hint chrome, the badge in `:notice`), read at
-  paint time per Tuile's theming rule so OS light/dark appearance flips
-  restyle it.
-- `lib/pikuri_tui/chat.rb` — `PikuriTui::Chat` namespace shell
-  for the chat front-end.
-- `lib/pikuri_tui/chat/app.rb` — `PikuriTui::Chat::App`, the
-  Tuile shell for `bin/pikuri-tui-chat` (conversation `TextView` +
-  diagnostic `LogWindow` + input field + status bar). Takes a `models:`
-  list (`ModelChoice`s) and yields a `ModelListener` to the build block
-  alongside the conversation listener; a shared `ModelPicker` backs the
-  leader menu's `m` model-switch entry. Builds its `LeaderMenu` (logs / switch model / clear
-  conversation / quit; `c` calls `Pikuri::Agent#clear_conversation`)
-  and registers the `Ctrl+K` leader + `Ctrl+C` cancel shortcuts in
-  `#register_shortcuts`.
+  conversation-window footer chrome shared by all three shells: model
+  name, mid-turn spinner, queued-injection count, token snapshot, and a
+  plan-mode badge.
+- `lib/pikuri_tui/chat.rb` — `PikuriTui::Chat`, namespace for the
+  chat front-end (`Chat::App` + `Chat::Layout`).
+- `lib/pikuri_tui/chat/app.rb` — `PikuriTui::Chat::App`, the Tuile
+  shell for `bin/pikuri-tui-chat` (conversation `TextView` + diagnostic
+  `LogWindow` + input + status bar); takes a `models:` list and wires
+  the `LeaderMenu` and shortcuts.
 - `lib/pikuri_tui/chat/layout.rb` — `PikuriTui::Chat::Layout`,
   the vertical-split root layout (conversation top, input bottom).
-- `lib/pikuri_tui/code.rb` — `PikuriTui::Code` namespace shell for
-  the coding front-end, and the home of the duplicate-don't-share
-  rationale for the parallel `Code::*` copies.
+- `lib/pikuri_tui/code.rb` — `PikuriTui::Code`, namespace for the
+  coding front-end; home of the duplicate-don't-share rationale for the
+  parallel `Code::*` copies.
 - `lib/pikuri_tui/code/app.rb` — `PikuriTui::Code::App`, the Tuile
-  shell for `bin/pikuri-tui-code`. A parallel copy of `Chat::App`
-  that additionally owns a `Code::ConfirmerPopup`, the sidebar task
-  + git-change-summary windows, the `Code::GitDiffPopup` (full diff,
-  opened from the leader menu's `d` entry) + its `Code::GitWatcher`, a
-  `Code::TaskListener`, and a
-  `Code::PlanModeListener`, and yields the confirmer, the task listener,
-  the `ModelListener`, and the `PlanModeListener` to the build block
-  alongside the conversation listener. Forwards a
-  `tool_formatters` map (the bin's `edit` / `write` diff formatters) to its
-  `TuileListener`. Like `Chat::App` it takes a `models:` list and wires the
-  model picker + footer model segment. Its `LeaderMenu` carries the extra
-  `d` git diff / `p` plan mode entries on top of the chat set; the
-  `p` entry's `#toggle_plan_mode` calls `enter!`/`exit!` on the shared
-  `Pikuri::Agent::Control::PlanMode` flag and the footer plan-mode badge
-  tracks it via the `PlanModeListener`. The `plan_mode:` control defaults
-  to a fresh one (not in plan mode); the host passes the same instance it
-  hands `Agent.new` so the menu toggle and the model's enter/exit tools
-  flip one flag.
+  shell for `bin/pikuri-tui-code`; like `Chat::App` but adds the
+  `Code::ConfirmerPopup`, task + git sidebar, `Code::GitDiffPopup`, and
+  plan-mode toggle.
 - `lib/pikuri_tui/code/layout.rb` — `PikuriTui::Code::Layout`, the
-  coding shell's dual-pane root layout: a 60/40 width split with the
-  conversation pane over a fixed-height input strip on the left and
-  a full-height sidebar (a fixed `TASK_HEIGHT` task window over the
-  git change-summary window) on the right. Collapses the sidebar to zero width
-  on terminals too narrow to read it. Diverges from `Chat::Layout`'s
-  simple top/bottom split (the coding shell duplicates rather than
-  shares — see `code.rb`).
+  coding shell's dual-pane root: a 60/40 conversation-over-input left
+  column beside a task + git sidebar (collapsed when too narrow).
 - `lib/pikuri_tui/code/task_listener.rb` —
   `PikuriTui::Code::TaskListener`, a `Pikuri::Agent::Listener::Base`
-  subclass that renders the agent's task list into the sidebar task
-  window. Consumes the `Pikuri::Tasks::ListChanged` events
-  `Pikuri::Tasks::Extension` emits after every mutation (each
-  carries a frozen, cross-thread-safe `items` snapshot), rewriting
-  the `TextView` last-wins with a status glyph per item toned via
-  `AppTheme` (`:notice` for `in_progress`, `:detail` for
-  `completed`). The companion to `TuileListener`: same
-  worker-thread-to-UI-thread marshaling, a much smaller slice of the
-  event stream. Not rate-limited (task mutations are rare).
+  rendering the agent's task-list changes into the sidebar task window.
 - `lib/pikuri_tui/code/plan_mode_listener.rb` —
   `PikuriTui::Code::PlanModeListener`, a `Pikuri::Agent::Listener::Base`
-  subclass that consumes the `Pikuri::Code::PlanModeChanged` event
-  `Pikuri::Code::Extension` re-emits on every real plan-mode transition
-  and pushes the new posture onto the footer (`plan_active=`, marshaled to
-  the UI thread). Coding/OS-shell-only (not top-level like `ModelListener`):
-  the event is a `:code`-group constant the chat shell never loads (the
-  shared `FooterLabel` exposes the badge for every shell, but only the
-  coding and OS shells wire this listener to light it).
-  Driven off the *event*, not the control, so a model-initiated
-  `enter_plan_mode` lights the footer exactly like the leader menu's
-  `p` toggle.
+  driving the footer plan-mode badge off `Pikuri::Code::PlanModeChanged`;
+  coding/OS-shell-only.
 - `lib/pikuri_tui/code/git_watcher.rb` —
-  `PikuriTui::Code::GitWatcher`, the background poller feeding two views:
-  a compact change summary in the sidebar (one `XY path  +N -N` line per
-  changed file, from `git status --porcelain` + `--numstat`; each file's
-  label toned by kind via `AppTheme` — new green, deleted red, modified
-  yellow — and its `+N`/`-N` markers green/red) and the full diff in the
-  `GitDiffPopup`. Polls on its own thread every `POLL_INTERVAL`
-  seconds and, only when the capture changes, rewrites both `TextView`s
-  (marshaled onto the UI thread). The diff is plain (uncolored) `git diff
-  HEAD` (tracked, staged + unstaged) plus each untracked file diffed against
-  `/dev/null` with `diff --no-index` (a synthetic "new file" diff — surfacing
-  brand-new files without `git add -N` mutating the index), rendered through
-  `Code::GitDiffRenderer` (both renderings produced in `capture` on the poll
-  thread, like the summary's theming). Not a listener — the working tree
-  changes without an agent event to subscribe to. Started/stopped by
-  `App#run`.
+  `PikuriTui::Code::GitWatcher`, the background git poller feeding the
+  sidebar change summary and the `GitDiffPopup`'s full diff.
 - `lib/pikuri_tui/code/git_diff_popup.rb` —
-  `PikuriTui::Code::GitDiffPopup`, the `Tuile::Component::Popup` wrapping
-  the long-lived "Git diff" window (the full, scrollable diff `GitWatcher`
-  keeps current). Opened near-fullscreen from the leader menu's `d` entry;
-  overrides `max_height` to the screen height so the base 12-row cap
-  doesn't crop the diff. Same eager-window/reopen pattern as `LogPopup`.
+  `PikuriTui::Code::GitDiffPopup`, the fullscreen `Popup` wrapping the
+  long-lived Git diff window `GitWatcher` keeps current; opened from the
+  leader menu's `d` entry.
 - `lib/pikuri_tui/code/git_diff_renderer.rb` —
-  `PikuriTui::Code::GitDiffRenderer`, renders a plain `git diff` into the
-  popup's two-tier form by reusing `DiffRenderer`: it parses the
-  unified diff into files → hunks and feeds each hunk's reconstructed
-  before/after pair to `DiffRenderer` (so the per-line split and
-  character-level emphasis are re-derived by LCS, identical to the
-  `edit`/`write` tool diffs), assembled as a themed `✎ path` header over dim `@@ line N @@`
-  separators. Pads line bars to `min(longest content line, max_width)` so
-  they never exceed the pane width (which `TextView` would word-wrap).
-  Screen-agnostic like `DiffRenderer` / `DiffToolFormatting` — takes a
-  `theme` and a width, renders without a `Tuile::Screen`. Handles
-  new/deleted/binary sections (header markers; binary shows a `(binary)`
-  note).
+  `PikuriTui::Code::GitDiffRenderer`, renders a plain `git diff` into
+  `DiffRenderer`'s two-tier inline form so the popup matches the
+  `edit`/`write` tool diffs.
 - `lib/pikuri_tui/code/confirmer_popup.rb` —
   `PikuriTui::Code::ConfirmerPopup`, a `Pikuri::Workspace::Confirmer`
-  rendered as a modal Tuile popup instead of stdin. Implements the
-  upstream `decide` primitive (returning `Approved`/`Rejected`; the base
-  derives `confirm?` for the `Write`/`ExitPlanMode` gates) — called by
-  the `Write` / `Bash` / `agent` tools on the agent worker thread. It
-  marshals popup construction to the UI thread via
-  `screen.event_queue.submit` and blocks the worker on a `Queue` per
-  step. The decision popup offers approve (`y`) / reject-now (`n`) /
-  reject-with-reason (`r`) and — only for an editable `Request` (the
-  sub-agent `agent` task) — edit (`e`); reject-with-reason and edit each
-  open a second `PromptDialog` text-entry popup (reason: optional
-  steering text folded into the model's next observation; edit: the
-  "author, not approver" seat, whose rewritten task is what the
-  sub-agent receives). LLM-supplied question/detail pass through
-  `Pikuri::Sanitizer`, whose neutralized text + per-attack-class
-  warnings are rendered in the popup body (warnings in the `AppTheme`
-  `:notice` tone + bold, detail in `:detail`, like `Confirmer::Terminal`);
-  the sanitizer verdict also gates the edit pre-fill — a clean task
-  pre-fills the raw payload, a flagged one forces a full retype and drops
-  the bare-approve path (mirroring `Confirmer::Terminal`). ESC/`q`
-  dismissal declines (decline-by-default).
+  rendered as a modal Tuile popup instead of stdin; gates the
+  `Write` / `Bash` / `agent` tools with approve / edit / reject.
 - `lib/pikuri_tui/code/trust_store.rb` —
   `PikuriTui::Code::TrustStore`, the persisted set of git-config-trusted
-  project roots that gates `Code::Bash::ReadOnlyAutoConfirmer`'s `allow_git:`.
-  A plain newline-delimited file of realpath'd roots under
-  `Pikuri::Paths.state` (`~/.local/state/pikuri/trusted-projects`, mode 600;
-  no TOML — `tomlrb` is parse-only). `#trusted?` / `#trust!` realpath-normalize
-  on both ends (symlink aliases + trailing slashes collapse; exact match, never
-  prefix), append idempotently, and degrade to untrusted on any `SystemCallError`
-  (logged via `Pikuri.logger_for('trust')`, never raised — a persistence
-  failure must not tear down boot). Trust is keyed to the path only and asked at
-  most once per project (the bin's prompt); the class header documents the two
-  accepted residuals (a repo that turns hostile post-trust isn't re-prompted;
-  the lock-free append race is harmless, deduped on read). Its one Pikuri touch
-  is `Pikuri::Paths` (pikuri-core), a thin-adapter touch like `Config`'s.
+  project roots that gate read-only-git auto-approval; asked at most once
+  per project.
 - `lib/pikuri_tui/code/diff_renderer.rb` —
-  `PikuriTui::Code::DiffRenderer`, renders a before/after string pair as a
-  two-tier ANSI unified diff for the conversation pane: a full-width dim
-  line background per changed line plus a brighter background on the
-  characters that actually differ within a modified pair (Claude-Code
-  polarity). A modified line stays two continuous lines — the full removed
-  line then the full added line, each on its line tier with the changed
-  characters in the brighter span tier — rather than an inline merge, so a
-  multi-change line stays legible. `-`/`+`/` ` gutter markers survive
-  `NO_COLOR`. Line- and character-level alignment via `diff-lcs`
-  (`Diff::LCS.sdiff`).
-  Screen-agnostic like `MarkdownRenderer::AnsiConverter` — colors come from
-  an injected `Palette`, width from a parameter — so it renders and tests
-  without a `Tuile::Screen`. Output is built from `Tuile::StyledString`
-  spans. Caps long diffs with a `… +N more lines` tail.
+  `PikuriTui::Code::DiffRenderer`, renders a before/after string pair as
+  a two-tier ANSI unified diff for the conversation pane; screen-agnostic,
+  `diff-lcs`-aligned.
 - `lib/pikuri_tui/code/diff_tool_formatting.rb` —
   `PikuriTui::Code::DiffToolFormatting`, module functions shared by the
-  `edit` / `write` formatters: the call-time diff block (themed header over
-  a `DiffRenderer` body, palette read from the theme's four `:diff_*`
-  tokens at render time) and the result-time line (`nil` on success — the
-  diff already showed the change — a themed `✗ Error: …` line otherwise).
+  `edit` / `write` formatters: the call-time diff block and the
+  result-time error line.
 - `lib/pikuri_tui/code/edit_formatter.rb` —
-  `PikuriTui::Code::EditFormatter`, the `tool_formatters` entry for `edit`.
-  Diffs `old_string` → `new_string` straight from the `ToolCall` arguments
-  (self-contained, no file read). Degrades to the default tool-call line
-  (returns `nil`) on a rendering failure.
+  `PikuriTui::Code::EditFormatter`, the `tool_formatters` entry for
+  `edit`; diffs `old_string` → `new_string` straight from the `ToolCall`
+  arguments, no file read.
 - `lib/pikuri_tui/code/write_formatter.rb` —
   `PikuriTui::Code::WriteFormatter`, the `tool_formatters` entry for
-  `write`. Reads the existing file through the captured `filesystem` for the
-  diff's "before" side (a missing file renders as an all-added `create`),
-  diffing it against `content`. Falls back (`nil`) when the path is
-  unreadable, outside the workspace, a directory, or binary.
-- `lib/pikuri_tui/os.rb` — `PikuriTui::Os` namespace shell for the
-  OS-assistant front-end, and the home of the duplicate-only-the-shell
-  rationale: the OS shell copies only the genuinely-divergent shell-specific
-  pieces (`Os::App` / `Os::Layout`) but reuses the cross-cutting adapters
-  (including the shared `Input` / `FooterLabel`) and the `Code::*` confirmer
-  / diff classes directly.
+  `write`; diffs the on-disk file (read via `filesystem`) against
+  `content`, falling back when unreadable.
+- `lib/pikuri_tui/os.rb` — `PikuriTui::Os`, namespace for the
+  OS-assistant front-end; home of the duplicate-only-the-shell rationale
+  (copies `Os::App` / `Os::Layout`, reuses the `Code::*` adapters).
 - `lib/pikuri_tui/os/app.rb` — `PikuriTui::Os::App`, the Tuile shell for
-  `bin/pikuri-tui-os`. Laid out like `Chat::App` (one conversation pane
-  over an input strip, no sidebar — no task or git window) but carrying the
-  coding shell's safety machinery: it owns a `Code::ConfirmerPopup`,
-  surfaces plan mode (footer badge via `Code::PlanModeListener` + a leader
-  `p` toggle + `#toggle_plan_mode` on the shared
-  `Pikuri::Agent::Control::PlanMode`), forwards a `tool_formatters` map (the
-  bin's `edit` / `write` diff formatters) to its `TuileListener`, and wires
-  the model picker + footer model segment off a `models:` list. Yields
-  `(listener, confirmer, model_listener, plan_mode_listener)` to the build
-  block. Its `LeaderMenu` carries `l` logs / `p` plan mode / `m` switch
-  model / `c` clear conversation + context / `q` quit — the chat set plus
-  `p`, but without the coding shell's
-  `d` git diff.
+  `bin/pikuri-tui-os`; laid out like `Chat::App` (no sidebar) but carrying
+  the coding shell's safety machinery (confirmer, plan mode, diff
+  formatters).
 - `lib/pikuri_tui/os/layout.rb` — `PikuriTui::Os::Layout`, a parallel copy
   of `Chat::Layout` (vertical split: conversation top, fixed-height input
   strip bottom, no sidebar).
 - `bin/pikuri-tui-chat` — boot script for the chat agent
-  (`Bundler.setup(:default)`): maps every `Config#llms` connection to a
-  `ModelChoice` (via `ModelChoice.from_llm`) carrying a connection-bearing
-  `ChatTransport` (`api_base` / `api_key` on the transport, so a model
-  switch can cross servers), builds a
-  streaming `Pikuri::Agent` (booted on the first transport) wired with
-  the web/calc tools (search, scrape, fetch, calculator), a
-  `TokenLog`, a `Control::Interloper` (for mid-turn message
-  injection), the `App`-yielded `ModelListener`, and a rate-limited
-  `PikuriTui::TuileListener`, hands it to `PikuriTui::Chat::App` (with the
-  `models:` list).
+  (`Bundler.setup(:default)`): wires a streaming `Pikuri::Agent`
+  (web/calc tools) onto `Chat::App`. Ports pikuri's chat demo.
 - `bin/pikuri-tui-code` — boot script for the coding agent
-  (`Bundler.setup(:default, :code)`): discovers the project root
-  (VCS marker) and `chdir`s to it, builds a `Pikuri::Workspace`
-  rooted there + a bubblewrap sandbox + skill catalog, then a
-  streaming `Pikuri::Agent` wired with the six file/shell tools via
-  two pikuri extensions: the five read/grep/glob/edit/write file tools
-  via `Pikuri::Workspace::Extension` (which wraps the `Filesystem` in
-  one shared `Workspace` composite so the read-before-edit gate works
-  across them), and `Bash` + the sub-agent-only `git_clone` via
-  `Pikuri::Code::Extension` (Bash isn't a read/edit/write tool and
-  takes the raw `Filesystem`, not the read record, so it lives in the
-  code extension, not the workspace one). Both replace the per-tool
-  `add_tool` lines this bin used to repeat. The `Write` / `Bash` tools
-  take the `Code::ConfirmerPopup` the `App` yields, or `AUTO_APPROVE`
-  under `--no-confirm`/`--yolo`; `Bash`'s copy is additionally wrapped in
-  `Pikuri::Code::Bash::ReadOnlyAutoConfirmer` (so provably read-only
-  commands skip the popup), an asymmetric wrap `Write`/`Edit` don't get,
-  and a no-op-avoiding skip when confirmations are off. Before the screen
-  is up, computes `trusted_repo` to feed that wrap's `allow_git:` — gated
-  on confirmations-on + a `.git` at the project root + `Code::TrustStore`
-  (already trusted → silent; else, on an interactive TTY, a plain
-  `Confirmer::TERMINAL` y/n that persists a `yes`). All prompting/persistence
-  stays out of the `App.new` block (which may re-run); the outcome is logged
-  to the diagnostic pane, never the transcript. Also sub-agent-only network tools, and
-  the skill / task / MCP / sub-agent extensions. Constructs a shared
-  `Pikuri::Agent::Control::PlanMode` and hands it to BOTH `Agent.new`
-  (so `Code::Extension` wires the model's `enter_plan_mode`/`exit_plan_mode`
-  tools + the `PlanModeChanged` event, and `Edit`/`Write` refuse while
-  active) AND `Code::App` (so the leader menu's `p` entry toggles the same
-  flag). Wires the
-  `App`-yielded `Code::TaskListener`, `ModelListener`, and
-  `PlanModeListener` into the agent's `ListenerList` so the
-  `Pikuri::Tasks::Extension` list mutations reach the sidebar task pane,
-  model switches reach the footer, and plan-mode transitions light the
-  footer badge. Builds the `edit` /
-  `write` diff formatters (the `write` one over the same `filesystem`)
-  and passes them as `Code::App`'s `tool_formatters`. Maps `Config#llms`
-  through `ModelChoice.from_llm` to the `models:` list (connection-bearing
-  `ChatTransport`s) for the
-  leader menu's `m` model picker. Hands it to
-  `PikuriTui::Code::App`. Ports pikuri's own `bin/pikuri-code` demo
-  onto the Tuile shell.
+  (`Bundler.setup(:default, :code)`): discovers the project root, builds
+  the workspace + sandbox + six file/shell tools (with the confirmer /
+  trust / plan-mode wiring), and hands them to `Code::App`. Ports
+  pikuri's `bin/pikuri-code` demo.
 - `bin/pikuri-tui-os` — boot script for the OS assistant
-  (`Bundler.setup(:default, :os)`): builds a
-  `Pikuri::Workspace::Filesystem::AllowAll` rooted at the launch
-  directory (`denylist: []` — full host with no credential floor, so the
-  file tools see exactly what the network-severed bash already sees; every
-  writable Write/Edit still confirms via `Os::Extension`'s
-  `confirm_all_writes`), a
-  `Pikuri::Code::Bash::Sandbox::FullFsNoNet` (network-severed, probes
-  bwrap at construction and raises if unavailable; `NONE` under
-  `--no-sandbox`/`--yolo`), and the `:'os-assistant'` system prompt + the
-  `:'os-network-online'` posture block + date (this shell always wires the
-  quarantined RESEARCHER, so it appends the online block, not the offline
-  one; machine facts + MACHINE.md are appended by the extension). Builds a
-  streaming `Pikuri::Agent` (step limit 40, `Cancellable`, `Interloper`,
-  shared `PlanMode`) wired with the App-yielded `ModelListener` /
-  `PlanModeListener`, a rate-limited `TuileListener`, a `TokenLog`,
-  `Pikuri::Tool::CALCULATOR`, and one `Pikuri::Os::Extension`
-  (`filesystem:` / `confirmer:` / `sandbox:`) — which internally composes
-  `Workspace::Extension` (the five file tools) + `Code::Extension` (bash
-  wrapped in `ReadOnlyAutoConfirmer(allow_git: true)`, plan-mode tools) +
-  the optional fileindex tools. The `Write`/`bash` confirmer is the
-  `App`-yielded `Code::ConfirmerPopup`, or `AUTO_APPROVE` under
-  `--no-confirm`/`--yolo` (no `TrustStore` prompt — the extension handles
-  read-only-git auto-approval itself). Always wires web research,
-  quarantined: registers `web_search` (keyed off `Config#search`) /
-  `web_scrape` / `fetch` as sub-agent-only tools (so the main agent holds
-  no direct egress) plus a `Pikuri::SubAgent::Extension` carrying only
-  `Pikuri::SubAgent::RESEARCHER`, with the same confirmer gating each
-  research delegation — the always-on form of pikuri's demo
-  `--with-internet` flag — and registers `Pikuri::Extractors::PDF` (from
-  pikuri-pdf, in `:default`) into the extractor registry so that
-  researcher's `web_scrape` extracts `application/pdf` instead of refusing
-  it. Reuses the `Code::EditFormatter` /
-  `Code::WriteFormatter` diff formatters as `Os::App`'s `tool_formatters`,
-  and maps `Config#llms` through `ModelChoice.from_llm` to the `models:`
-  list. Hands it to `PikuriTui::Os::App`. Ports pikuri's own
-  `bin/pikuri-os-assistant` demo onto the Tuile shell.
+  (`Bundler.setup(:default, :os)`): builds the full-fs, network-severed
+  sandbox + `Pikuri::Os::Extension` + a quarantined web RESEARCHER onto
+  `Os::App`. Ports pikuri's `bin/pikuri-os-assistant` demo.
 - `bin/setup` — `bundle install` wrapper.
 - `bin/install` / `bin/uninstall` — symlink `bin/pikuri-tui-chat`,
   `bin/pikuri-tui-code` and `bin/pikuri-tui-os` into `$PREFIX` (default
