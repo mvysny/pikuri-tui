@@ -87,13 +87,6 @@ module PikuriTui
     # @return [Integer]
     SUB_AGENT_INDENT = 2
 
-    # Path of the debug event-dump file. Truncated on construction when
-    # the listener is built with +dump_events: true+, and appended to on
-    # every {#on_event} call thereafter.
-    #
-    # @return [String]
-    EVENT_DUMP_PATH = '/tmp/pikuri-tui-events.txt'
-
     LOG = Pikuri.logger_for('listener')
     private_constant :LOG
 
@@ -124,21 +117,16 @@ module PikuriTui
     #   redundant success line, or a string for an error). Both hooks may
     #   return +nil+ to fall back to the default rendering. Defaults to +{}+
     #   — the chat shell registers none, so its behavior is unchanged.
-    # @param dump_events [Boolean] when +true+, every event handed to
-    #   {#on_event} is also +inspect+-ed and appended to
-    #   {EVENT_DUMP_PATH}. The file is truncated here so each run starts
-    #   clean. Off by default; intended as a local debugging aid.
     # @param indent [Integer] leading spaces prepended to every rendered
     #   block (see {SUB_AGENT_INDENT}). +0+ for the main agent; set to
     #   {SUB_AGENT_INDENT} on the instance {#for_sub_agent} returns so a
     #   delegate's output is indented under the parent's stream.
-    def initialize(text_view:, screen:, markdown: true, tool_formatters: {}, dump_events: false, indent: 0)
+    def initialize(text_view:, screen:, markdown: true, tool_formatters: {}, indent: 0)
       super()
       @text_view = text_view
       @screen = screen
       @markdown = markdown
       @tool_formatters = tool_formatters
-      @dump_events = dump_events
       @indent = indent
       @pad = ' ' * indent
       @buffer = nil
@@ -150,8 +138,6 @@ module PikuriTui
       # ToolResult to pair the result with that call. ruby_llm runs tool
       # calls strictly call→result→call→result, so a single slot is exact.
       @pending_formatter = nil
-
-      File.write(EVENT_DUMP_PATH, '') if @dump_events
     end
 
     # Dispatches one event to the conversation pane. Called from the
@@ -168,7 +154,6 @@ module PikuriTui
     #   Pikuri::Agent::Event::ContextCap]
     # @return [void]
     def on_event(event)
-      File.open(EVENT_DUMP_PATH, 'a') { |f| f.puts(event.inspect) } if @dump_events
       @screen.event_queue.submit { dispatch_event(event) }
     end
 
@@ -183,8 +168,7 @@ module PikuriTui
     # parent's +→ agent(...)+ call. It carries its own streaming/thinking state
     # (the parent's buffers are flushed before the tool call runs and the parent
     # is blocked until the delegate returns, so there's nothing to clobber) and
-    # shares the parent's +markdown+ / +tool_formatters+ config. Event dumping
-    # is left off so a spawn doesn't re-truncate {EVENT_DUMP_PATH} mid-run.
+    # shares the parent's +markdown+ / +tool_formatters+ config.
     #
     # @return [TuileListener]
     def for_sub_agent(**)
