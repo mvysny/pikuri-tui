@@ -154,9 +154,7 @@ module PikuriTui
         @title = title
         @markdown = markdown
         @tool_formatters = tool_formatters
-        @models = models
-        @model_names = models.to_h { |choice| [choice.key, choice.name] }
-        @pending_transport = nil
+        @model_picker = ModelPicker.new(models: models)
         @plan_mode = plan_mode
         @capture_mouse = capture_mouse
         @error_count = 0
@@ -173,7 +171,7 @@ module PikuriTui
         @footer_label.interloper = @agent.interloper
         # Seed the footer with the boot model's display name; the
         # ModelListener takes over on every later switch.
-        @footer_label.current_model = @model_names.fetch(ModelChoice.key(@agent.transport), @agent.model)
+        @footer_label.current_model = @model_picker.display_name(@agent.transport)
 
         @leader_menu = build_leader_menu
         @screen.on_error = method(:on_screen_error)
@@ -222,7 +220,7 @@ module PikuriTui
           markdown: @markdown, tool_formatters: @tool_formatters
         )
         @confirmer = Code::ConfirmerPopup.new(screen: @screen)
-        @model_listener = ModelListener.new(footer: @footer_label, screen: @screen, names: @model_names)
+        @model_listener = ModelListener.new(footer: @footer_label, screen: @screen, names: @model_picker.names)
         @plan_mode_listener = Code::PlanModeListener.new(footer: @footer_label, screen: @screen)
 
         @layout = Layout.new(
@@ -275,7 +273,7 @@ module PikuriTui
         menu = LeaderMenu.new(screen: @screen)
         menu.add('l', 'logs') { open_log_popup }
         menu.add('p', 'plan mode') { toggle_plan_mode }
-        menu.add('m', 'switch model') { open_model_picker } if @models.size > 1
+        menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
         menu.add('c', 'clear conversation + context') { clear_conversation }
         menu.add('q', 'quit') { quit }
         menu
@@ -329,34 +327,6 @@ module PikuriTui
       # @return [void]
       def toggle_plan_mode
         @plan_mode.active? ? @plan_mode.deactivate! : @plan_mode.activate!
-      end
-
-      # Open the model picker: a {Tuile::Component::PickerWindow} popup
-      # listing every configured connection, the active one (matched by
-      # the agent's current {ModelChoice.key} — [model, api_base] — so two
-      # connections sharing a model id on different servers don't both
-      # flag) flagged. Picking stashes that
-      # connection's transport as {@pending_transport}; it is applied at
-      # the top of the *next* +run_loop+ (see {#start_turn}), and the
-      # footer updates only once the switch lands (via {ModelListener}).
-      # ESC / +q+ dismiss without changing anything.
-      #
-      # Hotkeys cover the first nine entries (PickerWindow keys are single
-      # characters); arrow-keys + Enter select any entry. Runs on the UI
-      # thread (global-shortcut dispatch), so the +@pending_transport+
-      # write is safe against {#start_turn}'s read.
-      #
-      # @return [void]
-      def open_model_picker
-        current = ModelChoice.key(@agent.transport)
-        options = @models.each_with_index.map do |choice, i|
-          marker = choice.key == current ? '● ' : '  '
-          [(i + 1).to_s, "#{marker}#{choice.name}"]
-        end
-        Tuile::Component::PickerWindow.open('Switch model', options) do |key|
-          choice = @models[key.to_i - 1]
-          @pending_transport = choice.transport if choice
-        end
       end
 
       # (Re-)registers the +Ctrl+K+ leader-menu global shortcut with a
@@ -432,9 +402,8 @@ module PikuriTui
       def start_turn(message)
         # Consume the picker's pending model switch (if any) on the UI
         # thread, before the worker spawns: run_loop applies it at the top
-        # of the turn. Cleared here so it's applied at most once.
-        transport = @pending_transport
-        @pending_transport = nil
+        # of the turn. take_pending clears it so it's applied at most once.
+        transport = @model_picker.take_pending
         @footer_label.start_animation
         Thread.new do
           @agent.run_loop(user_message: message, transport: transport)

@@ -265,8 +265,11 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   name onto the conversation footer (`current_model=`, marshaled to the UI
   thread). Shared by both shells; the model switch is surfaced in the
   footer only, never echoed into the transcript, so the footer reflects
-  the model the agent is *actually* on. Resolves the raw model id to the
-  friendly `ModelChoice#name` via a map the `App` builds.
+  the model the agent is *actually* on. Resolves the switched-to model to
+  the friendly `ModelChoice#name` via a name map `ModelPicker` builds.
+- `lib/pikuri_tui/model_picker.rb` — `PikuriTui::ModelPicker`, the shared
+  leader-menu model-switch picker (connection catalog, name map, pending
+  switch, `PickerWindow` popup) all three shells compose.
 - `lib/pikuri_tui/counting_log_io.rb` — `PikuriTui::CountingLogIO`,
   the `IO`-shaped sink that forwards every line to the diagnostic
   `LogWindow` and counts error-class writes so the `Ctrl+K` menu
@@ -340,11 +343,8 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   Tuile shell for `bin/pikuri-tui-chat` (conversation `TextView` +
   diagnostic `LogWindow` + input field + status bar). Takes a `models:`
   list (`ModelChoice`s) and yields a `ModelListener` to the build block
-  alongside the conversation listener; the `LeaderMenu`'s `m` entry
-  (registered only when more than one model is configured) opens a
-  `Tuile::Component::PickerWindow` popup whose pick stashes a pending
-  `ChatTransport`, applied at the top of the next `run_loop` via its
-  `transport:` arg. Builds its `LeaderMenu` (logs / switch model / clear
+  alongside the conversation listener; a shared `ModelPicker` backs the
+  leader menu's `m` model-switch entry. Builds its `LeaderMenu` (logs / switch model / clear
   conversation / quit; `c` calls `Pikuri::Agent#clear_conversation`)
   and registers the `Ctrl+K` leader + `Ctrl+C` cancel shortcuts in
   `#register_shortcuts`.

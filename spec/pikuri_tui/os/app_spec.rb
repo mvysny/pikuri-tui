@@ -246,20 +246,14 @@ RSpec.describe PikuriTui::Os::App do
       assert_equal 'Local', footer.current_model
     end
 
-    it 'builds options flagging the active model and selecting one stashes its transport' do
-      options, block = capture_picker { picker_app.send(:open_model_picker) }
-
-      assert_equal '1', options[0][0]
-      assert_match(/●\s*Local/, options[0][1])
-      assert_match(/Cloud/,     options[1][1])
-
-      block.call('2')
-      assert_equal choices[1].transport, picker_app.instance_variable_get(:@pending_transport)
-    end
-
-    it 'applies the pending transport to the next run_loop, then clears it' do
+    # Integration: a pick made through the app's ModelPicker reaches the next
+    # run_loop and is consumed once. The picker's own option/marker/keying
+    # behavior is unit-tested in model_picker_spec.
+    it 'applies the picked transport to the next run_loop, then clears it' do
       agent = picker_app.agent
-      picker_app.instance_variable_set(:@pending_transport, choices[1].transport)
+      picker = picker_app.instance_variable_get(:@model_picker)
+      _, block = capture_picker { picker.open(current: agent.transport) }
+      block.call('2') # pick 'Cloud'
 
       picker_app.send(:submit_message, 'go')
       wait_until { agent.messages.size == 1 }

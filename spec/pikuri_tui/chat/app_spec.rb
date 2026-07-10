@@ -341,20 +341,14 @@ RSpec.describe PikuriTui::Chat::App do
       assert_equal 'Local', footer.current_model
     end
 
-    it 'builds options flagging the active model and selecting one stashes its transport' do
-      options, block = capture_picker { picker_app.send(:open_model_picker) }
-
-      assert_equal '1', options[0][0]
-      assert_match(/●\s*Local/, options[0][1])
-      assert_match(/Cloud/,     options[1][1])
-
-      block.call('2')
-      assert_equal choices[1].transport, picker_app.instance_variable_get(:@pending_transport)
-    end
-
-    it 'applies the pending transport to the next run_loop, then clears it' do
+    # Integration: a pick made through the app's ModelPicker reaches the next
+    # run_loop and is consumed once. The picker's own option/marker/keying
+    # behavior is unit-tested in model_picker_spec.
+    it 'applies the picked transport to the next run_loop, then clears it' do
       agent = picker_app.agent
-      picker_app.instance_variable_set(:@pending_transport, choices[1].transport)
+      picker = picker_app.instance_variable_get(:@model_picker)
+      _, block = capture_picker { picker.open(current: agent.transport) }
+      block.call('2') # pick 'Cloud'
 
       picker_app.send(:submit_message, 'go')
       wait_until { agent.messages.size == 1 }
@@ -365,32 +359,16 @@ RSpec.describe PikuriTui::Chat::App do
       assert_nil agent.transports[1], 'a switch must apply at most once'
     end
 
-    # Regression: two connections running the *same* model id on different
-    # servers must not both flag as active, and the footer must show the
-    # right one. Keyed on the model id alone, both got the ● and the
-    # id → name map collided (last-wins).
-    describe 'two connections sharing a model id on different servers' do
-      let(:choices) do
-        [model_choice('Local Qwen', 'qwen3', api_base: 'http://localhost:8080/v1'),
-         model_choice('Remote Qwen', 'qwen3', api_base: 'http://mavi-fw:8080/v1')]
+    # Regression (integration): two connections running the same model id on
+    # different servers must not collide in the footer's id → name map — the
+    # footer must name the connection the agent actually booted on.
+    it 'seeds the footer with the active connection, not a same-model sibling' do
+      pair = [model_choice('Local Qwen', 'qwen3', api_base: 'http://localhost:8080/v1'),
+              model_choice('Remote Qwen', 'qwen3', api_base: 'http://mavi-fw:8080/v1')]
+      app = described_class.new(models: pair) do |listener, _ml|
+        StubAgent.new(listener, model: 'qwen3', api_base: 'http://mavi-fw:8080/v1')
       end
-      let(:picker_app) do
-        described_class.new(models: choices) do |listener, _ml|
-          StubAgent.new(listener, model: 'qwen3', api_base: 'http://mavi-fw:8080/v1')
-        end
-      end
-
-      it 'flags only the active connection, not every entry sharing the model id' do
-        options, = capture_picker { picker_app.send(:open_model_picker) }
-
-        refute_match(/●/, options[0][1], 'the inactive same-model connection must not flag')
-        assert_match(/●\s*Remote Qwen/, options[1][1])
-      end
-
-      it 'seeds the footer with the active connection name, not the colliding one' do
-        footer = picker_app.instance_variable_get(:@footer_label)
-        assert_equal 'Remote Qwen', footer.current_model
-      end
+      assert_equal 'Remote Qwen', app.instance_variable_get(:@footer_label).current_model
     end
   end
 
