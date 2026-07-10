@@ -744,6 +744,26 @@ namespace; `lib/pikuri_tui.rb` boots Zeitwerk over `lib/pikuri_tui/`.
   components.** Same shape one level down. Don't install your own
   `SIGWINCH` handler, don't `puts` directly to the terminal once
   the screen is up, don't repaint on a side thread.
+- **Dedup by extracting reusable building blocks, not by sharing
+  app scaffolding.** This is component-oriented programming: the
+  three shells' final composition (`App` / `Layout`) stays as
+  deliberate parallel copies — we never fold them into a common
+  base or a shared "generic App" — but everything *smaller* that
+  they compose out of is a candidate for extraction. When the same
+  UI component, listener, adapter, or well-defined standalone class
+  appears in more than one shell, extract it once to the
+  `PikuriTui` top level (or `Code::*` when it's coding-family) and
+  reuse it — that is how we kill duplication. The building blocks
+  already living this way: `Input`, `FooterLabel`, `ModelListener`,
+  `LeaderMenu`, `LogPopup`, `CountingLogIO`, `ModelChoice`, and the
+  `Code::*` confirmer / diff classes the OS shell reuses verbatim.
+  The test for extraction is not "is it a widget" but "does this
+  piece stand alone with a clear contract and carry no
+  shell-specific divergence?" — if yes, it belongs in a shared
+  block; a triplicated field or method across the three `App`s is
+  the signal that a block is waiting to be pulled out. Only the
+  genuinely-divergent scaffolding that wires those blocks together
+  stays duplicated (see the `code.rb` / `os.rb` rationale).
 - **Grow by adding components and listener variants, not by
   complicating the layout.** New UI surface should land as a new
   Tuile component composition or a new
