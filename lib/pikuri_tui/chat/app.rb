@@ -115,14 +115,13 @@ module PikuriTui
       #   listener; include it in the agent's +ListenerList+.
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given (no agent → no app).
-      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, markdown: true, models: [], capture_mouse: true, &build_agent)
+      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, markdown: true, models: [], &build_agent)
         raise LocalJumpError, 'Chat::App requires a block that builds the Pikuri::Agent' unless block_given?
 
         @screen = Tuile::Screen.instance
         @token_log = token_log
         @markdown = markdown
         @model_picker = ModelPicker.new(models: models)
-        @capture_mouse = capture_mouse
         @error_count = 0
         @turn_in_progress = false
 
@@ -158,7 +157,7 @@ module PikuriTui
       #
       # @return [void]
       def run
-        @screen.run_event_loop(capture_mouse: @capture_mouse)
+        @screen.run_event_loop
       ensure
         @screen.close
       end

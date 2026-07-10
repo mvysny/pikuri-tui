@@ -111,8 +111,6 @@ module PikuriTui
       #   {TuileListener}'s +tool_formatters:+ — the per-tool diff
       #   formatters ({Code::EditFormatter} / {Code::WriteFormatter}) the
       #   bin wires for the +edit+ / +write+ tools. Defaults to +{}+.
-      # @param capture_mouse [Boolean] forwarded to
-      #   {Tuile::Screen#run_event_loop} (default +true+).
       # @param models [Array<ModelChoice>] the connections the leader menu's
       #   +m+ model picker offers, in display order. The +m+ menu entry is
       #   registered only when more than one is given; the model id → name
@@ -146,7 +144,7 @@ module PikuriTui
       #   (alongside the +Os::Extension+ that emits the events it renders).
       # @yieldreturn [Pikuri::Agent] the wired agent.
       # @raise [LocalJumpError] if no block is given.
-      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, title: 'OS Assistant', markdown: true, tool_formatters: {}, models: [], plan_mode: Pikuri::Workspace::ReadOnly.new, capture_mouse: true, &build_agent)
+      def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, title: 'OS Assistant', markdown: true, tool_formatters: {}, models: [], plan_mode: Pikuri::Workspace::ReadOnly.new, &build_agent)
         raise LocalJumpError, 'Os::App requires a block that builds the Pikuri::Agent' unless block_given?
 
         @screen = Tuile::Screen.instance
@@ -156,7 +154,6 @@ module PikuriTui
         @tool_formatters = tool_formatters
         @model_picker = ModelPicker.new(models: models)
         @plan_mode = plan_mode
-        @capture_mouse = capture_mouse
         @error_count = 0
         @turn_in_progress = false
 
@@ -188,7 +185,7 @@ module PikuriTui
       #
       # @return [void]
       def run
-        @screen.run_event_loop(capture_mouse: @capture_mouse)
+        @screen.run_event_loop
       ensure
         @screen.close
       end
