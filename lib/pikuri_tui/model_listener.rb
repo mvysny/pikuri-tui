@@ -30,9 +30,13 @@ module PikuriTui
   # {Pikuri::Agent::Event::ModelSwitched} carries the raw
   # {Pikuri::Agent::ChatTransport} (model *id*, which is often long and
   # ugly — +"unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"+). The +names+ map
-  # (model id → {ModelChoice#name}, built by the App from its +models:+
-  # list) resolves it to the friendly connection name; an id with no entry
-  # (e.g. a model reached some other way) falls back to the id itself.
+  # ({ModelChoice.key} → {ModelChoice#name}, built by the App from its
+  # +models:+ list) resolves it to the friendly connection name; a
+  # transport with no entry (e.g. a model reached some other way) falls
+  # back to the model id itself. The map is keyed on the +[model, api_base]+
+  # pair, not the model id alone: two connections can run the same model on
+  # different servers, so the id alone can't tell +"Local Qwen 3.6"+ from
+  # +"mavi-fw Qwen 3.6"+ (see {ModelChoice.key}).
   #
   # == Threading
   #
@@ -45,8 +49,9 @@ module PikuriTui
     # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals
     #   the update back from the worker thread. Passed explicitly (not the
     #   singleton) so tests can inject a {Tuile::FakeScreen}.
-    # @param names [Hash{String => String}] model id → display name; ids
-    #   absent from the map render as the raw id.
+    # @param names [Hash{Array(String, String) => String}] {ModelChoice.key}
+    #   ([model, api_base]) → display name; transports absent from the map
+    #   render as their raw model id.
     def initialize(footer:, screen:, names: {})
       super()
       @footer = footer
@@ -64,7 +69,7 @@ module PikuriTui
     def on_event(event)
       return unless event.is_a?(Pikuri::Agent::Event::ModelSwitched)
 
-      name = display_name(event.to.model)
+      name = display_name(event.to)
       @screen.event_queue.submit { @footer.current_model = name }
     end
 
@@ -72,12 +77,14 @@ module PikuriTui
     #   listener is in its +ListenerList+.
     def to_s = 'ModelListener'
 
-    # Resolve a model id to its friendly name, falling back to the id.
+    # Resolve a transport to its friendly connection name, falling back to
+    # the raw model id when the +[model, api_base]+ pair isn't in the map.
     #
-    # @param model_id [String]
+    # @param transport [Pikuri::Agent::ChatTransport] the landed transport
+    #   (typically a {Pikuri::Agent::Event::ModelSwitched}'s +to:+).
     # @return [String]
-    def display_name(model_id)
-      @names.fetch(model_id, model_id)
+    def display_name(transport)
+      @names.fetch(ModelChoice.key(transport), transport.model)
     end
   end
 end

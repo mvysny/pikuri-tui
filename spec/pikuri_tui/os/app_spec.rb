@@ -6,19 +6,24 @@ RSpec.describe PikuriTui::Os::App do
   # model_listener, plan_mode_listener); StubAgent only needs the listener
   # (the real agent's tools / ListenerList would take the rest).
   class StubAgent
-    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports, :clear_count
+    attr_reader :cancellable, :interloper, :listener, :messages, :transport, :transports, :clear_count
 
-    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model')
+    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
+                   api_base: 'http://x/v1')
       @listener = listener
       @cancellable = Pikuri::Agent::Control::Cancellable.new
       @interloper = interloper
-      @model = model
+      @transport = Pikuri::Agent::ChatTransport.new(
+        model: model, provider: :openai, assume_model_exists: true, api_base: api_base, api_key: 'k'
+      )
       @messages = []
       @transports = []
       @clear_count = 0
       @gate = Queue.new
       @blocking = false
     end
+
+    def model = @transport.model
 
     def block_turns! = @blocking = true
 

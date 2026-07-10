@@ -44,4 +44,20 @@ describe PikuriTui::ModelChoice do
       assert_nil described_class.from_llm(llm(context_window: nil)).transport.context_window
     end
   end
+
+  describe '.key / #key' do
+    it 'keys on [model, api_base], so same-model-different-server connections differ' do
+      local  = described_class.from_llm(llm(model: 'qwen3', server: 'http://localhost:8080'))
+      remote = described_class.from_llm(llm(model: 'qwen3', server: 'http://mavi-fw:8080'))
+
+      assert_equal ['qwen3', 'http://localhost:8080/v1'], local.key
+      assert_equal ['qwen3', 'http://mavi-fw:8080/v1'], remote.key
+      refute_equal local.key, remote.key
+    end
+
+    it 'derives the same key from a bare transport as from a choice' do
+      choice = described_class.from_llm(llm(model: 'qwen3', server: 'http://localhost:8080'))
+      assert_equal choice.key, described_class.key(choice.transport)
+    end
+  end
 end

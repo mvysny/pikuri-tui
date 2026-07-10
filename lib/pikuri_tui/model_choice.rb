@@ -18,6 +18,29 @@ module PikuriTui
   #   @return [Pikuri::Agent::ChatTransport] the transport selecting this
   #     entry switches to.
   ModelChoice = Data.define(:name, :transport) do
+    # The identity key that distinguishes one connection from another,
+    # derived from a {Pikuri::Agent::ChatTransport}. The model id *alone*
+    # is not unique — two +[[llm]]+ entries may run the same model on
+    # different servers (+"Local Qwen 3.6"+ and +"mavi-fw Qwen 3.6"+ both
+    # name +unsloth/Qwen3.6-…+, differing only by +server+) — so every
+    # "which connection is this?" comparison keys on the +[model, api_base]+
+    # pair instead. Used by the shells' model picker (its active-entry
+    # marker) and footer (id → display-name resolution), off both our own
+    # {#transport} and the +to:+ transport a landed
+    # {Pikuri::Agent::Event::ModelSwitched} carries.
+    #
+    # +name+ is the truly-unique key ({Config} enforces it), but it is not
+    # recoverable from a transport (the switch event carries no name), so
+    # this pair is the identity the transport-only paths can actually match.
+    #
+    # @param transport [Pikuri::Agent::ChatTransport] the transport to key.
+    # @return [Array(String, String, nil)] the +[model, api_base]+ pair.
+    def self.key(transport) = [transport.model, transport.api_base]
+
+    # @return [Array(String, String, nil)] this choice's identity key
+    #   (see {.key}).
+    def key = self.class.key(transport)
+
     # Build a choice from one {Config::Llm} connection. The connection
     # (api_base / api_key) rides the {Pikuri::Agent::ChatTransport}'s own
     # per-chat +RubyLLM::Context+ — pikuri needs no process-global

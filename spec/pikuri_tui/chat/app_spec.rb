@@ -12,19 +12,24 @@ RSpec.describe PikuriTui::Chat::App do
   # spec calls {#finish_turn!}, so a spec can hold a turn open and observe
   # the mid-turn paths.
   class StubAgent
-    attr_reader :cancellable, :interloper, :listener, :messages, :model, :transports, :clear_count
+    attr_reader :cancellable, :interloper, :listener, :messages, :transport, :transports, :clear_count
 
-    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model')
+    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
+                   api_base: 'http://x/v1')
       @listener = listener
       @cancellable = Pikuri::Agent::Control::Cancellable.new
       @interloper = interloper
-      @model = model
+      @transport = Pikuri::Agent::ChatTransport.new(
+        model: model, provider: :openai, assume_model_exists: true, api_base: api_base, api_key: 'k'
+      )
       @messages = []
       @transports = []
       @clear_count = 0
       @gate = Queue.new
       @blocking = false
     end
+
+    def model = @transport.model
 
     def block_turns! = @blocking = true
 
@@ -359,16 +364,44 @@ RSpec.describe PikuriTui::Chat::App do
       wait_until { agent.messages.size == 2 }
       assert_nil agent.transports[1], 'a switch must apply at most once'
     end
+
+    # Regression: two connections running the *same* model id on different
+    # servers must not both flag as active, and the footer must show the
+    # right one. Keyed on the model id alone, both got the ● and the
+    # id → name map collided (last-wins).
+    describe 'two connections sharing a model id on different servers' do
+      let(:choices) do
+        [model_choice('Local Qwen', 'qwen3', api_base: 'http://localhost:8080/v1'),
+         model_choice('Remote Qwen', 'qwen3', api_base: 'http://mavi-fw:8080/v1')]
+      end
+      let(:picker_app) do
+        described_class.new(models: choices) do |listener, _ml|
+          StubAgent.new(listener, model: 'qwen3', api_base: 'http://mavi-fw:8080/v1')
+        end
+      end
+
+      it 'flags only the active connection, not every entry sharing the model id' do
+        options, = capture_picker { picker_app.send(:open_model_picker) }
+
+        refute_match(/●/, options[0][1], 'the inactive same-model connection must not flag')
+        assert_match(/●\s*Remote Qwen/, options[1][1])
+      end
+
+      it 'seeds the footer with the active connection name, not the colliding one' do
+        footer = picker_app.instance_variable_get(:@footer_label)
+        assert_equal 'Remote Qwen', footer.current_model
+      end
+    end
   end
 
   private
 
-  def model_choice(name, model)
+  def model_choice(name, model, api_base: 'http://x/v1')
     PikuriTui::ModelChoice.new(
       name: name,
       transport: Pikuri::Agent::ChatTransport.new(
         model: model, provider: :openai, assume_model_exists: true,
-        api_base: 'http://x/v1', api_key: 'k'
+        api_base: api_base, api_key: 'k'
       )
     )
   end

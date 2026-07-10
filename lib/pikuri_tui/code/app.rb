@@ -169,7 +169,7 @@ module PikuriTui
         @markdown = markdown
         @tool_formatters = tool_formatters
         @models = models
-        @model_names = models.to_h { |choice| [choice.transport.model, choice.name] }
+        @model_names = models.to_h { |choice| [choice.key, choice.name] }
         @pending_transport = nil
         @plan_mode = plan_mode
         @capture_mouse = capture_mouse
@@ -187,7 +187,7 @@ module PikuriTui
         @footer_label.interloper = @agent.interloper
         # Seed the footer with the boot model's display name; the
         # ModelListener takes over on every later switch.
-        @footer_label.current_model = @model_names.fetch(@agent.model, @agent.model)
+        @footer_label.current_model = @model_names.fetch(ModelChoice.key(@agent.transport), @agent.model)
 
         @leader_menu = build_leader_menu
         @screen.on_error = method(:on_screen_error)
@@ -383,7 +383,9 @@ module PikuriTui
 
       # Open the model picker: a {Tuile::Component::PickerWindow} popup
       # listing every configured connection, the active one (matched by
-      # the agent's current model id) flagged. Picking stashes that
+      # the agent's current {ModelChoice.key} — [model, api_base] — so two
+      # connections sharing a model id on different servers don't both
+      # flag) flagged. Picking stashes that
       # connection's transport as {@pending_transport}; it is applied at
       # the top of the *next* +run_loop+ (see {#start_turn}), and the
       # footer updates only once the switch lands (via {ModelListener}).
@@ -396,9 +398,9 @@ module PikuriTui
       #
       # @return [void]
       def open_model_picker
-        current = @agent.model
+        current = ModelChoice.key(@agent.transport)
         options = @models.each_with_index.map do |choice, i|
-          marker = choice.transport.model == current ? '● ' : '  '
+          marker = choice.key == current ? '● ' : '  '
           [(i + 1).to_s, "#{marker}#{choice.name}"]
         end
         Tuile::Component::PickerWindow.open('Switch model', options) do |key|
