@@ -68,9 +68,9 @@ module PikuriTui
       attr_reader :conversation_view
 
       # @return [Tuile::Component::LogWindow] the eager-constructed
-      #   diagnostic window. Exposed for tests and for callers that want
-      #   to install additional logger sinks.
-      attr_reader :log_window
+      #   diagnostic window (owned by the {LogUI}). Exposed for tests and for
+      #   callers that want to install additional logger sinks.
+      def log_window = @log_ui.log_window
 
       # @return [Pikuri::Agent::Listener::TokenLog] the main agent's
       #   token log, fed into the conversation-window {FooterLabel}.
@@ -122,11 +122,10 @@ module PikuriTui
         @token_log = token_log
         @markdown = markdown
         @model_picker = ModelPicker.new(models: models)
-        @error_count = 0
         @turn_in_progress = false
 
         build_components
-        wire_logging
+        @log_ui.wire!
         @agent = build_agent.call(@listener, @model_listener)
         # The footer renders a "N queued" segment off the interloper's
         # +peek+ while mid-turn injections are pending. Installed here
@@ -166,8 +165,7 @@ module PikuriTui
 
       # @return [void]
       def build_components
-        @log_window = Tuile::Component::LogWindow.new('Log')
-        @log_popup = LogPopup.new(log_window: @log_window, on_dismiss: method(:reset_error_count))
+        @log_ui = LogUI.new(screen: @screen)
 
         @conversation_view = Tuile::Component::TextView.new
         @conversation_view.auto_scroll = true
@@ -197,16 +195,16 @@ module PikuriTui
       # cursor-owner suppression that would otherwise let the focused
       # {Input} swallow them, and both surface a hint in the screen's
       # status bar (which is why Ctrl+K is registered via
-      # {#install_leader_shortcut} — its hint mutates as errors accrue).
+      # {LogUI#install_shortcut} — its hint mutates as errors accrue).
       #
       # All app actions are reached through one of two keys; every other
       # binding lives behind the {LeaderMenu}:
       #
       # - +Ctrl+K+ opens the {LeaderMenu} command popup (logs / switch model
       #   / quit). +over_popups: false+ (the default), so it can't stack over
-      #   an open popup. Its hint also carries the unread-error tally (see
-      #   {#install_leader_shortcut} / {#menu_hint}) — the only always-visible
-      #   status-bar surface left now that the direct +Ctrl+L+ is gone.
+      #   an open popup. The {LogUI} owns this binding because its hint also
+      #   carries the unread-error tally — the only always-visible status-bar
+      #   surface left now that the direct +Ctrl+L+ is gone.
       # - +Ctrl+C+ runs the {#on_interrupt} escalation (cancel turn →
       #   unfocus → quit). The one direct accelerator kept: it is the urgent
       #   mid-turn interrupt, not a command we want behind a chord. Also
@@ -221,7 +219,7 @@ module PikuriTui
           Tuile::Keys::CTRL_C,
           hint: "^C #{@screen.theme.error('cancel')}"
         ) { on_interrupt }
-        install_leader_shortcut
+        @log_ui.install_shortcut { @leader_menu.open }
       end
 
       # Build the {LeaderMenu} for the chat shell: logs, switch model (only
@@ -232,7 +230,7 @@ module PikuriTui
       # @return [LeaderMenu]
       def build_leader_menu
         menu = LeaderMenu.new(screen: @screen)
-        menu.add('l', 'logs') { open_log_popup }
+        menu.add('l', 'logs') { @log_ui.open }
         menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
         menu.add('c', 'clear conversation + context') { clear_conversation }
         menu.add('q', 'quit') { quit }
@@ -272,43 +270,6 @@ module PikuriTui
       # @return [void]
       def quit
         @screen.event_queue.stop
-      end
-
-      # (Re-)registers the +Ctrl+K+ leader-menu global shortcut with a
-      # status-bar hint that reflects the current {@error_count}.
-      # {Tuile::Screen} replaces the binding in place on re-register, so this
-      # is also how the hint stays in sync with the error counter —
-      # {#on_error_logged} and {#reset_error_count} both call back here after
-      # touching the count. (The error tally rides the menu hint because it is
-      # the only always-visible status-bar surface; the user reaches the logs
-      # through the menu's +l+ entry.)
-      #
-      # @return [void]
-      def install_leader_shortcut
-        @screen.register_global_shortcut(Tuile::Keys::CTRL_K, hint: menu_hint) { @leader_menu.open }
-      end
-
-      # Routes every pikuri / Tuile log line — and any exception trapped
-      # by {Tuile::Screen#on_error} — through a single {CountingLogIO}
-      # that both renders into {@log_window} and bumps the error counter
-      # backing the +Ctrl+K+ menu status-bar hint. Must run after
-      # {@log_window} exists and before the agent is built (the agent's
-      # construction can already log).
-      #
-      # If the boot sink was a {BufferingLogIO} (the bins install one as the
-      # pre-screen +Pikuri.log_io+), its retained pre-screen lines are replayed
-      # through the new {CountingLogIO} *after* the swap — so the config-file
-      # reads, +chmod 600+ advisories and model-wiring lines that only hit
-      # +$stderr+ at boot now appear in the diagnostic pane, error lines among
-      # them bumping the counter just like a live write.
-      #
-      # @return [void]
-      def wire_logging
-        io = CountingLogIO.new(log_window: @log_window, on_error: method(:on_error_logged))
-        prior = Pikuri.log_io
-        Tuile.logger = Logger.new(io)
-        Pikuri.log_io = io
-        prior.replay_into(io) if prior.respond_to?(:replay_into)
       end
 
       # @param message [String] non-empty draft handed up by {Input}
@@ -407,13 +368,6 @@ module PikuriTui
         submit_message(pending.join("\n\n"))
       end
 
-      # @return [void]
-      def open_log_popup
-        return if @log_popup.open?
-
-        @log_popup.open
-      end
-
       # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven
       # explicitly because a global shortcut fires before the pane and so
       # never "falls through" to the loop's unhandled-key quit the way ESC
@@ -444,49 +398,6 @@ module PikuriTui
           @screen.focused = nil
         else
           @screen.event_queue.stop
-        end
-      end
-
-      # Called by {CountingLogIO} on every error-class log write. The
-      # callback fires on the *logging* thread (any thread), so the
-      # actual counter mutation and hint refresh are marshaled to the
-      # event-loop thread via +submit+.
-      #
-      # @param _line [String] the offending log line (ignored — we only
-      #   need the count)
-      # @return [void]
-      def on_error_logged(_line)
-        @screen.event_queue.submit do
-          @error_count += 1
-          install_leader_shortcut
-        end
-      end
-
-      # Fires when the log popup is dismissed (ESC / q from inside the
-      # popup). Runs on the event-loop thread, so direct mutation is safe.
-      #
-      # @return [void]
-      def reset_error_count
-        @error_count = 0
-        install_leader_shortcut
-      end
-
-      # The status-bar hint advertised for +Ctrl+K+. The plain "menu"
-      # variant uses the theme's +hint_color+, matching the Tuile-supplied
-      # "q quit" / "q Close" styling; the warning variant uses the theme's
-      # +:error+ token to foreground the unread-error tally so the user
-      # notices something broke (and that the logs behind the menu are worth
-      # opening) without us writing log lines into the conversation pane.
-      #
-      # Pure read of {@error_count}; all callers are on the event-loop
-      # thread.
-      #
-      # @return [String]
-      def menu_hint
-        if @error_count.zero?
-          "^K #{@screen.theme.hint('menu')}"
-        else
-          "^K #{@screen.theme.error("⚠ menu (#{@error_count})")}"
         end
       end
 

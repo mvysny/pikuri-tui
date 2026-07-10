@@ -130,12 +130,12 @@ RSpec.describe PikuriTui::Os::App do
 
   it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
     app
-    app.instance_variable_get(:@log_popup).open
+    app.instance_variable_get(:@log_ui).log_popup.open
     stopped = spy_on_stop
 
     press_ctrl_c
 
-    assert app.instance_variable_get(:@log_popup).open?, 'popup should stay open'
+    assert app.instance_variable_get(:@log_ui).log_popup.open?, 'popup should stay open'
     refute stopped.call, 'the event loop must not stop while a popup is open'
   end
 
@@ -150,7 +150,7 @@ RSpec.describe PikuriTui::Os::App do
     Tuile.logger.error('boom')
     assert_includes status_bar_text, '^K ⚠ menu (1)'
 
-    log_popup = app.instance_variable_get(:@log_popup)
+    log_popup = app.instance_variable_get(:@log_ui).log_popup
     log_popup.open
     log_popup.close
     assert_includes status_bar_text, '^K menu'

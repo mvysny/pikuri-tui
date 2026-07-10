@@ -18,7 +18,8 @@ module PikuriTui
   # +'io' => 'IO'+ aren't consulted.
   loader.inflector.inflect(
     'counting_log_io'  => 'CountingLogIO',
-    'buffering_log_io' => 'BufferingLogIO'
+    'buffering_log_io' => 'BufferingLogIO',
+    'log_ui'           => 'LogUI'
   )
 
   # The coding ({PikuriTui::Code}) and OS-assistant ({PikuriTui::Os})

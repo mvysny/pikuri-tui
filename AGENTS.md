@@ -196,6 +196,21 @@ pointers, not a second copy of the docs. Everything we ship lives under the
 - `lib/pikuri_tui/log_popup.rb` — `PikuriTui::LogPopup`, the `Popup`
   wrapper around the eager `LogWindow` that resets the unread-error
   counter on dismiss. Shared by all three shells.
+- `lib/pikuri_tui/log_ui.rb` — `PikuriTui::LogUI`, the diagnostic-log
+  subsystem shared by all three shells: it owns the eager `LogWindow`,
+  its `LogPopup`, the `CountingLogIO` wiring (`#wire!` — the
+  former per-`App` `wire_logging`, incl. the `BufferingLogIO` boot-line
+  replay), the unread-error tally, and the `Ctrl+K` leader shortcut whose
+  status-bar hint carries that tally. The `Ctrl+K` registration lives here
+  (not in each `App`'s `register_shortcuts`, which keeps the shell-agnostic
+  `Ctrl+C`) because the tally is surfaced only through that hint and
+  `Tuile::Screen` refreshes a hint by re-registering — so bumping the
+  counter and refreshing the hint are one act. Each `App` supplies only
+  *what* `Ctrl+K` does via `#install_shortcut { @leader_menu.open }`, and
+  drives the two phases: `#wire!` early (before the agent is built),
+  `#install_shortcut` late (once the leader menu exists). Extracted from
+  the byte-identical `wire_logging` / `menu_hint` / error-counter cluster
+  the three `App`s each used to carry.
 - `lib/pikuri_tui/leader_menu.rb` — `PikuriTui::LeaderMenu`, the
   lazyvim-style which-key command menu: `Ctrl+K` opens a modal
   `PickerWindow` of app actions, each on one follow-up key. Shared by
@@ -350,11 +365,11 @@ pointers, not a second copy of the docs. Everything we ship lives under the
   *subsequent* line with no per-logger rewiring. Lines emitted *before*
   that swap only ever hit `$stderr` (invisible once the alternate screen
   buffer is up), so the bins install a `BufferingLogIO` as the boot
-  `log_io` that tees to `$stderr` and retains them; `App#wire_logging`
+  `log_io` that tees to `$stderr` and retains them; the `App`'s `LogUI#wire!`
   replays the retained lines into the LogWindow right after the swap.
   `Tuile.logger` defaults to `IO::NULL` (dropped until
   wired) and is a single untagged logger, so it's reserved for one job:
-  `App` still assigns `Tuile.logger = Logger.new(io)` to capture
+  `LogUI#wire!` still assigns `Tuile.logger = Logger.new(io)` to capture
   `Tuile`'s *own* internal noise into the same LogWindow. The
   conversation pane (`TextView`, driven by `PikuriTui::TuileListener`)
   is for the LLM stream — assistant Markdown, reasoning, tool calls,
@@ -425,8 +440,8 @@ pointers, not a second copy of the docs. Everything we ship lives under the
   `PikuriTui` top level (or `Code::*` when it's coding-family) and
   reuse it — that is how we kill duplication. The building blocks
   already living this way: `Input`, `FooterLabel`, `ModelListener`,
-  `LeaderMenu`, `LogPopup`, `CountingLogIO`, `ModelChoice`, and the
-  `Code::*` confirmer / diff classes the OS shell reuses verbatim.
+  `LeaderMenu`, `LogPopup`, `LogUI`, `CountingLogIO`, `ModelChoice`, and
+  the `Code::*` confirmer / diff classes the OS shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this
   piece stand alone with a clear contract and carry no
   shell-specific divergence?" — if yes, it belongs in a shared

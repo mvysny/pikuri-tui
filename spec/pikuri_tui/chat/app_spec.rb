@@ -130,7 +130,7 @@ RSpec.describe PikuriTui::Chat::App do
     it "picking 'l' opens the log popup" do
       app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
       app.screen.send(:handle_key, 'l')
-      assert app.instance_variable_get(:@log_popup).open?
+      assert app.instance_variable_get(:@log_ui).log_popup.open?
     end
 
     it "picking 'q' stops the event loop" do
@@ -179,12 +179,12 @@ RSpec.describe PikuriTui::Chat::App do
 
   it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
     app
-    app.instance_variable_get(:@log_popup).open
+    app.instance_variable_get(:@log_ui).log_popup.open
     stopped = spy_on_stop
 
     press_ctrl_c
 
-    assert app.instance_variable_get(:@log_popup).open?, 'popup should stay open'
+    assert app.instance_variable_get(:@log_ui).log_popup.open?, 'popup should stay open'
     refute stopped.call, 'the event loop must not stop while a popup is open'
   end
 
@@ -209,7 +209,7 @@ RSpec.describe PikuriTui::Chat::App do
     assert_includes status_bar_text, '^K ⚠ menu (1)'
 
     # Open the popup directly — same dispatch path as the menu's 'l' entry.
-    log_popup = app.instance_variable_get(:@log_popup)
+    log_popup = app.instance_variable_get(:@log_ui).log_popup
     log_popup.open
     log_popup.close
     assert_includes status_bar_text, '^K menu'
