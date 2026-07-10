@@ -12,7 +12,7 @@ module PikuriTui
   # The companion to {TuileListener} / {Code::TaskListener}: same
   # worker-thread-to-UI-thread marshaling, the smallest possible slice of
   # the event stream (one event class). Shared by all three shells (the
-  # footer model name is a +current_model=+ setter {FooterLabel} exposes),
+  # footer model name is a +current_model=+ setter {StatusLabel} exposes),
   # so it lives at the +PikuriTui+ top level rather than in any shell's
   # namespace.
   #
@@ -45,7 +45,7 @@ module PikuriTui
   # the same rule {Code::TaskListener} follows.
   class ModelListener < Pikuri::Agent::Listener::Base
     # @param footer [#current_model=] the conversation-window footer to
-    #   update (a {FooterLabel}). Lifetime is owned by the host +App+.
+    #   update (a {StatusLabel}). Lifetime is owned by the host +App+.
     # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals
     #   the update back from the worker thread. Passed explicitly (not the
     #   singleton) so tests can inject a {Tuile::FakeScreen}.

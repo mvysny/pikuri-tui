@@ -61,10 +61,10 @@ The three shells keep their genuinely-divergent scaffolding (`App` /
 `lib/pikuri_tui/code.rb` and `lib/pikuri_tui/os.rb`; the OS shell
 additionally reuses the `Code::*` confirmer / diff adapters directly).
 The pieces that carried no divergence are shared top-level components
-instead: the Enter-submits input (`PikuriTui::Input`) and the
-conversation-window footer (`PikuriTui::FooterLabel`) — the footer's
+instead: the Enter-submits input (`PikuriTui::InputArea`) and the
+conversation-window footer (`PikuriTui::StatusLabel`) — the footer's
 only cross-shell difference, chat's lack of a plan-mode badge, collapses
-to chat simply never calling `FooterLabel#plan_active=`. Their dependencies are
+to chat simply never calling `StatusLabel#plan_active=`. Their dependencies are
 split across Bundler groups: `bin/pikuri-tui-chat` runs
 `Bundler.setup(:default)`, `bin/pikuri-tui-code` runs
 `Bundler.setup(:default, :code)`, and `bin/pikuri-tui-os` runs
@@ -215,10 +215,10 @@ pointers, not a second copy of the docs. Everything we ship lives under the
   lazyvim-style which-key command menu: `Ctrl+K` opens a modal
   `PickerWindow` of app actions, each on one follow-up key. Shared by
   all three shells; each `App` registers its own action set.
-- `lib/pikuri_tui/input.rb` — `PikuriTui::Input`, the bottom-pane
+- `lib/pikuri_tui/input_area.rb` — `PikuriTui::InputArea`, the bottom-pane
   `TextArea` subclass that rebinds Enter to submit-and-clear (blank
   buffers are a no-op). Shared by all three shells.
-- `lib/pikuri_tui/footer_label.rb` — `PikuriTui::FooterLabel`, the
+- `lib/pikuri_tui/status_label.rb` — `PikuriTui::StatusLabel`, the
   conversation-window footer chrome shared by all three shells: model
   name, mid-turn spinner, queued-injection count, token snapshot, and a
   plan-mode badge.
@@ -402,6 +402,16 @@ pointers, not a second copy of the docs. Everything we ship lives under the
   `PikuriTui::` namespace at the path Zeitwerk expects
   (`lib/pikuri_tui/foo/bar.rb` → `PikuriTui::Foo::Bar`). Don't
   introduce top-level constants.
+- **Widget-class suffix on Tuile subclasses/wrappers.** A class
+  that extends or wraps a Tuile component carries that component's
+  class as its name suffix, so the primitive it's built on is
+  legible at the reference site: `InputArea` (a `TextArea`),
+  `StatusLabel` (a `Label`), `LogPopup` / `GitDiffPopup` (both
+  `Popup`s), `LogWindow` / `PickerWindow` (both `Window`s). Name the
+  prefix for what the component *does*, never for the slot it sits in
+  — `StatusLabel`, not `FooterLabel` (placement is the instance's
+  concern, carried by the `@footer_label` ivar, not the reusable
+  class's).
 - **Tests: rspec-core with minitest-style asserts.** Use the
   `rspec-core` runner (`describe`/`it`) but write assertions in
   the minitest style (`assert_equal`, `assert`, `refute`, …)
@@ -439,7 +449,7 @@ pointers, not a second copy of the docs. Everything we ship lives under the
   appears in more than one shell, extract it once to the
   `PikuriTui` top level (or `Code::*` when it's coding-family) and
   reuse it — that is how we kill duplication. The building blocks
-  already living this way: `Input`, `FooterLabel`, `ModelListener`,
+  already living this way: `InputArea`, `StatusLabel`, `ModelListener`,
   `LeaderMenu`, `LogPopup`, `LogUI`, `CountingLogIO`, `ModelChoice`, and
   the `Code::*` confirmer / diff classes the OS shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this

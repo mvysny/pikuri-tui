@@ -3,7 +3,7 @@
 RSpec.describe PikuriTui::Chat::App do
   # Minimal +Pikuri::Agent+ stand-in: App only reaches for +run_loop+
   # (from the worker thread), +cancellable+ (from {Chat::App#on_interrupt})
-  # and +interloper+ (mid-turn queueing + the FooterLabel handoff).
+  # and +interloper+ (mid-turn queueing + the StatusLabel handoff).
   # Anything else stays untouched, so we don't pay the network / RubyLLM
   # cost in a unit spec.
   #
@@ -62,7 +62,7 @@ RSpec.describe PikuriTui::Chat::App do
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
-    assert_kind_of PikuriTui::Input, app.screen.focused
+    assert_kind_of PikuriTui::InputArea, app.screen.focused
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
@@ -164,7 +164,7 @@ RSpec.describe PikuriTui::Chat::App do
 
   it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
     app
-    assert_kind_of PikuriTui::Input, app.screen.focused
+    assert_kind_of PikuriTui::InputArea, app.screen.focused
     press_ctrl_c
     assert_nil app.screen.focused
   end
@@ -216,13 +216,13 @@ RSpec.describe PikuriTui::Chat::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'wires a FooterLabel that drives the conversation Window as border chrome (token status + spinner)' do
+  it 'wires a StatusLabel that drives the conversation Window as border chrome (token status + spinner)' do
     app
-    assert_kind_of PikuriTui::FooterLabel, app.instance_variable_get(:@footer_label)
+    assert_kind_of PikuriTui::StatusLabel, app.instance_variable_get(:@footer_label)
     assert_nil app.screen.pane.content.conversation.footer
   end
 
-  it "hands the agent's interloper to the FooterLabel for the queued-count display" do
+  it "hands the agent's interloper to the StatusLabel for the queued-count display" do
     app
     assert_same app.agent.interloper, app.instance_variable_get(:@footer_label).interloper
   end
@@ -293,7 +293,7 @@ RSpec.describe PikuriTui::Chat::App do
     assert_includes rendered, 'mid-turn message dropped'
   end
 
-  it 'feeds the FooterLabel from the same TokenLog the host wires into the agent' do
+  it 'feeds the StatusLabel from the same TokenLog the host wires into the agent' do
     explicit_token_log = Pikuri::Agent::Listener::TokenLog.new
     explicit_app = described_class.new(token_log: explicit_token_log) do |listener|
       StubAgent.new(listener)

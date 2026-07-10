@@ -19,10 +19,10 @@ module PikuriTui
   #
   # Empty / whitespace-only buffers are not submitted — Enter is a no-op
   # so the user can't accidentally burn a turn on a blank message.
-  class Input < Tuile::Component::TextArea
+  class InputArea < Tuile::Component::TextArea
     # @param on_submit [Proc, Method] one-arg callable invoked when the
     #   user presses Enter on a non-blank buffer. Receives the buffer text
-    #   *before* it is cleared; Input is responsible for the clear, so
+    #   *before* it is cleared; InputArea is responsible for the clear, so
     #   callers don't need to wipe the input in their handler.
     def initialize(on_submit:)
       super()
@@ -51,7 +51,7 @@ module PikuriTui
     # half-cleared state).
     #
     # @return [Boolean] always true; the host has decided Enter is a
-    #   meaningful key for Input
+    #   meaningful key for InputArea
     def submit
       message = text.dup
       return true if message.strip.empty?

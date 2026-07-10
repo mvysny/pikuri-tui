@@ -4,8 +4,8 @@ module PikuriTui
   # Namespace for the +bin/pikuri-tui-code+ TUI: the in-repo coding-agent
   # shell ({Code::App}), its vertical-split root layout ({Code::Layout}),
   # and the modal y/n confirmer ({Code::ConfirmerPopup}) the +Write+ /
-  # +Bash+ tools prompt through. The Enter-submits text input ({Input}) and
-  # conversation-window footer ({FooterLabel}) are shared top-level
+  # +Bash+ tools prompt through. The Enter-submits text input ({InputArea}) and
+  # conversation-window footer ({StatusLabel}) are shared top-level
   # components.
   #
   # == Why a parallel copy of +Chat::+ and not a shared base
@@ -27,10 +27,10 @@ module PikuriTui
   #
   # The two pieces that carried *no* divergence — the Enter-submits input
   # and the footer label — were the exception: they are shared top-level
-  # {Input} / {FooterLabel} components, not per-shell copies. Duplicate only
+  # {InputArea} / {StatusLabel} components, not per-shell copies. Duplicate only
   # where the copies genuinely drift; the input never did, and the footer's
   # only difference (chat's lack of a plan-mode badge) collapses to chat
-  # simply never calling +FooterLabel#plan_active=+.
+  # simply never calling +StatusLabel#plan_active=+.
   #
   # == Code-only dependencies
   #

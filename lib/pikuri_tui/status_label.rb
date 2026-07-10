@@ -17,7 +17,7 @@ module PikuriTui
   # latest context-window snapshot for the main agent (read straight off
   # +Pikuri::Agent::Listener::TokenLog#status_line+).
   #
-  # Shared by all three shells (like {Input} / {TuileListener}). The chat
+  # Shared by all three shells (like {InputArea} / {TuileListener}). The chat
   # shell wires no {Code::PlanModeListener}, so its footer simply never
   # receives a {#plan_active=} call and the badge stays hidden — the render
   # is identical to a badge-less footer. The coding and OS shells both have
@@ -90,7 +90,7 @@ module PikuriTui
   # host calls them from {App#start_turn} (pre-spawn) and from the
   # +ensure+ block's +event_queue.submit+ (post-loop), which is the
   # UI thread in both cases.
-  class FooterLabel
+  class StatusLabel
     # Braille-spinner frames; standard +dots+ animation. Picked over
     # ASCII +|/-\+ because the Braille glyphs stay a single column
     # wide regardless of font, so the trailing token line doesn't

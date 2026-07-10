@@ -61,7 +61,7 @@ RSpec.describe PikuriTui::Os::App do
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
-    assert_kind_of PikuriTui::Input, app.screen.focused
+    assert_kind_of PikuriTui::InputArea, app.screen.focused
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
@@ -115,7 +115,7 @@ RSpec.describe PikuriTui::Os::App do
 
   it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
     app
-    assert_kind_of PikuriTui::Input, app.screen.focused
+    assert_kind_of PikuriTui::InputArea, app.screen.focused
     press_ctrl_c
     assert_nil app.screen.focused
   end
@@ -157,13 +157,13 @@ RSpec.describe PikuriTui::Os::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'wires a FooterLabel that drives the conversation Window as border chrome (not a widget slot)' do
+  it 'wires a StatusLabel that drives the conversation Window as border chrome (not a widget slot)' do
     app
-    assert_kind_of PikuriTui::FooterLabel, app.instance_variable_get(:@footer_label)
+    assert_kind_of PikuriTui::StatusLabel, app.instance_variable_get(:@footer_label)
     assert_nil app.screen.pane.content.conversation.footer
   end
 
-  it "hands the agent's interloper to the FooterLabel for the queued-count display" do
+  it "hands the agent's interloper to the StatusLabel for the queued-count display" do
     app
     assert_same app.agent.interloper, app.instance_variable_get(:@footer_label).interloper
   end

@@ -73,7 +73,7 @@ module PikuriTui
       def log_window = @log_ui.log_window
 
       # @return [Pikuri::Agent::Listener::TokenLog] the main agent's
-      #   token log, fed into the conversation-window {FooterLabel}.
+      #   token log, fed into the conversation-window {StatusLabel}.
       #   The host's build block must include this instance (or one
       #   the host supplied via the +token_log:+ ctor arg) in the
       #   agent's +ListenerList+ so it actually receives +Tokens+
@@ -129,7 +129,7 @@ module PikuriTui
         @agent = build_agent.call(@listener, @model_listener)
         # The footer renders a "N queued" segment off the interloper's
         # +peek+ while mid-turn injections are pending. Installed here
-        # (rather than at FooterLabel construction) because the agent —
+        # (rather than at StatusLabel construction) because the agent —
         # and therefore its interloper — doesn't exist until the build
         # block has run.
         @footer_label.interloper = @agent.interloper
@@ -173,12 +173,12 @@ module PikuriTui
         @conversation_window = Tuile::Component::Window.new('Conversation')
         @conversation_window.content = @conversation_view
         @conversation_window.scrollbar = true
-        # Border chrome, not a widget slot: the FooterLabel embeds the
+        # Border chrome, not a widget slot: the StatusLabel embeds the
         # agent status into the conversation window's bottom border (and
         # leaves a clean border while idle/empty).
-        @footer_label = FooterLabel.new(screen: @screen, window: @conversation_window, token_log: @token_log)
+        @footer_label = StatusLabel.new(screen: @screen, window: @conversation_window, token_log: @token_log)
 
-        @input = Input.new(on_submit: method(:submit_message))
+        @input = InputArea.new(on_submit: method(:submit_message))
         @input_window = Tuile::Component::Window.new('You')
         @input_window.content = @input
 
@@ -193,7 +193,7 @@ module PikuriTui
 
       # Wire app-level keyboard shortcuts on the screen. Both bypass the
       # cursor-owner suppression that would otherwise let the focused
-      # {Input} swallow them, and both surface a hint in the screen's
+      # {InputArea} swallow them, and both surface a hint in the screen's
       # status bar (which is why Ctrl+K is registered via
       # {LogUI#install_shortcut} — its hint mutates as errors accrue).
       #
@@ -272,7 +272,7 @@ module PikuriTui
         @screen.event_queue.stop
       end
 
-      # @param message [String] non-empty draft handed up by {Input}
+      # @param message [String] non-empty draft handed up by {InputArea}
       # @return [void]
       def submit_message(message)
         if @turn_in_progress
@@ -290,13 +290,13 @@ module PikuriTui
       # message to the chat history and emitting a +UserTurn+ with
       # +mid_loop: true+ — which {TuileListener} echoes into the
       # conversation pane like any other user turn. Until then the
-      # {FooterLabel} advertises the pending count.
+      # {StatusLabel} advertises the pending count.
       #
       # When the host wired no interloper into the agent, the message is
       # dropped with a warn in the diagnostic log — same observable
       # behavior as before mid-loop input existed, but no longer silent.
       #
-      # @param message [String] non-empty draft handed up by {Input}
+      # @param message [String] non-empty draft handed up by {InputArea}
       # @return [void]
       def queue_mid_turn(message)
         interloper = @agent.interloper
@@ -376,7 +376,7 @@ module PikuriTui
       # 1. A turn is running -> cancel it (the historical behavior). The
       #    {TuileListener} renders the +Cancelled+ event; the worker's
       #    +ensure+ clears {@turn_in_progress}.
-      # 2. Nothing running but something is focused (normally the {Input})
+      # 2. Nothing running but something is focused (normally the {InputArea})
       #    -> drop focus, the same visible effect as ESC on the input.
       # 3. Nothing running and nothing focused -> stop the event loop, which
       #    unwinds {#run} into +Screen#close+. This is exactly what an

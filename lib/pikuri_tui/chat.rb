@@ -7,8 +7,8 @@ module PikuriTui
   # Components reused across the chat / code / OS shells — the
   # conversation-pane listener ({TuileListener}), the diagnostic log sink
   # ({CountingLogIO}), the popup wrapper around the diagnostic +LogWindow+
-  # ({LogPopup}), the Enter-submits text input ({Input}), the
-  # conversation-window footer ({FooterLabel}) — stay at the {PikuriTui} top
+  # ({LogPopup}), the Enter-submits text input ({InputArea}), the
+  # conversation-window footer ({StatusLabel}) — stay at the {PikuriTui} top
   # level. Anything genuinely specific to the chat front-end (system prompt
   # wiring, layout) lives here; the coding and OS shells have their own
   # {Code} / {Os} sibling namespaces.
