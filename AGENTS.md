@@ -165,9 +165,10 @@ Zeitwerk over `lib/` and eager-loads it.
   the `Pikuri::Agent::Listener::Base` rendering the event stream into
   the conversation `TextView`; shared by all three shells, tool calls
   via an injected `tool_formatters` map.
-- `lib/shared/markdown.rb` — `Shared::Markdown`, namespace for the
-  Markdown → ANSI rendering path (renderer over converter, the in-place
-  streaming buffers, the thinking-pane grayscale recolorizer).
+- `Shared::Markdown` — namespace (implicit — no `lib/shared/markdown.rb`,
+  autovivified from `lib/shared/markdown/`) for the Markdown → ANSI
+  rendering path (renderer over converter, the in-place streaming buffers,
+  the thinking-pane grayscale recolorizer).
 - `lib/shared/markdown/renderer.rb` —
   `Shared::Markdown::Renderer`, the single entry point turning
   Markdown into ANSI for the conversation pane (kramdown GFM →
@@ -187,9 +188,10 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/shared/markdown/grayscale.rb` — `Shared::Markdown::Grayscale`,
   repaints ANSI as one muted fg with structure preserved, for the
   thinking-pane path.
-- `lib/shared/model.rb` — `Shared::Model`, namespace for the
-  model-switch subsystem (the connection/transport value object, the
-  footer-updating listener, the leader-menu picker).
+- `Shared::Model` — namespace (implicit — no `lib/shared/model.rb`,
+  autovivified from `lib/shared/model/`) for the model-switch subsystem
+  (the connection/transport value object, the footer-updating listener,
+  the leader-menu picker).
 - `lib/shared/model/choice.rb` — `Shared::Model::Choice`, a
   `Data.define` pairing a connection's display name with its
   `ChatTransport`; the one place the Pikuri seam is crossed for model
@@ -200,8 +202,9 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/shared/model/picker.rb` — `Shared::Model::Picker`, the shared
   leader-menu model-switch picker (connection catalog, name map, pending
   switch, `PickerWindow` popup) all three shells compose.
-- `lib/shared/log.rb` — `Shared::Log`, namespace for the
-  diagnostic-log subsystem (the eager `LogWindow`, its popup, the IO sinks).
+- `Shared::Log` — namespace (implicit — no `lib/shared/log.rb`,
+  autovivified from `lib/shared/log/`) for the diagnostic-log subsystem
+  (the eager `LogWindow`, its popup, the IO sinks).
 - `lib/shared/log/counting_io.rb` — `Shared::Log::CountingIO`,
   the `IO`-shaped sink forwarding lines to the diagnostic `LogWindow`
   and counting error-class writes for the `Ctrl+K` hint. Shared by all
