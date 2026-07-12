@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-RSpec.describe Shared::TuileListener do
-  let(:text_view) { Tuile::Component::TextView.new }
-  let(:listener)  { described_class.new(text_view: text_view, screen: Tuile::Screen.instance) }
-  let(:gray)      { Shared::Markdown::Grayscale::GRAY }
+RSpec.describe Shared::ConversationTextView do
+  let(:view)     { described_class.new }
+  let(:listener) { view.listener }
+  let(:gray)     { Shared::Markdown::Grayscale::GRAY }
 
   before do
     Tuile::Screen.fake
@@ -20,7 +20,7 @@ RSpec.describe Shared::TuileListener do
     Tuile::Screen.close
   end
 
-  def rendered = text_view.text.to_s
+  def rendered = view.text.to_s
 
   it 'renders UserTurn as "> <content>" (the CLI listener stayed silent here)' do
     listener.on_event(Pikuri::Agent::Event::UserTurn.new(content: 'hello?'))
@@ -119,8 +119,8 @@ RSpec.describe Shared::TuileListener do
     assert_includes log, 'Shared::Markdown::Renderer.render failed'
   end
 
-  it 'reports its short label as "Shared::TuileListener" (used by Agent#to_s)' do
-    assert_equal 'Shared::TuileListener', listener.to_s
+  it 'reports its listener label as "Shared::ConversationTextView::Listener" (used by Agent#to_s)' do
+    assert_equal 'Shared::ConversationTextView::Listener', listener.to_s
   end
 
   context 'streaming AssistantDelta' do
@@ -254,7 +254,7 @@ RSpec.describe Shared::TuileListener do
     it 'recolors streamed thinking to a single gray tone, stripping any color the renderer produced' do
       Shared::Markdown::Renderer.define_singleton_method(:render) { |_text, **_kwargs| "\e[31mred-from-renderer\e[0m" }
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
-      fg_colors = text_view.text.spans.map { |s| s.style.fg }
+      fg_colors = view.text.spans.map { |s| s.style.fg }
       refute_includes fg_colors, Tuile::Color.new(:red)
       assert_includes fg_colors, gray
     end
@@ -264,7 +264,7 @@ RSpec.describe Shared::TuileListener do
         "\e[1;3;4;31mbold italic underlined red\e[0m"
       end
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
-      span = text_view.text.spans.find { |s| s.text.include?('bold italic underlined red') }
+      span = view.text.spans.find { |s| s.text.include?('bold italic underlined red') }
       refute_nil span, 'expected a span carrying the rendered text'
       assert_equal gray, span.style.fg
       assert span.style.bold,      'bold should pass through the recolor'
@@ -275,16 +275,14 @@ RSpec.describe Shared::TuileListener do
     it 'renders the non-streaming Thinking bookend in the same gray tone' do
       Shared::Markdown::Renderer.define_singleton_method(:render) { |_text, **_kwargs| "\e[31mred\e[0m" }
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'bookend'))
-      fg_colors = text_view.text.spans.map { |s| s.style.fg }
+      fg_colors = view.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
       refute_includes fg_colors, Tuile::Color.new(:red)
     end
   end
 
   context 'markdown: false' do
-    let(:listener) do
-      described_class.new(text_view: text_view, screen: Tuile::Screen.instance, markdown: false)
-    end
+    let(:view) { described_class.new(markdown: false) }
 
     # If the Shared::Markdown::Renderer stub fired we'd see no behavior difference
     # vs markdown: true (the stub is a passthrough). Replace it with a
@@ -304,7 +302,7 @@ RSpec.describe Shared::TuileListener do
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: '**raw thinking**'))
       assert_includes rendered, '**raw thinking**'
       refute_includes rendered, 'MARKDOWN_RAN'
-      fg_colors = text_view.text.spans.map { |s| s.style.fg }
+      fg_colors = view.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
     end
 
@@ -318,7 +316,7 @@ RSpec.describe Shared::TuileListener do
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: '**still literal**'))
       assert_includes rendered, '**still literal**'
       refute_includes rendered, 'MARKDOWN_RAN'
-      fg_colors = text_view.text.spans.map { |s| s.style.fg }
+      fg_colors = view.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
     end
   end
@@ -373,24 +371,24 @@ RSpec.describe Shared::TuileListener do
       end
     end
 
-    def listener_with(fmt)
-      described_class.new(
-        text_view: text_view, screen: Tuile::Screen.instance, tool_formatters: { 'edit' => fmt }
-      )
+    # The formatter is set at view construction, so each test builds its own
+    # view (and asserts on its text) rather than the shared markdown-true one.
+    def view_with(fmt)
+      described_class.new(tool_formatters: { 'edit' => fmt })
     end
 
     it 'renders a formatter call block instead of the default tool-call line' do
       fmt = formatter.new(call_block: 'DIFF BLOCK', result_block: nil)
-      l = listener_with(fmt)
-      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
-      assert_includes rendered, 'DIFF BLOCK'
-      refute_includes rendered, '→ edit'
+      v = view_with(fmt)
+      v.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
+      assert_includes v.text.to_s, 'DIFF BLOCK'
+      refute_includes v.text.to_s, '→ edit'
     end
 
     it 'passes the pane width and theme to the formatter' do
       fmt = formatter.new(call_block: 'X', result_block: nil)
-      l = listener_with(fmt)
-      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
+      v = view_with(fmt)
+      v.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
       assert_equal({ 'path' => 'a.rb' }, fmt.call_args[:arguments])
       assert fmt.call_args[:width].positive?
       assert_same Tuile::Screen.instance.theme, fmt.call_args[:theme]
@@ -398,51 +396,51 @@ RSpec.describe Shared::TuileListener do
 
     it 'suppresses the result line when the paired formatter returns nil (success)' do
       fmt = formatter.new(call_block: 'DIFF', result_block: nil)
-      l = listener_with(fmt)
-      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
-      l.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'Edited a.rb: replaced 1 occurrence.'))
-      refute_includes rendered, 'Edited a.rb'
-      refute_includes rendered, '= '
+      v = view_with(fmt)
+      v.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
+      v.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'Edited a.rb: replaced 1 occurrence.'))
+      refute_includes v.text.to_s, 'Edited a.rb'
+      refute_includes v.text.to_s, '= '
     end
 
     it 'renders the formatter result block when it returns one (error path)' do
       fmt = formatter.new(call_block: 'DIFF', result_block: '✗ Error: old_string not found')
-      l = listener_with(fmt)
-      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
-      l.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'Error: old_string not found in a.rb.'))
-      assert_includes rendered, '✗ Error: old_string not found'
+      v = view_with(fmt)
+      v.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
+      v.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'Error: old_string not found in a.rb.'))
+      assert_includes v.text.to_s, '✗ Error: old_string not found'
     end
 
     it 'falls back to the default tool-call line when render_call returns nil' do
       fmt = formatter.new(call_block: nil, result_block: nil)
-      l = listener_with(fmt)
-      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
-      assert_includes rendered, '→ edit'
+      v = view_with(fmt)
+      v.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
+      assert_includes v.text.to_s, '→ edit'
     end
 
     it 'routes the result to the default += line when render_call declined' do
       fmt = formatter.new(call_block: nil, result_block: 'SHOULD NOT SHOW')
-      l = listener_with(fmt)
-      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
-      l.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'whatever'))
-      assert_includes rendered, '= whatever'
-      refute_includes rendered, 'SHOULD NOT SHOW'
+      v = view_with(fmt)
+      v.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
+      v.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'whatever'))
+      assert_includes v.text.to_s, '= whatever'
+      refute_includes v.text.to_s, 'SHOULD NOT SHOW'
     end
 
     it 'leaves unregistered tools on the default rendering' do
       fmt = formatter.new(call_block: 'DIFF', result_block: 'R')
-      l = listener_with(fmt)
-      l.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'grep', arguments: { 'q' => 'x' }))
-      l.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'match'))
-      assert_includes rendered, '→ grep'
-      assert_includes rendered, '= match'
-      refute_includes rendered, 'DIFF'
+      v = view_with(fmt)
+      v.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'grep', arguments: { 'q' => 'x' }))
+      v.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'match'))
+      assert_includes v.text.to_s, '→ grep'
+      assert_includes v.text.to_s, '= match'
+      refute_includes v.text.to_s, 'DIFF'
     end
   end
 
   describe '#for_sub_agent' do
     let(:sub) { listener.for_sub_agent(id: 'researcher 0') }
-    let(:pad) { ' ' * described_class::SUB_AGENT_INDENT }
+    let(:pad) { ' ' * described_class::Listener::SUB_AGENT_INDENT }
 
     it 'renders into the same conversation pane, indented by SUB_AGENT_INDENT' do
       sub.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'web_search', arguments: { 'q' => 'x' }))

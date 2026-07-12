@@ -10,7 +10,7 @@ module Code
   #
   # The diff is self-contained — the +ToolCall+ event already carries both
   # strings, so no file read is needed (the seam stays clean and nothing
-  # blocks the UI thread on IO). Installed in {Shared::TuileListener}'s
+  # blocks the UI thread on IO). Installed in {Shared::ConversationTextView}'s
   # +tool_formatters+ map by +bin/pikuri-tui-code+; the listener calls
   # {#render_call} on the +ToolCall+ and {#render_result} on the paired
   # +ToolResult+.

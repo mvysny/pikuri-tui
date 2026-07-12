@@ -7,7 +7,7 @@ require 'tuile'
 # Single entry point for turning a Markdown string into ANSI for the
 # conversation pane. All of pikuri-tui's Markdown rendering routes
 # through here — the non-streaming +Assistant+ path
-# ({Shared::TuileListener#render_markdown}) and the streaming path
+# ({Shared::ConversationTextView#render_markdown}) and the streaming path
 # ({Shared::Markdown::StreamingBuffer}, via the +render:+ callable passed at
 # construction).
 #
@@ -74,7 +74,7 @@ module Shared::Markdown::Renderer
   #   (callers that want hard lines should +#split("\n")+ the result).
   # @raise [StandardError] whatever kramdown parsing or {Shared::Markdown::AnsiConverter}
   #   raises. Callers handle this — both the streaming buffer and
-  #   {Shared::TuileListener#render_markdown} catch and degrade.
+  #   {Shared::ConversationTextView#render_markdown} catch and degrade.
   def render(source, width:, dark: true)
     patched = fix_table_separators(source)
     doc = Kramdown::Document.new(patched, input: 'GFM', hard_wrap: false, width: width, dark: dark)

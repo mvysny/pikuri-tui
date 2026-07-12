@@ -3,42 +3,42 @@
 require 'tuile'
 
 # The conversation transcript as one cohesive component, shared by all
-# three shells: a {Tuile::Component::Window} that owns its scrolling
-# {Tuile::Component::TextView}, its {Shared::StatusLabel} footer chrome, and
-# the two listeners that keep both current off the agent's event stream —
-# the {Shared::TuileListener} (renders the transcript) and the
-# {Shared::Model::Listener} (keeps the footer's model name in step with a
-# landed +run_loop+ switch).
+# three shells: a {Tuile::Component::Window} that frames a
+# {Shared::ConversationTextView} (the scrolling transcript pane, which owns
+# its own {Shared::ConversationTextView::Listener}), carries a
+# {Shared::StatusLabel} footer, and builds the {Shared::Model::Listener} that
+# keeps the footer's model name in step with a landed +run_loop+ switch.
 #
 # This is a "domain component" in the sense of AGENTS.md's "Design with
 # components (COP)" rule: its whole responsibility *is* showing a
 # +Pikuri::Agent+ conversation and keeping itself current, so it owns its
-# +Pikuri::*+ wiring (builds its own listeners) rather than having each
-# +App+ hand-assemble a bare +Window+, a loose +TextView+, and two dangling
-# listeners around it. Folding that cluster in here is what collapses the
-# conversation-pane wiring that was otherwise triplicated across
-# {Chat::App}, {Code::App}, and {Os::App}.
+# +Pikuri::*+ wiring (its pane's transcript listener + the footer's model
+# listener) rather than having each +App+ hand-assemble a bare +Window+, a
+# loose +TextView+, and two dangling listeners around it. Folding that
+# cluster in here is what collapses the conversation-pane wiring that was
+# otherwise triplicated across {Chat::App}, {Code::App}, and {Os::App}.
 #
 # == The listener seam
 #
-# The window builds its listeners at construction — before the agent
-# exists — and exposes them ({#listener} / {#model_listener}) for the host
-# to fold into the agent's +ListenerList+. The host owns that final
-# composition because the agent needs more listeners than these two (the
-# +TokenLog+, and in the coding / OS shells a {Code::TaskListener} /
-# {Code::PlanModeListener}). The plan-mode badge in particular is driven by
-# a listener the *shell* builds against this window's {#status_label} — the
-# footer exposes +plan_active=+, but the +Code::PlanModeListener+ that feeds
-# it is a +:code+-group concern the chat shell never loads, so it stays out
-# of this shared component. The two footer values the host can only supply
-# once the agent is built — the mid-turn {Pikuri::Agent::Control::Interloper}
-# and the boot model's display name — are forwarded through {#interloper=} /
-# {#current_model=}.
+# The transcript pane builds its {Shared::ConversationTextView::Listener} and
+# this window builds the {Shared::Model::Listener}, both at construction —
+# before the agent exists — and both are exposed ({#listener} /
+# {#model_listener}) for the host to fold into the agent's +ListenerList+.
+# The host owns that final composition because the agent needs more
+# listeners than these two (the +TokenLog+, and in the coding / OS shells a
+# {Code::TaskListener} / {Code::PlanModeListener}). The plan-mode badge in
+# particular is driven by a listener the *shell* builds against this window's
+# {#status_label} — the footer exposes +plan_active=+, but the
+# +Code::PlanModeListener+ that feeds it is a +:code+-group concern the chat
+# shell never loads, so it stays out of this shared component. The two footer
+# values the host can only supply once the agent is built — the mid-turn
+# {Pikuri::Agent::Control::Interloper} and the boot model's display name —
+# are forwarded through {#interloper=} / {#current_model=}.
 #
 # == Threading
 #
 # The listeners self-marshal their UI mutations onto the event-loop thread
-# (see {Shared::TuileListener} / {Shared::Model::Listener}).
+# (see {Shared::ConversationTextView::Listener} / {Shared::Model::Listener}).
 # {#start_animation} / {#stop_animation} forward to {Shared::StatusLabel} and
 # so must be called on the UI thread. {#render_turn_error} is the one method
 # called from the agent worker thread; it marshals its own append via the
@@ -50,10 +50,10 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @param title [String] the window's border caption. Defaults to
   #   +'Conversation'+ (the coding shell passes its project root, the OS
   #   shell its host label).
-  # @param markdown [Boolean] forwarded to {Shared::TuileListener}'s
+  # @param markdown [Boolean] forwarded to {Shared::ConversationTextView}'s
   #   +markdown:+ flag (default +true+).
   # @param tool_formatters [Hash{String => Object}] forwarded to
-  #   {Shared::TuileListener}'s +tool_formatters:+ (the per-tool diff
+  #   {Shared::ConversationTextView}'s +tool_formatters:+ (the per-tool diff
   #   formatters the coding / OS shells wire for +edit+ / +write+).
   #   Defaults to +{}+ — the chat shell registers none.
   # @param model_names [Hash{Array(String, String) => String}]
@@ -61,28 +61,25 @@ class Shared::ConversationWindow < Tuile::Component::Window
   #   {Shared::Model::Listener}'s +names:+. Defaults to +{}+.
   def initialize(token_log:, title: 'Conversation', markdown: true, tool_formatters: {}, model_names: {})
     super(title)
-    # Resolve the Screen singleton once and feed it to the collaborators
-    # (its +event_queue+ marshals {#render_turn_error} and drives the footer
-    # spinner). The window is a composition, so it reaches for the singleton
-    # the same way {App} does rather than taking a +screen:+ arg —
-    # +Tuile::Screen.fake+ installs a fake for tests. The leaf listeners it
-    # builds still receive the screen explicitly (they're unit-tested in
-    # isolation, where injecting beats installing the singleton).
+    # Resolve the Screen singleton once for the footer chrome the window
+    # builds directly (its +event_queue+ marshals {#render_turn_error} and
+    # drives the footer spinner). The window is a composition, so it reaches
+    # for the singleton the same way {App} does rather than taking a
+    # +screen:+ arg — +Tuile::Screen.fake+ installs a fake for tests. The
+    # transcript pane resolves the singleton the same way; the leaf listeners
+    # the window builds directly still receive the screen explicitly.
     @screen = Tuile::Screen.instance
-    @view = Tuile::Component::TextView.new
-    @view.auto_scroll = true
+    @view = Shared::ConversationTextView.new(markdown: markdown, tool_formatters: tool_formatters)
     self.content = @view
     self.scrollbar = true
     # Border chrome, not a widget slot: the Shared::StatusLabel embeds the
     # agent status into this window's bottom border (window: self).
     @status_label = Shared::StatusLabel.new(screen: @screen, window: self, token_log: token_log)
-    @listener = Shared::TuileListener.new(
-      text_view: @view, screen: @screen, markdown: markdown, tool_formatters: tool_formatters
-    )
+    @listener = @view.listener
     @model_listener = Shared::Model::Listener.new(footer: @status_label, screen: @screen, names: model_names)
   end
 
-  # @return [Tuile::Component::TextView] the conversation transcript pane.
+  # @return [Shared::ConversationTextView] the conversation transcript pane.
   #   Exposed primarily for tests; production code reaches it through the
   #   {#listener}.
   attr_reader :view
@@ -94,8 +91,8 @@ class Shared::ConversationWindow < Tuile::Component::Window
   #   coding / OS shells bind their {Code::PlanModeListener} to this.
   attr_reader :status_label
 
-  # @return [Shared::TuileListener] the transcript listener; the host
-  #   includes it in the agent's +ListenerList+.
+  # @return [Shared::ConversationTextView::Listener] the transcript listener;
+  #   the host includes it in the agent's +ListenerList+.
   attr_reader :listener
 
   # @return [Shared::Model::Listener] the footer model-name listener; the

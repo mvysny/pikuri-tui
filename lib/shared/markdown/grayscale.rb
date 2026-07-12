@@ -4,7 +4,7 @@ require 'tuile'
 
 # Turns an ANSI-colored string into the same string repainted as a
 # single muted-gray fg, with structural attributes (bold, italic,
-# underline) preserved. Used by {Shared::TuileListener} on the thinking-pane
+# underline) preserved. Used by {Shared::ConversationTextView} on the thinking-pane
 # path: {Shared::Markdown::Renderer} produces full-color ANSI for reasoning blocks,
 # but reasoning needs to read as visually distinct from the assistant's
 # final answer — one gray tone with structure intact strikes that

@@ -18,7 +18,7 @@ RSpec.describe Shared::ConversationWindow do
   end
 
   it 'owns the transcript listener it exposes for the agent ListenerList' do
-    assert_kind_of Shared::TuileListener, window.listener
+    assert_kind_of Shared::ConversationTextView::Listener, window.listener
   end
 
   it 'owns the footer model-name listener it exposes for the agent ListenerList' do
@@ -41,9 +41,9 @@ RSpec.describe Shared::ConversationWindow do
     assert_same interloper, window.status_label.interloper
   end
 
-  it 'forwards markdown: through to its Shared::TuileListener' do
+  it 'forwards markdown: through to its Shared::ConversationTextView' do
     plain = described_class.new(token_log: token_log, markdown: false)
-    assert_equal false, plain.listener.instance_variable_get(:@markdown)
+    assert_equal false, plain.view.instance_variable_get(:@markdown)
   end
 
   it 'renders a caught turn error as an error-themed transcript line' do

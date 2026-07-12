@@ -9,7 +9,7 @@ module Code
   # summary in the sidebar (one +XY path  +N -N+ line per changed file)
   # and the full inline-rendered diff in the {GitDiffPopup} (leader menu
   # +d+). Unlike
-  # {Shared::TuileListener} / {TaskListener} — which ride the agent's event stream
+  # {Shared::ConversationTextView::Listener} / {TaskListener} — which ride the agent's event stream
   # — the working tree changes for reasons the agent never announces (the
   # user editing files, an external build, a +git+ command in a shell
   # tool), so there is no event to subscribe to. A periodic poll is the

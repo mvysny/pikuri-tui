@@ -18,7 +18,7 @@ module Chat
   # and those listeners need the conversation +TextView+ — which can't
   # exist until the screen is initialized. Resolving that cycle is why the
   # constructor takes a block: App builds the components (the
-  # {Shared::ConversationWindow} builds and owns the {Shared::TuileListener}
+  # {Shared::ConversationWindow} builds and owns the {Shared::ConversationTextView::Listener}
   # and {Shared::Model::Listener}), then yields them to the block; the block
   # returns a constructed +Pikuri::Agent+ that App installs. The bin
   # script uses this seam to pick model/tools/transport without App
@@ -64,7 +64,7 @@ module Chat
 
     # @return [Tuile::Component::TextView] the conversation transcript
     #   pane. Exposed primarily for tests; production code should reach
-    #   it through the {Shared::TuileListener}.
+    #   it through the {Shared::ConversationTextView::Listener}.
     def conversation_view = @conversation_window.view
 
     # @return [Tuile::Component::LogWindow] the eager-constructed
@@ -92,7 +92,7 @@ module Chat
     #   (so it actually receives +Tokens+ events). Defaults to a
     #   fresh instance — tests that don't exercise the footer can
     #   ignore this knob.
-    # @param markdown [Boolean] forwarded to {Shared::TuileListener}'s
+    # @param markdown [Boolean] forwarded to {Shared::ConversationTextView}'s
     #   +markdown:+ flag (default +true+). When +false+, the
     #   conversation pane skips +TTY::Markdown+ and the streaming path
     #   uses {Shared::Markdown::PassthroughBuffer} — appropriate for back-ends whose
@@ -104,12 +104,12 @@ module Chat
     #   footer's model segment regardless. Defaults to empty — tests and
     #   single-connection hosts can ignore it.
     # @yield [listener, model_listener] one-shot factory invoked exactly
-    #   once during construction. The block receives the {Shared::TuileListener}
+    #   once during construction. The block receives the {Shared::ConversationTextView::Listener}
     #   bound to this app's conversation pane and the {Shared::Model::Listener}
     #   that keeps the footer's model name current, and must return a
     #   constructed +Pikuri::Agent+ whose +ListenerList+ includes both
     #   (plus the +token_log+ exposed at {#token_log}).
-    # @yieldparam listener [Shared::TuileListener] the conversation-pane
+    # @yieldparam listener [Shared::ConversationTextView::Listener] the conversation-pane
     #   listener; include it in the agent's +ListenerList+.
     # @yieldparam model_listener [Shared::Model::Listener] the footer model-name
     #   listener; include it in the agent's +ListenerList+.
@@ -229,7 +229,7 @@ module Chat
     # Reset the agent to a fresh-conversation state via
     # +Pikuri::Agent#clear_conversation+ (chat history, controls, and
     # each extension's conversation-scoped state). That emits a single
-    # +Pikuri::Agent::Event::Reset+, off which the {Shared::TuileListener} wipes
+    # +Pikuri::Agent::Event::Reset+, off which the {Shared::ConversationTextView::Listener} wipes
     # the conversation pane and the +TokenLog+ zeroes the footer's context
     # snapshot — so this method only kicks the agent; the visible reset
     # falls out of the event stream. The leader menu's +c+ action.
@@ -277,7 +277,7 @@ module Chat
     # agent's +Pikuri::Agent::Control::Interloper+. The agent drains the
     # queue at its next +after_tool_result+ boundary, appending the
     # message to the chat history and emitting a +UserTurn+ with
-    # +mid_loop: true+ — which {Shared::TuileListener} echoes into the
+    # +mid_loop: true+ — which {Shared::ConversationTextView::Listener} echoes into the
     # conversation pane like any other user turn. Until then the
     # {Shared::StatusLabel} advertises the pending count.
     #
@@ -302,7 +302,7 @@ module Chat
     # bugs raise" path from CLAUDE.md) and a short red one-liner is
     # echoed into the conversation pane so the user notices the turn
     # ended in failure without having to open the log popup;
-    # cancellation is silent because {Shared::TuileListener} already rendered
+    # cancellation is silent because {Shared::ConversationTextView::Listener} already rendered
     # the {Pikuri::Agent::Event::Cancelled} event before the exception
     # re-raised.
     #
@@ -317,7 +317,7 @@ module Chat
       Thread.new do
         @agent.run_loop(user_message: message, transport: transport)
       rescue Pikuri::Agent::Control::Cancellable::Cancelled
-        # Notice already rendered by the Shared::TuileListener; nothing else to do.
+        # Notice already rendered by the Shared::ConversationTextView::Listener; nothing else to do.
       rescue StandardError => e
         LOG.error(
           "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"
@@ -361,7 +361,7 @@ module Chat
     # does. Three states, in priority order:
     #
     # 1. A turn is running -> cancel it (the historical behavior). The
-    #    {Shared::TuileListener} renders the +Cancelled+ event; the worker's
+    #    {Shared::ConversationTextView::Listener} renders the +Cancelled+ event; the worker's
     #    +ensure+ clears {@turn_in_progress}.
     # 2. Nothing running but something is focused (normally the {Shared::InputArea})
     #    -> drop focus, the same visible effect as ESC on the input.

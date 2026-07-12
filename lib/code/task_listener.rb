@@ -7,7 +7,7 @@ module Code
   # {Pikuri::Agent::Listener::Base} subclass that consumes the
   # {Pikuri::Tasks::ListChanged} events {Pikuri::Tasks::Extension} emits
   # after every list mutation, rewriting a {Tuile::Component::TextView}
-  # with the current items. The companion to {Shared::TuileListener}: same
+  # with the current items. The companion to {Shared::ConversationTextView::Listener}: same
   # worker-thread-to-UI-thread marshaling, a different (and much smaller)
   # slice of the event stream.
   #
@@ -18,7 +18,7 @@ module Code
   # a frozen +items+ snapshot built for exactly this — safe to capture
   # and render from the UI thread. The event rides the agent's listener
   # stream, so the host wires this listener into the agent's
-  # +ListenerList+ alongside {Shared::TuileListener} (it is NOT rate-limited —
+  # +ListenerList+ alongside {Shared::ConversationTextView::Listener} (it is NOT rate-limited —
   # task mutations are rare, and each is authoritative).
   #
   # == Last-wins
@@ -32,7 +32,7 @@ module Code
   #
   # {#on_event} fires on the agent's worker thread; it marshals the
   # +TextView+ rewrite onto the event-loop thread via
-  # +screen.event_queue.submit+, the same rule {Shared::TuileListener} follows.
+  # +screen.event_queue.submit+, the same rule {Shared::ConversationTextView::Listener} follows.
   class TaskListener < Pikuri::Agent::Listener::Base
     # Shown in the (otherwise empty) task pane before the agent has
     # created any tasks. Painted in the +:detail+ tone so it reads as

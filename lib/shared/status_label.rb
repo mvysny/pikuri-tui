@@ -16,7 +16,7 @@ require 'tuile'
 # latest context-window snapshot for the main agent (read straight off
 # +Pikuri::Agent::Listener::TokenLog#status_line+).
 #
-# Shared by all three shells (like {Shared::InputArea} / {Shared::TuileListener}). The chat
+# Shared by all three shells (like {Shared::InputArea} / {Shared::ConversationTextView}). The chat
 # shell wires no {Code::PlanModeListener}, so its footer simply never
 # receives a {#plan_active=} call and the badge stays hidden — the render
 # is identical to a badge-less footer. The coding and OS shells both have

@@ -171,10 +171,16 @@ Zeitwerk over `lib/` and eager-loads it.
   XDG-path TOML config all three shells load at boot (connections,
   sandbox/confirm switches, MCP servers), CLI overrides on top,
   hand-validated.
-- `lib/shared/tuile_listener.rb` — `Shared::TuileListener`,
-  the `Pikuri::Agent::Listener::Base` rendering the event stream into
-  the conversation `TextView`; shared by all three shells, tool calls
-  via an injected `tool_formatters` map.
+- `lib/shared/conversation_text_view.rb` — `Shared::ConversationTextView`,
+  the `Tuile::Component::TextView` subclass that owns the vocabulary for
+  rendering an agent conversation (blocks, streaming buffers, Markdown /
+  grayscale, tool formatters) plus a nested
+  `Shared::ConversationTextView::Listener` (a `Pikuri::Agent::Listener::Base`)
+  that translates the event stream into those render calls. The COP
+  inversion of the old listener-owns-rendering shape: the widget owns "how
+  a conversation is drawn," the listener is a thin event→verb adapter that
+  holds the per-stream state and mints indented siblings for sub-agents.
+  Shared by all three shells.
 - `Shared::Markdown` — namespace (implicit — no `lib/shared/markdown.rb`,
   autovivified from `lib/shared/markdown/`) for the Markdown → ANSI
   rendering path (renderer over converter, the in-place streaming buffers,
@@ -254,12 +260,12 @@ Zeitwerk over `lib/` and eager-loads it.
   plan-mode badge.
 - `lib/shared/conversation_window.rb` — `Shared::ConversationWindow`, the
   conversation transcript as one cohesive `Tuile::Component::Window`
-  subclass shared by all three shells: owns its `TextView`, its
-  `Shared::StatusLabel` footer, and the `Shared::TuileListener` /
-  `Shared::Model::Listener` that keep both current off the agent's event
-  stream. Exposes `#listener` / `#model_listener` for the host to compose
-  into the agent's `ListenerList`. The COP domain component that collapsed
-  the conversation-pane wiring each `App` used to hand-assemble.
+  subclass shared by all three shells: frames a `Shared::ConversationTextView`
+  (which owns its own transcript listener), carries a `Shared::StatusLabel`
+  footer, and builds the `Shared::Model::Listener` that keeps the footer's
+  model name current. Exposes `#listener` / `#model_listener` for the host
+  to compose into the agent's `ListenerList`. The COP domain component that
+  collapsed the conversation-pane wiring each `App` used to hand-assemble.
 - `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
   `lib/chat/`) for the chat front-end (`Chat::App` + `Chat::Layout`); the
   baseline shell the `Code` / `Os` siblings were copied from.
@@ -418,7 +424,8 @@ Zeitwerk over `lib/` and eager-loads it.
   wired) and is a single untagged logger, so it's reserved for one job:
   `Shared::Log::UI#wire!` still assigns `Tuile.logger = Logger.new(io)` to capture
   `Tuile`'s *own* internal noise into the same LogWindow. The
-  conversation pane (`TextView`, driven by `Shared::TuileListener`)
+  conversation pane (`Shared::ConversationTextView`, driven by its
+  `Shared::ConversationTextView::Listener`)
   is for the LLM stream — assistant Markdown, reasoning, tool calls,
   observations — and is not a log sink; never write log lines into it.
 - **Our bugs raise; library exceptions are logged.** Two buckets:

@@ -15,7 +15,7 @@ require 'tuile'
 # The tokens cover the chrome both shells paint:
 #
 # - +:tool+ — the +→ tool(args)+ call and += result+ lines
-#   {Shared::TuileListener} writes into the conversation pane.
+#   {Shared::ConversationTextView::Listener} writes into the conversation pane.
 # - +:notice+ — the +! reason+ fallback line and the
 #   {Code::ConfirmerPopup} sanitizer warnings (a "read this carefully"
 #   amber).

@@ -8,7 +8,7 @@ require 'pikuri-core'
 # the top of +run_loop+ when a +transport:+ switch lands, and pushes the
 # new model's display name onto the footer.
 #
-# The companion to {Shared::TuileListener} / {Code::TaskListener}: same
+# The companion to {Shared::ConversationTextView::Listener} / {Code::TaskListener}: same
 # worker-thread-to-UI-thread marshaling, the smallest possible slice of
 # the event stream (one event class). Shared by all three shells (the
 # footer model name is a +current_model=+ setter {Shared::StatusLabel} exposes),
@@ -19,7 +19,7 @@ require 'pikuri-core'
 #
 # The switch is surfaced *only* in the footer — never echoed into the
 # conversation transcript — so this listener owns the whole UI reaction
-# to a switch and {Shared::TuileListener} ignores +ModelSwitched+ entirely. The
+# to a switch and {Shared::ConversationTextView::Listener} ignores +ModelSwitched+ entirely. The
 # footer reflects the model the agent is actually on (it updates when the
 # switch *lands*, not when the user picks), so it can never advertise a
 # model a failed switch never reached.

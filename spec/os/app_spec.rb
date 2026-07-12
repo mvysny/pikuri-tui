@@ -68,9 +68,9 @@ RSpec.describe Os::App do
     assert_kind_of Tuile::Component::LogWindow, app.log_window
   end
 
-  it 'hands the Shared::TuileListener to the build block as the first arg' do
+  it 'hands the conversation listener to the build block as the first arg' do
     app # force construction
-    assert_kind_of Shared::TuileListener, @listener
+    assert_kind_of Shared::ConversationTextView::Listener, @listener
   end
 
   it 'hands a Code::ConfirmerPopup to the build block as the second arg' do

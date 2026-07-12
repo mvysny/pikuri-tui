@@ -10,7 +10,7 @@ require 'tuile'
 # word-jumps, backspace/delete) is inherited unchanged.
 #
 # This is one of the cross-cutting components the three shells share rather
-# than copy (like {Shared::TuileListener} / {Shared::LeaderMenu}): its behaviour carries no
+# than copy (like {Shared::ConversationTextView} / {Shared::LeaderMenu}): its behaviour carries no
 # shell-specific divergence, so there is nothing for parallel copies to
 # drift into (see {Chat} / {Code} / {Os} for where the duplicate-don't-share
 # line is drawn — at {Chat::App} / {Chat::Layout} and their peers, which
