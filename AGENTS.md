@@ -149,9 +149,11 @@ Zeitwerk over `lib/` and eager-loads it.
   the root and excludes itself via `loader.ignore(__FILE__)`; its basename is
   only the `require 'pikuri_tui'` target, not a namespace (no `PikuriTui`
   constant exists).
-- `lib/shared.rb` — `Shared`, namespace for the reusable building
-  blocks the three shells compose out of (the toolkit, as opposed to each
-  shell's own `App` / `Layout`); grouped by subsystem below.
+- `Shared` — namespace (implicit — no `lib/shared.rb`, autovivified
+  from `lib/shared/`) for the building blocks reused across all three
+  shells, as opposed to each shell's own deliberately-duplicated `App` /
+  `Layout` scaffolding — and as distinct from the `Code::*` adapters the
+  OS shell also reuses. Grouped by subsystem below.
 - `lib/shared/app_theme.rb` — `Shared::AppTheme`, the
   `Tuile::Theme` subclass carrying the app's accent tokens; single
   source of truth for every UI accent all three shells paint.
@@ -237,8 +239,9 @@ Zeitwerk over `lib/` and eager-loads it.
   conversation-window footer chrome shared by all three shells: model
   name, mid-turn spinner, queued-injection count, token snapshot, and a
   plan-mode badge.
-- `lib/chat.rb` — `Chat`, namespace for the
-  chat front-end (`Chat::App` + `Chat::Layout`).
+- `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
+  `lib/chat/`) for the chat front-end (`Chat::App` + `Chat::Layout`); the
+  baseline shell the `Code` / `Os` siblings were copied from.
 - `lib/chat/app.rb` — `Chat::App`, the Tuile
   shell for `bin/pikuri-tui-chat` (conversation `TextView` + diagnostic
   `LogWindow` + input + status bar); takes a `models:` list and wires
@@ -341,7 +344,15 @@ Zeitwerk over `lib/` and eager-loads it.
   summary first, then blank line, then tags. `bin/` and `spec/`
   files don't need it. Exception: the per-class `LOG` logger
   constants (see "Log through pikuri" below) carry no rdoc — the
-  declaration is self-explanatory.
+  declaration is self-explanatory. Exception: a **namespace-only
+  module** — one that holds no methods or constants of its own, only
+  serving as the parent of the files beneath it — needs no doc *and no
+  file*; leave it as a Zeitwerk implicit namespace (autovivified from
+  the directory) and let this package map be its sole description.
+  Add an explicit `foo.rb` back only when the module gains real content
+  (constants, methods) or carries design rationale that belongs next to
+  the code rather than in this map — as `code.rb` / `os.rb` do for the
+  duplicate-don't-share rationale.
 - **Bundler.** Entry-point scripts in `bin/` self-bootstrap via
   `require 'bundler/setup'` so callers don't need the
   `bundle exec` ceremony. Pin the `BUNDLE_GEMFILE` to this
