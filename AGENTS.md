@@ -101,15 +101,25 @@ loaded (gated on `Pikuri::Workspace` — the OS subtree reuses the
   streams: the conversation pane is what the user reads; the log
   pane is what we read when something's wrong.
 
-- **The seam.** All `Pikuri::*` references stay inside the bin
-  scripts (boot/wiring) and the small adapter set under
-  `lib/` (the listener, the confirmer, anything else
-  that needs to know what an event or a prompt is). Tuile-only
-  components — layout containers, widgets, custom panels — must
-  not reach into `Pikuri::*`. Same fork-or-swap rationale as
-  pikuri's own seam: if pikuri's surface shifts under us, the cost
-  is rewriting a small handful of files, not chasing references
-  through every widget.
+- **Design with components (COP); let each component's
+  responsibility decide what it touches.** Follow
+  [component-oriented programming](https://mvysny.github.io/component-oriented-programming/):
+  every component is a cohesive box with a single responsibility and
+  a minimal API, taking what it needs through its own constructor /
+  setters / listeners and surfacing interactions for callers to
+  consume (a `Button` exposes clicks; a `PersonForm` owns its fields,
+  validation, and save). Whether a component references `Pikuri::*`
+  is not a constraint we impose from outside — it falls out of what
+  the component is *for*. A conversation window that renders the
+  agent's event stream, the `Shared::StatusLabel` footer, the
+  `Code::ConfirmerPopup`, and the `Shared::Model::*` adapters all
+  legitimately own their Pikuri wiring (build their own listener,
+  register their own confirmer); a pure layout container like
+  `Chat::Layout` simply never needs it. There is no "keep Pikuri out
+  of the components" rule and no preference for Pikuri-free ones —
+  only "is this component well-designed?" Extract a component into
+  `Shared::` (or `Code::*`) when reuse earns it, whether or not it
+  touches Pikuri.
 
 - **The threading rule.** Tuile is single-threaded: every UI
   mutation (`rect=`, `content=`, `add_line`, `invalidate`,
