@@ -1,11 +1,9 @@
 # frozen_string_literal: true
 
 # Namespace for the +bin/pikuri-tui-code+ TUI: the in-repo coding-agent
-# shell ({Code::App}), its vertical-split root layout ({Code::Layout}),
-# and the modal y/n confirmer ({Code::ConfirmerPopup}) the +Write+ /
-# +Bash+ tools prompt through. The Enter-submits text input ({Shared::InputArea}) and
-# conversation-window footer ({Shared::StatusLabel}) are shared top-level
-# components.
+# shell ({Code::App}), its vertical-split root layout ({Code::Layout}), and
+# the modal y/n confirmer ({Code::ConfirmerPopup}) the +Write+ / +Bash+ tools
+# prompt through.
 #
 # == Why a parallel copy of +Chat::+ and not a shared base
 #

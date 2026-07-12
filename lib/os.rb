@@ -1,13 +1,11 @@
 # frozen_string_literal: true
 
-# Namespace for the +bin/pikuri-tui-os+ TUI: the offline OS-assistant
-# shell ({Os::App}) and its vertical-split root layout ({Os::Layout}); the
-# Enter-submits text input ({Shared::InputArea}) and conversation-window footer
-# ({Shared::StatusLabel}) are shared top-level components. The shell is driven by one
-# +Pikuri::Os::Extension+ (wired in the bin): the five file tools, a
-# network-severed sandboxed +bash+, and the machine-facts / MACHINE.md
-# system-prompt sections — a single local agent for understanding and
-# operating this host.
+# Namespace for the +bin/pikuri-tui-os+ TUI: the offline OS-assistant shell
+# ({Os::App}) and its vertical-split root layout ({Os::Layout}). The shell is
+# driven by one +Pikuri::Os::Extension+ (wired in the bin): the five file
+# tools, a network-severed sandboxed +bash+, and the machine-facts /
+# MACHINE.md system-prompt sections — a single local agent for understanding
+# and operating this host.
 #
 # == Shape: chat layout, code wiring
 #
@@ -28,9 +26,8 @@
 # copies rather than factored onto a common base — the project's "thin
 # shell, readable not obfuscated" ceiling favors a little duplication
 # over a base-class abstraction (see {Code} for the longer rationale).
-# The OS shell reuses the cross-cutting adapters ({Shared::TuileListener},
-# {Shared::Model::Listener}, {Shared::LeaderMenu}, {Shared::Log::Popup}, {Shared::InputArea}, {Shared::StatusLabel}, …)
-# and the +Code::*+ confirmer / diff classes directly, and copies only the
+# The OS shell reuses the cross-cutting +Shared::*+ adapters and the
+# +Code::*+ confirmer / diff classes directly, and copies only the
 # genuinely-divergent shell-specific pieces ({Os::App}, {Os::Layout}).
 #
 # == OS-only dependencies
