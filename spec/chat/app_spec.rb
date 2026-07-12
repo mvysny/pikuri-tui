@@ -218,13 +218,15 @@ RSpec.describe Chat::App do
 
   it 'wires a Shared::StatusLabel that drives the conversation Window as border chrome (token status + spinner)' do
     app
-    assert_kind_of Shared::StatusLabel, app.instance_variable_get(:@footer_label)
+    assert_kind_of Shared::StatusLabel, status_label
+    # The status is border chrome (footer_text), not a footer-slot
+    # component, so the Window's own footer stays nil.
     assert_nil app.screen.pane.content.conversation.footer
   end
 
   it "hands the agent's interloper to the Shared::StatusLabel for the queued-count display" do
     app
-    assert_same app.agent.interloper, app.instance_variable_get(:@footer_label).interloper
+    assert_same app.agent.interloper, status_label.interloper
   end
 
   it 'queues a mid-turn submission into the interloper instead of starting a second run_loop' do
@@ -298,7 +300,7 @@ RSpec.describe Chat::App do
     explicit_app = described_class.new(token_log: explicit_token_log) do |listener|
       StubAgent.new(listener)
     end
-    footer = explicit_app.instance_variable_get(:@footer_label)
+    footer = status_label(explicit_app)
     assert_same explicit_token_log, footer.instance_variable_get(:@token_log)
   end
 
@@ -337,7 +339,7 @@ RSpec.describe Chat::App do
     end
 
     it 'seeds the footer with the boot model display name' do
-      footer = picker_app.instance_variable_get(:@footer_label)
+      footer = status_label(picker_app)
       assert_equal 'Local', footer.current_model
     end
 
@@ -368,11 +370,17 @@ RSpec.describe Chat::App do
       app = described_class.new(models: pair) do |listener, _ml|
         StubAgent.new(listener, model: 'qwen3', api_base: 'http://mavi-fw:8080/v1')
       end
-      assert_equal 'Remote Qwen', app.instance_variable_get(:@footer_label).current_model
+      assert_equal 'Remote Qwen', status_label(app).current_model
     end
   end
 
   private
+
+  # The conversation window owns the footer now (Chat::ConversationWindow),
+  # so reach the Shared::StatusLabel through it rather than a former App ivar.
+  def status_label(some_app = app)
+    some_app.instance_variable_get(:@conversation_window).status_label
+  end
 
   def model_choice(name, model, api_base: 'http://x/v1')
     Shared::Model::Choice.new(

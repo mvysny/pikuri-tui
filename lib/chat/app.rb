@@ -64,7 +64,7 @@ module Chat
     # @return [Tuile::Component::TextView] the conversation transcript
     #   pane. Exposed primarily for tests; production code should reach
     #   it through the {Shared::TuileListener}.
-    attr_reader :conversation_view
+    def conversation_view = @conversation_window.view
 
     # @return [Tuile::Component::LogWindow] the eager-constructed
     #   diagnostic window (owned by the {Shared::Log::UI}). Exposed for tests and for
@@ -82,7 +82,7 @@ module Chat
     # @return [Shared::Model::Listener] the footer model-name listener yielded to
     #   the build block. The host must include it in the agent's
     #   +ListenerList+ so +ModelSwitched+ events reach the footer.
-    attr_reader :model_listener
+    def model_listener = @conversation_window.model_listener
 
     # @param token_log [Pikuri::Agent::Listener::TokenLog] the
     #   per-conversation token log whose +status_line+ feeds the
@@ -125,16 +125,15 @@ module Chat
 
       build_components
       @log_ui.wire!
-      @agent = build_agent.call(@listener, @model_listener)
+      @agent = build_agent.call(@conversation_window.listener, @conversation_window.model_listener)
       # The footer renders a "N queued" segment off the interloper's
       # +peek+ while mid-turn injections are pending. Installed here
-      # (rather than at Shared::StatusLabel construction) because the agent —
-      # and therefore its interloper — doesn't exist until the build
-      # block has run.
-      @footer_label.interloper = @agent.interloper
+      # (rather than at construction) because the agent — and therefore its
+      # interloper — doesn't exist until the build block has run.
+      @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model's display name; the
       # Shared::Model::Listener takes over on every later switch.
-      @footer_label.current_model = @model_picker.display_name(@agent.transport)
+      @conversation_window.current_model = @model_picker.display_name(@agent.transport)
 
       @leader_menu = build_leader_menu
       @screen.on_error = method(:on_screen_error)
@@ -166,23 +165,13 @@ module Chat
     def build_components
       @log_ui = Shared::Log::UI.new(screen: @screen)
 
-      @conversation_view = Tuile::Component::TextView.new
-      @conversation_view.auto_scroll = true
-
-      @conversation_window = Tuile::Component::Window.new('Conversation')
-      @conversation_window.content = @conversation_view
-      @conversation_window.scrollbar = true
-      # Border chrome, not a widget slot: the Shared::StatusLabel embeds the
-      # agent status into the conversation window's bottom border (and
-      # leaves a clean border while idle/empty).
-      @footer_label = Shared::StatusLabel.new(screen: @screen, window: @conversation_window, token_log: @token_log)
+      @conversation_window = ConversationWindow.new(
+        screen: @screen, token_log: @token_log, markdown: @markdown, model_names: @model_picker.names
+      )
 
       @input = Shared::InputArea.new(on_submit: method(:submit_message))
       @input_window = Tuile::Component::Window.new('You')
       @input_window.content = @input
-
-      @listener = Shared::TuileListener.new(text_view: @conversation_view, screen: @screen, markdown: @markdown)
-      @model_listener = Shared::Model::Listener.new(footer: @footer_label, screen: @screen, names: @model_picker.names)
 
       @layout = Layout.new(
         conversation: @conversation_window,
@@ -323,7 +312,7 @@ module Chat
       # thread, before the worker spawns: run_loop applies it at the top
       # of the turn. take_pending clears it so it's applied at most once.
       transport = @model_picker.take_pending
-      @footer_label.start_animation
+      @conversation_window.start_animation
       Thread.new do
         @agent.run_loop(user_message: message, transport: transport)
       rescue Pikuri::Agent::Control::Cancellable::Cancelled
@@ -332,12 +321,10 @@ module Chat
         LOG.error(
           "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"
         )
-        @screen.event_queue.submit do
-          @conversation_view.add_line(@screen.theme.error("! #{e.class}: #{e.message}"))
-        end
+        @conversation_window.render_turn_error(e)
       ensure
         @screen.event_queue.submit do
-          @footer_label.stop_animation
+          @conversation_window.stop_animation
           @turn_in_progress = false
           deliver_pending_injections
         end
