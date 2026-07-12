@@ -14,11 +14,12 @@ module Chat
   #
   # == Construction order
   #
-  # The agent needs a {Shared::TuileListener} in its +ListenerList+, and the
-  # listener needs the conversation +TextView+ — which can't exist until
-  # the screen is initialized. Resolving that cycle is why the
-  # constructor takes a block: App builds the screen, the components,
-  # and the listener, then yields the listener to the block; the block
+  # The agent needs the conversation-pane listeners in its +ListenerList+,
+  # and those listeners need the conversation +TextView+ — which can't
+  # exist until the screen is initialized. Resolving that cycle is why the
+  # constructor takes a block: App builds the components (the
+  # {Shared::ConversationWindow} builds and owns the {Shared::TuileListener}
+  # and {Shared::Model::Listener}), then yields them to the block; the block
   # returns a constructed +Pikuri::Agent+ that App installs. The bin
   # script uses this seam to pick model/tools/transport without App
   # learning about any of them.
@@ -165,8 +166,8 @@ module Chat
     def build_components
       @log_ui = Shared::Log::UI.new(screen: @screen)
 
-      @conversation_window = ConversationWindow.new(
-        screen: @screen, token_log: @token_log, markdown: @markdown, model_names: @model_picker.names
+      @conversation_window = Shared::ConversationWindow.new(
+        token_log: @token_log, markdown: @markdown, model_names: @model_picker.names
       )
 
       @input = Shared::InputArea.new(on_submit: method(:submit_message))

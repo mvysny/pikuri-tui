@@ -252,6 +252,14 @@ Zeitwerk over `lib/` and eager-loads it.
   conversation-window footer chrome shared by all three shells: model
   name, mid-turn spinner, queued-injection count, token snapshot, and a
   plan-mode badge.
+- `lib/shared/conversation_window.rb` — `Shared::ConversationWindow`, the
+  conversation transcript as one cohesive `Tuile::Component::Window`
+  subclass shared by all three shells: owns its `TextView`, its
+  `Shared::StatusLabel` footer, and the `Shared::TuileListener` /
+  `Shared::Model::Listener` that keep both current off the agent's event
+  stream. Exposes `#listener` / `#model_listener` for the host to compose
+  into the agent's `ListenerList`. The COP domain component that collapsed
+  the conversation-pane wiring each `App` used to hand-assemble.
 - `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
   `lib/chat/`) for the chat front-end (`Chat::App` + `Chat::Layout`); the
   baseline shell the `Code` / `Os` siblings were copied from.
@@ -493,7 +501,8 @@ Zeitwerk over `lib/` and eager-loads it.
   appears in more than one shell, extract it once into the
   `Shared::` namespace (or `Code::*` when it's coding-family) and
   reuse it — that is how we kill duplication. The building blocks
-  already living this way: `Shared::InputArea`, `Shared::StatusLabel`, `Shared::Model::Listener`,
+  already living this way: `Shared::InputArea`, `Shared::StatusLabel`,
+  `Shared::ConversationWindow`, `Shared::Model::Listener`,
   `Shared::LeaderMenu`, `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the OS shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this

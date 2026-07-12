@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-RSpec.describe Chat::ConversationWindow do
+RSpec.describe Shared::ConversationWindow do
   let(:token_log) { Pikuri::Agent::Listener::TokenLog.new }
-  let(:window)    { described_class.new(screen: Tuile::Screen.instance, token_log: token_log) }
+  let(:window)    { described_class.new(token_log: token_log) }
 
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
@@ -13,7 +13,7 @@ RSpec.describe Chat::ConversationWindow do
   end
 
   it 'takes a custom title (the coding shell passes its project root)' do
-    titled = described_class.new(screen: Tuile::Screen.instance, token_log: token_log, title: '/srv/app')
+    titled = described_class.new(token_log: token_log, title: '/srv/app')
     assert_equal '/srv/app', titled.caption
   end
 
@@ -42,7 +42,7 @@ RSpec.describe Chat::ConversationWindow do
   end
 
   it 'forwards markdown: through to its Shared::TuileListener' do
-    plain = described_class.new(screen: Tuile::Screen.instance, token_log: token_log, markdown: false)
+    plain = described_class.new(token_log: token_log, markdown: false)
     assert_equal false, plain.listener.instance_variable_get(:@markdown)
   end
 
