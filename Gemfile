@@ -10,11 +10,11 @@ ruby '>= 3.3'
 gem 'tuile', '~> 0.9.0'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
-# every file under lib/pikuri_tui/ declares exactly the constant matching
+# every file under lib/ declares exactly the top-level constant matching
 # its path without per-file require_relative ceremony.
 gem 'zeitwerk', '~> 2.7'
 
-# Markdown parser for the conversation pane. PikuriTui::MarkdownRenderer
+# Markdown parser for the conversation pane. Shared::Markdown::Renderer
 # parses with kramdown (GFM dialect, via kramdown-parser-gfm) and renders
 # the parse tree to ANSI with its own Kramdown::Converter subclass —
 # replacing tty-markdown, whose stale pins (strings ~> 0.2.0, rouge < 5)
@@ -24,12 +24,12 @@ gem 'kramdown', '~> 2.4'
 gem 'kramdown-parser-gfm', '~> 1.1'
 
 # Syntax highlighting for fenced code blocks in the conversation pane.
-# Used by PikuriTui::MarkdownRenderer::AnsiConverter. The upper bound
+# Used by Shared::Markdown::AnsiConverter. The upper bound
 # stays wide on purpose — pinning tightly here is how tty-markdown got
 # us stuck.
 gem 'rouge', '>= 4.0', '< 6'
 
-# TOML parser for the layered config file (PikuriTui::Config). Pure Ruby,
+# TOML parser for the layered config file (Shared::Config). Pure Ruby,
 # parse-only (we only ever READ config, never serialize), with ZERO runtime
 # dependencies — chosen over toml-rb after vetting: toml-rb pulls in citrus,
 # which was last released in 2015 and ships no license. tomlrb is MIT,
@@ -72,7 +72,7 @@ gem 'pikuri-pdf', '~> 0.0.7'
 
 # Shared by the coding AND OS shells. Line- and character-level LCS diffing
 # for the conversation-pane diff view of the edit / write tools
-# (PikuriTui::Code::DiffRenderer, which the OS shell reuses). The de-facto
+# (Code::DiffRenderer, which the OS shell reuses). The de-facto
 # standard Ruby diff library (rspec depends on it too). The chat shell
 # never renders a diff, so +groups:+ keeps it off chat's +(:default)+ load
 # path while +(:default, :code)+ and +(:default, :os)+ both activate it.

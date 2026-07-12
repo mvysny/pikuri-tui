@@ -58,7 +58,7 @@ three shells route every command through one leader key (`Ctrl+K` →
 
 The three shells keep their genuinely-divergent scaffolding (`App` /
 `Layout`) as deliberate parallel copies, not a common base (see
-`lib/pikuri_tui/code.rb` and `lib/pikuri_tui/os.rb`; the OS shell
+`lib/code.rb` and `lib/os.rb`; the OS shell
 additionally reuses the `Code::*` confirmer / diff adapters directly).
 The pieces that carried no divergence are shared top-level components
 instead: the Enter-submits input (`Shared::InputArea`) and the
@@ -103,7 +103,7 @@ loaded (gated on `Pikuri::Workspace` — the OS subtree reuses the
 
 - **The seam.** All `Pikuri::*` references stay inside the bin
   scripts (boot/wiring) and the small adapter set under
-  `lib/pikuri_tui/` (the listener, the confirmer, anything else
+  `lib/` (the listener, the confirmer, anything else
   that needs to know what an event or a prompt is). Tuile-only
   components — layout containers, widgets, custom panels — must
   not reach into `Pikuri::*`. Same fork-or-swap rationale as
@@ -139,77 +139,79 @@ loaded (gated on `Pikuri::Workspace` — the OS subtree reuses the
 Per-file rationale lives in each source file's YARD header (or, for the
 `bin/` scripts, their inline comments) — this is the package map: one-line
 pointers, not a second copy of the docs. This is an end app, not a library,
-so it carries **no umbrella namespace**: `lib/pikuri_tui/` is the Zeitwerk
+so it carries **no umbrella namespace**: `lib/` itself is the Zeitwerk
 root and every file maps to a top-level constant — the three shells (`Chat`,
 `Code`, `Os`) and the shared toolkit (`Shared::…`). `lib/pikuri_tui.rb` boots
-Zeitwerk over `lib/pikuri_tui/` and eager-loads it.
+Zeitwerk over `lib/` and eager-loads it.
 
-- `lib/pikuri_tui.rb` — Zeitwerk loader (root `lib/pikuri_tui/`, so files map
-  to top-level constants) + eager-load; one require for callers. Sits one
-  level above the root, so it is not itself managed by the loader.
-- `lib/pikuri_tui/shared.rb` — `Shared`, namespace for the reusable building
+- `lib/pikuri_tui.rb` — Zeitwerk loader (root `lib/`, so files map to
+  top-level constants) + eager-load; one require for callers. Lives inside
+  the root and excludes itself via `loader.ignore(__FILE__)`; its basename is
+  only the `require 'pikuri_tui'` target, not a namespace (no `PikuriTui`
+  constant exists).
+- `lib/shared.rb` — `Shared`, namespace for the reusable building
   blocks the three shells compose out of (the toolkit, as opposed to each
   shell's own `App` / `Layout`); grouped by subsystem below.
-- `lib/pikuri_tui/shared/app_theme.rb` — `Shared::AppTheme`, the
+- `lib/shared/app_theme.rb` — `Shared::AppTheme`, the
   `Tuile::Theme` subclass carrying the app's accent tokens; single
   source of truth for every UI accent all three shells paint.
-- `lib/pikuri_tui/shared/config.rb` — `Shared::Config`, the layered
+- `lib/shared/config.rb` — `Shared::Config`, the layered
   XDG-path TOML config all three shells load at boot (connections,
   sandbox/confirm switches, MCP servers), CLI overrides on top,
   hand-validated.
-- `lib/pikuri_tui/shared/tuile_listener.rb` — `Shared::TuileListener`,
+- `lib/shared/tuile_listener.rb` — `Shared::TuileListener`,
   the `Pikuri::Agent::Listener::Base` rendering the event stream into
   the conversation `TextView`; shared by all three shells, tool calls
   via an injected `tool_formatters` map.
-- `lib/pikuri_tui/shared/markdown.rb` — `Shared::Markdown`, namespace for the
+- `lib/shared/markdown.rb` — `Shared::Markdown`, namespace for the
   Markdown → ANSI rendering path (renderer over converter, the in-place
   streaming buffers, the thinking-pane grayscale recolorizer).
-- `lib/pikuri_tui/shared/markdown/renderer.rb` —
+- `lib/shared/markdown/renderer.rb` —
   `Shared::Markdown::Renderer`, the single entry point turning
   Markdown into ANSI for the conversation pane (kramdown GFM →
   `Shared::Markdown::AnsiConverter`).
-- `lib/pikuri_tui/shared/markdown/ansi_converter.rb` —
+- `lib/shared/markdown/ansi_converter.rb` —
   `Shared::Markdown::AnsiConverter`, the in-house
   `Kramdown::Converter::Base` subclass rendering parse tree to ANSI;
   honors `NO_COLOR`.
-- `lib/pikuri_tui/shared/markdown/streaming_buffer.rb` —
+- `lib/shared/markdown/streaming_buffer.rb` —
   `Shared::Markdown::StreamingBuffer`, buffer rewriting a
   `TextView::Region` in place from Markdown deltas; must be driven
   from the UI thread.
-- `lib/pikuri_tui/shared/markdown/passthrough_buffer.rb` —
+- `lib/shared/markdown/passthrough_buffer.rb` —
   `Shared::Markdown::PassthroughBuffer`, the render-free
   `Shared::Markdown::StreamingBuffer` variant for streams already in display
   form.
-- `lib/pikuri_tui/shared/markdown/grayscale.rb` — `Shared::Markdown::Grayscale`,
+- `lib/shared/markdown/grayscale.rb` — `Shared::Markdown::Grayscale`,
   repaints ANSI as one muted fg with structure preserved, for the
   thinking-pane path.
-- `lib/pikuri_tui/shared/model.rb` — `Shared::Model`, namespace for the
+- `lib/shared/model.rb` — `Shared::Model`, namespace for the
   model-switch subsystem (the connection/transport value object, the
   footer-updating listener, the leader-menu picker).
-- `lib/pikuri_tui/shared/model/choice.rb` — `Shared::Model::Choice`, a
+- `lib/shared/model/choice.rb` — `Shared::Model::Choice`, a
   `Data.define` pairing a connection's display name with its
   `ChatTransport`; the one place the Pikuri seam is crossed for model
   switching.
-- `lib/pikuri_tui/shared/model/listener.rb` — `Shared::Model::Listener`,
+- `lib/shared/model/listener.rb` — `Shared::Model::Listener`,
   the listener that consumes `ModelSwitched` and pushes the landed
   model's display name onto the footer. Shared by all three shells.
-- `lib/pikuri_tui/shared/model/picker.rb` — `Shared::Model::Picker`, the shared
+- `lib/shared/model/picker.rb` — `Shared::Model::Picker`, the shared
   leader-menu model-switch picker (connection catalog, name map, pending
   switch, `PickerWindow` popup) all three shells compose.
-- `lib/pikuri_tui/shared/log.rb` — `Shared::Log`, namespace for the
+- `lib/shared/log.rb` — `Shared::Log`, namespace for the
   diagnostic-log subsystem (the eager `LogWindow`, its popup, the IO sinks).
-- `lib/pikuri_tui/shared/log/counting_io.rb` — `Shared::Log::CountingIO`,
+- `lib/shared/log/counting_io.rb` — `Shared::Log::CountingIO`,
   the `IO`-shaped sink forwarding lines to the diagnostic `LogWindow`
   and counting error-class writes for the `Ctrl+K` hint. Shared by all
   three shells.
-- `lib/pikuri_tui/shared/log/buffering_io.rb` — `Shared::Log::BufferingIO`,
+- `lib/shared/log/buffering_io.rb` — `Shared::Log::BufferingIO`,
   the boot-time `Pikuri.log_io` sink that tees pre-screen lines to
   `$stderr` and retains them for `#replay_into` the `LogWindow`. Shared
   by all three shells.
-- `lib/pikuri_tui/shared/log/popup.rb` — `Shared::Log::Popup`, the `Popup`
+- `lib/shared/log/popup.rb` — `Shared::Log::Popup`, the `Popup`
   wrapper around the eager `LogWindow` that resets the unread-error
   counter on dismiss. Shared by all three shells.
-- `lib/pikuri_tui/shared/log/ui.rb` — `Shared::Log::UI`, the diagnostic-log
+- `lib/shared/log/ui.rb` — `Shared::Log::UI`, the diagnostic-log
   subsystem shared by all three shells: it owns the eager `LogWindow`,
   its `Shared::Log::Popup`, the `Shared::Log::CountingIO` wiring (`#wire!` — the
   former per-`App` `wire_logging`, incl. the `Shared::Log::BufferingIO` boot-line
@@ -224,85 +226,85 @@ Zeitwerk over `lib/pikuri_tui/` and eager-loads it.
   `#install_shortcut` late (once the leader menu exists). Extracted from
   the byte-identical `wire_logging` / `menu_hint` / error-counter cluster
   the three `App`s each used to carry.
-- `lib/pikuri_tui/shared/leader_menu.rb` — `Shared::LeaderMenu`, the
+- `lib/shared/leader_menu.rb` — `Shared::LeaderMenu`, the
   lazyvim-style which-key command menu: `Ctrl+K` opens a modal
   `PickerWindow` of app actions, each on one follow-up key. Shared by
   all three shells; each `App` registers its own action set.
-- `lib/pikuri_tui/shared/input_area.rb` — `Shared::InputArea`, the bottom-pane
+- `lib/shared/input_area.rb` — `Shared::InputArea`, the bottom-pane
   `TextArea` subclass that rebinds Enter to submit-and-clear (blank
   buffers are a no-op). Shared by all three shells.
-- `lib/pikuri_tui/shared/status_label.rb` — `Shared::StatusLabel`, the
+- `lib/shared/status_label.rb` — `Shared::StatusLabel`, the
   conversation-window footer chrome shared by all three shells: model
   name, mid-turn spinner, queued-injection count, token snapshot, and a
   plan-mode badge.
-- `lib/pikuri_tui/chat.rb` — `Chat`, namespace for the
+- `lib/chat.rb` — `Chat`, namespace for the
   chat front-end (`Chat::App` + `Chat::Layout`).
-- `lib/pikuri_tui/chat/app.rb` — `Chat::App`, the Tuile
+- `lib/chat/app.rb` — `Chat::App`, the Tuile
   shell for `bin/pikuri-tui-chat` (conversation `TextView` + diagnostic
   `LogWindow` + input + status bar); takes a `models:` list and wires
   the `Shared::LeaderMenu` and shortcuts.
-- `lib/pikuri_tui/chat/layout.rb` — `Chat::Layout`,
+- `lib/chat/layout.rb` — `Chat::Layout`,
   the vertical-split root layout (conversation top, input bottom).
-- `lib/pikuri_tui/code.rb` — `Code`, namespace for the
+- `lib/code.rb` — `Code`, namespace for the
   coding front-end; home of the duplicate-don't-share rationale for the
   parallel `Code::*` copies.
-- `lib/pikuri_tui/code/app.rb` — `Code::App`, the Tuile
+- `lib/code/app.rb` — `Code::App`, the Tuile
   shell for `bin/pikuri-tui-code`; like `Chat::App` but adds the
   `Code::ConfirmerPopup`, task + git sidebar, `Code::GitDiffPopup`, and
   plan-mode toggle.
-- `lib/pikuri_tui/code/layout.rb` — `Code::Layout`, the
+- `lib/code/layout.rb` — `Code::Layout`, the
   coding shell's dual-pane root: a 60/40 conversation-over-input left
   column beside a task + git sidebar (collapsed when too narrow).
-- `lib/pikuri_tui/code/task_listener.rb` —
+- `lib/code/task_listener.rb` —
   `Code::TaskListener`, a `Pikuri::Agent::Listener::Base`
   rendering the agent's task-list changes into the sidebar task window.
-- `lib/pikuri_tui/code/plan_mode_listener.rb` —
+- `lib/code/plan_mode_listener.rb` —
   `Code::PlanModeListener`, a `Pikuri::Agent::Listener::Base`
   driving the footer plan-mode badge off `Pikuri::Code::PlanModeChanged`;
   coding/OS-shell-only.
-- `lib/pikuri_tui/code/git_watcher.rb` —
+- `lib/code/git_watcher.rb` —
   `Code::GitWatcher`, the background git poller feeding the
   sidebar change summary and the `GitDiffPopup`'s full diff.
-- `lib/pikuri_tui/code/git_diff_popup.rb` —
+- `lib/code/git_diff_popup.rb` —
   `Code::GitDiffPopup`, the fullscreen `Popup` wrapping the
   long-lived Git diff window `GitWatcher` keeps current; opened from the
   leader menu's `d` entry.
-- `lib/pikuri_tui/code/git_diff_renderer.rb` —
+- `lib/code/git_diff_renderer.rb` —
   `Code::GitDiffRenderer`, renders a plain `git diff` into
   `DiffRenderer`'s two-tier inline form so the popup matches the
   `edit`/`write` tool diffs.
-- `lib/pikuri_tui/code/confirmer_popup.rb` —
+- `lib/code/confirmer_popup.rb` —
   `Code::ConfirmerPopup`, a `Pikuri::Workspace::Confirmer`
   rendered as a modal Tuile popup instead of stdin; gates the
   `Write` / `Bash` / `agent` tools with approve / edit / reject.
-- `lib/pikuri_tui/code/trust_store.rb` —
+- `lib/code/trust_store.rb` —
   `Code::TrustStore`, the persisted set of git-config-trusted
   project roots that gate read-only-git auto-approval; asked at most once
   per project.
-- `lib/pikuri_tui/code/diff_renderer.rb` —
+- `lib/code/diff_renderer.rb` —
   `Code::DiffRenderer`, renders a before/after string pair as
   a two-tier ANSI unified diff for the conversation pane; screen-agnostic,
   `diff-lcs`-aligned.
-- `lib/pikuri_tui/code/diff_tool_formatting.rb` —
+- `lib/code/diff_tool_formatting.rb` —
   `Code::DiffToolFormatting`, module functions shared by the
   `edit` / `write` formatters: the call-time diff block and the
   result-time error line.
-- `lib/pikuri_tui/code/edit_formatter.rb` —
+- `lib/code/edit_formatter.rb` —
   `Code::EditFormatter`, the `tool_formatters` entry for
   `edit`; diffs `old_string` → `new_string` straight from the `ToolCall`
   arguments, no file read.
-- `lib/pikuri_tui/code/write_formatter.rb` —
+- `lib/code/write_formatter.rb` —
   `Code::WriteFormatter`, the `tool_formatters` entry for
   `write`; diffs the on-disk file (read via `filesystem`) against
   `content`, falling back when unreadable.
-- `lib/pikuri_tui/os.rb` — `Os`, namespace for the
+- `lib/os.rb` — `Os`, namespace for the
   OS-assistant front-end; home of the duplicate-only-the-shell rationale
   (copies `Os::App` / `Os::Layout`, reuses the `Code::*` adapters).
-- `lib/pikuri_tui/os/app.rb` — `Os::App`, the Tuile shell for
+- `lib/os/app.rb` — `Os::App`, the Tuile shell for
   `bin/pikuri-tui-os`; laid out like `Chat::App` (no sidebar) but carrying
   the coding shell's safety machinery (confirmer, plan mode, diff
   formatters).
-- `lib/pikuri_tui/os/layout.rb` — `Os::Layout`, a parallel copy
+- `lib/os/layout.rb` — `Os::Layout`, a parallel copy
   of `Chat::Layout` (vertical split: conversation top, fixed-height input
   strip bottom, no sidebar).
 - `bin/pikuri-tui-chat` — boot script for the chat agent
@@ -413,8 +415,8 @@ Zeitwerk over `lib/pikuri_tui/` and eager-loads it.
   the `inflector.inflect` block in `lib/pikuri_tui.rb`.
 - **Namespacing direction.** No umbrella namespace — this is an
   end app, not a library, so files map to top-level constants at
-  the path Zeitwerk expects (`lib/pikuri_tui/shared/log/ui.rb` →
-  `Shared::Log::UI`, `lib/pikuri_tui/chat/app.rb` → `Chat::App`).
+  the path Zeitwerk expects (`lib/shared/log/ui.rb` →
+  `Shared::Log::UI`, `lib/chat/app.rb` → `Chat::App`).
   Reusable building blocks go under `Shared::` (grouped by
   subsystem — `Shared::Log` / `Shared::Model` / `Shared::Markdown`,
   or directly under `Shared` when standalone); shell-specific code

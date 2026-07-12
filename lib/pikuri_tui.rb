@@ -2,23 +2,28 @@
 
 require 'zeitwerk'
 
-# Boot file: configures Zeitwerk over +lib/pikuri_tui/+ and eager-loads it.
-# After +require 'pikuri_tui'+ every constant in this tree is defined and
+# Boot file: configures Zeitwerk over +lib/+ and eager-loads it. After
+# +require 'pikuri_tui'+ every constant in this tree is defined and
 # resolvable.
 #
 # This is an *end app*, never a published gem, so it carries no umbrella
-# namespace: the loader's root is +lib/pikuri_tui/+ (not +lib/+), which maps
-# each file to a TOP-LEVEL constant — +chat/app.rb+ → +Chat::App+,
-# +shared/log/ui.rb+ → +Shared::Log::UI+. Nothing external ever depends on
-# this project, so there is nothing to shield from constant clashes. This boot
-# file sits in +lib/+, one level above the pushed root, so it is not itself
-# managed by the loader.
+# namespace: the loader's root is +lib/+ itself, which maps each file to a
+# TOP-LEVEL constant — +chat/app.rb+ → +Chat::App+, +shared/log/ui.rb+ →
+# +Shared::Log::UI+. Nothing external ever depends on this project, so there
+# is nothing to shield from constant clashes.
+#
+# This file is the sole bootstrap, and it lives *inside* the pushed root, so
+# it must exclude itself (+loader.ignore(__FILE__)+) — otherwise Zeitwerk
+# would demand a +PikuriTui+ constant to match +lib/pikuri_tui.rb+. Its
+# basename is only the app's require target (+require 'pikuri_tui'+), not a
+# namespace; no +PikuriTui+ constant exists.
 #
 # Eager-loading at boot keeps the rule "filename matches CamelCase constant"
 # honest (any mismatch fails fast at startup, not at first reference inside
 # the event loop).
 loader = Zeitwerk::Loader.new
-loader.push_dir("#{__dir__}/pikuri_tui")
+loader.push_dir(__dir__)
+loader.ignore(__FILE__)
 
 # Zeitwerk's inflector matches the *whole* basename rather than per-segment,
 # so acronym mappings spell the full word. +ui+ → +UI+ (the diagnostic-log
@@ -45,10 +50,10 @@ loader.inflector.inflect(
 # neither autoloads nor eager-loads them; when present, they participate
 # normally and the fail-fast eager-load guarantee still holds.
 unless defined?(Pikuri::Workspace)
-  loader.ignore("#{__dir__}/pikuri_tui/code.rb")
-  loader.ignore("#{__dir__}/pikuri_tui/code")
-  loader.ignore("#{__dir__}/pikuri_tui/os.rb")
-  loader.ignore("#{__dir__}/pikuri_tui/os")
+  loader.ignore("#{__dir__}/code.rb")
+  loader.ignore("#{__dir__}/code")
+  loader.ignore("#{__dir__}/os.rb")
+  loader.ignore("#{__dir__}/os")
 end
 
 loader.setup
