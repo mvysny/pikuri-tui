@@ -3,93 +3,37 @@
 require 'tuile'
 require 'pikuri-core'
 
-# Keeps the conversation window's bottom-border chrome
-# ({Tuile::Component::Window#footer_text}) current, surfacing the agent's
-# status: an optional plan-mode badge
-# (a leading notice-toned "‖ Plan Mode" when active), the current model's
-# display name (the leading segment after any badge, updated by
-# {Shared::StatusFooterUpdater::ModelListener} when a +run_loop+ model switch lands), whether the agent
-# is mid-turn (a spinner ticks while +run_loop+ is on the worker thread),
-# how many mid-turn messages are queued in the agent's
-# +Pikuri::Agent::Control::Interloper+ awaiting delivery ("N queued" —
-# submitting mid-turn clears the input, so without this the message would
-# seem to vanish until the agent's next tool boundary echoes it), and the
-# latest context-window snapshot for the main agent (read straight off
-# +Pikuri::Agent::Listener::TokenLog#status_line+).
+# Keeps the conversation window's footer text
+# ({Tuile::Component::Window#footer_text}) current. A busy footer reads:
 #
-# Shared by all three shells (like {Shared::InputArea} / {Shared::ConversationTextView}). The chat
-# shell wires no {Code::PlanModeListener}, so its footer simply never
-# receives a {#plan_active=} call and the badge stays hidden — the render
-# is identical to a badge-less footer. The coding and OS shells both have
-# plan mode, so their +PlanModeListener+ lights the badge here.
+#   ⠹ ‖ Plan Mode · Local Qwen 3.6 · 2 queued · 25k/60k
+#   ⠹ <plan mode?>   <model>       <queued>   <context stats>
 #
-# == Why the spinner and the tokens share a slot
+# Empty segments drop out (chat never lights the badge; an idle agent shows
+# no spinner). During a long sub-agent delegation the token slot shows the
+# delegate's own line instead, e.g. +⤷ researcher  8k/60k+, so the readout
+# doesn't freeze while the main agent blocks in the +agent+ tool.
 #
-# Both are "what is the conversation costing me right now?" signals,
-# and the footer is the one place on screen the user already looks
-# for chrome that summarizes the pane above it. Putting them in the
-# status bar would compete with global shortcut hints; putting them
-# in the conversation pane would pollute the transcript.
+# Drive it with the setters and the spinner controls, plus the nested
+# {ModelListener} (folded into the agent's +ListenerList+) which re-points
+# {#current_model} whenever a +run_loop+ switch lands:
 #
-# == Token source
+#   footer = Shared::StatusFooterUpdater.new(screen:, window:, token_log:)
+#   footer.current_model = 'Local Qwen 3.6'  # boot model
+#   footer.interloper = agent.interloper     # enables the "N queued" segment
+#   footer.plan_active = true                # lights the badge
+#   footer.start_animation                   # spinner on for a turn; stop_animation after
 #
-# Reads from a +Pikuri::Agent::Listener::TokenLog+ handed in at
-# construction. The host wires the same instance into the agent's
-# +ListenerList+ so the listener accumulates per-turn snapshots and
-# this label renders the cached +status_line+ — no second event
-# subscription, no duplicated formatting.
+# +token_log+ must be the *same* {Pikuri::Agent::Listener::TokenLog}
+# instance wired into the agent — the footer reads its cached +status_line+
+# rather than subscribing to events itself.
 #
-# The constructor also claims the log's +on_status_line+ observer
-# slot (it's a single-callable accessor, so the label owns it):
-# every freshly formatted line triggers a {#refresh} the moment the
-# +Tokens+ event lands, instead of waiting up to {FRAME_INTERVAL_S}
-# for the next spinner tick to poll it. Sub-agents derived via
-# +TokenLog#for_sub_agent+ inherit the observer by reference, so
-# their pushes arrive here too — with their non-empty id. Rather
-# than drop them, the footer surfaces a running sub-agent's line in
-# the token slot, labeled with its id (a leading "⤷") so it reads as
-# the delegate's own context window, not the conversation's: during
-# a long delegation (e.g. a RESEARCHER web-research turn) the main
-# agent is blocked in the +agent+ tool and emits no lines of its
-# own, so without this the footer's token readout would freeze. The
-# sub-agent segment clears the moment the main agent resumes and
-# emits its next line (see {#on_status_line}).
+# == Implementation details
 #
-# == Theming
-#
-# The footer paints in the current theme's +Tuile::Theme#hint_color+ —
-# its content (spinner, queued count, token status) is status-hint
-# chrome, the same family as the status bar's "^K menu" hints — on the
-# terminal-default background, matching Tuile's "tokens cover only
-# accents; everything else inherits the terminal" strategy. {#refresh}
-# bakes the color in when it rebuilds the text; the composer registers it
-# as the window's +Tuile::Component#on_theme_changed=+ listener, which
-# +Tuile::Screen#theme=+ fires tree-wide on OS light/dark appearance
-# flips — so a baked-in color never survives a palette change. The
-# plan-mode badge leads in the +:notice+ accent so it pops against the
-# dim hint chrome.
-#
-# == Threading
-#
-# The animation rides Tuile's +EventQueue#tick+: every {FRAME_INTERVAL_S}
-# the queue fires a block on the event-loop thread, so the spinner
-# frame and the +status_line+ read happen on the UI thread directly —
-# no marshaling, no background thread owned by this class.
-# +TokenLog#status_line+ is documented as safe to read from any
-# thread (single instance-var read), so reading it from the tick
-# block costs nothing extra.
-#
-# The +on_status_line+ push is the one off-thread entry point: the
-# observer fires on whatever thread runs the agent loop (the App's
-# worker), so {#on_status_line} marshals the {#refresh} back via
-# +event_queue.submit+ and touches nothing itself.
-#
-# {#start_animation} and {#stop_animation} themselves must be called
-# on the UI thread — they touch +@ticker+ and (in +stop+) call
-# +refresh+ inline to settle the label back to its idle text. The
-# host calls them from {App#start_turn} (pre-spawn) and from the
-# +ensure+ block's +event_queue.submit+ (post-loop), which is the
-# UI thread in both cases.
+# The setters and {#start_animation}/{#stop_animation} must run on the UI
+# thread. The one off-thread entry is the +token_log.on_status_line+ push
+# (claimed at construction); {#on_status_line} marshals its refresh via
+# +event_queue.submit+.
 class Shared::StatusFooterUpdater
   # Braille-spinner frames; standard +dots+ animation. Picked over
   # ASCII +|/-\+ because the Braille glyphs stay a single column
