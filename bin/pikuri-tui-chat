@@ -107,7 +107,7 @@ Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 # Agent's ListenerList see the same TokenLog instance.
 token_log = Pikuri::Agent::Listener::TokenLog.new
 
-app = Chat::App.new(token_log: token_log, models: models) do |listener, model_listener|
+app = Chat::App.new(token_log: token_log, models: models) do |listener, status_footer_updater|
   # Coalesce streaming delta chunks at 15 fps before they reach the
   # Markdown-rendering Shared::ConversationTextView: a fast llama.cpp can emit dozens
   # of deltas per second and re-rendering Markdown on every one is
@@ -131,7 +131,7 @@ app = Chat::App.new(token_log: token_log, models: models) do |listener, model_li
   ) do |c|
     c.add_listener rate_limited_listener
     c.add_listener token_log
-    c.add_listener model_listener
+    c.add_listener status_footer_updater
     c.add_tool Pikuri::Tool::WebSearch.build(brave_key: config.search.brave_key, exa_key: config.search.exa_key)
     c.add_tool Pikuri::Tool::CALCULATOR
     c.add_tool Pikuri::Tool::WEB_SCRAPE

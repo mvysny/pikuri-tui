@@ -3,7 +3,7 @@
 RSpec.describe Os::App do
   # Minimal +Pikuri::Agent+ stand-in — same shape as the chat / code specs'.
   # The Os::App build block yields FOUR args (listener, confirmer,
-  # model_listener, plan_mode_listener); StubAgent only needs the listener
+  # status_footer_updater, plan_mode_listener); StubAgent only needs the listener
   # (the real agent's tools / ListenerList would take the rest).
   class StubAgent
     attr_reader :cancellable, :interloper, :listener, :messages, :transport, :transports, :clear_count
@@ -39,10 +39,10 @@ RSpec.describe Os::App do
   end
 
   let(:app) do
-    described_class.new do |listener, confirmer, model_listener, plan_mode_listener|
+    described_class.new do |listener, confirmer, status_footer_updater, plan_mode_listener|
       @listener = listener
       @confirmer = confirmer
-      @model_listener = model_listener
+      @status_footer_updater = status_footer_updater
       @plan_mode_listener = plan_mode_listener
       StubAgent.new(listener)
     end
@@ -236,7 +236,7 @@ RSpec.describe Os::App do
   describe 'model picker' do
     let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
     let(:picker_app) do
-      described_class.new(models: choices) do |listener, _confirmer, _model_listener, _plan_listener|
+      described_class.new(models: choices) do |listener, _confirmer, _status_footer_updater, _plan_listener|
         StubAgent.new(listener, model: 'm1')
       end
     end
@@ -268,7 +268,7 @@ RSpec.describe Os::App do
   describe 'plan mode' do
     let(:plan_mode) { Pikuri::Workspace::ReadOnly.new }
     let(:plan_app) do
-      described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _model_listener, _plan_listener|
+      described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _status_footer_updater, _plan_listener|
         StubAgent.new(listener)
       end
     end

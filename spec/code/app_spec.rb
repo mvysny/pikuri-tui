@@ -260,7 +260,7 @@ RSpec.describe Code::App do
   describe 'model picker' do
     let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
     let(:picker_app) do
-      described_class.new(models: choices) do |listener, _confirmer, _task_listener, _model_listener|
+      described_class.new(models: choices) do |listener, _confirmer, _task_listener, _status_footer_updater|
         StubAgent.new(listener, model: 'm1')
       end
     end
@@ -292,7 +292,7 @@ RSpec.describe Code::App do
   describe 'plan mode' do
     let(:plan_mode) { Pikuri::Workspace::ReadOnly.new }
     let(:plan_app) do
-      described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _task_listener, _model_listener, _plan_listener|
+      described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _task_listener, _status_footer_updater, _plan_listener|
         StubAgent.new(listener)
       end
     end

@@ -17,7 +17,7 @@ require 'tuile'
 # and the *pending* transport (a pick not yet applied). It does NOT own the
 # *current* model — that authority stays with pikuri
 # (+Pikuri::Agent#transport+) and the footer (moved on-land by
-# {Shared::StatusFooterUpdater::ModelListener}), so a failed switch never advertises a model it never
+# {Shared::StatusFooterUpdater}), so a failed switch never advertises a model it never
 # reached. The picker only records the user's request; +App#start_turn+
 # drains it via {#take_pending} and hands it to the next +run_loop+, and the
 # footer moves only once the switch lands. This is why {#open} takes the

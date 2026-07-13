@@ -213,7 +213,7 @@ app = Os::App.new(
   tool_formatters: tool_formatters,
   models: models,
   plan_mode: plan_mode
-) do |listener, confirmer_popup, model_listener, plan_mode_listener|
+) do |listener, confirmer_popup, status_footer_updater, plan_mode_listener|
   # The Tuile modal confirmer for writes + bash, unless confirmations are
   # disabled (--no-confirm / --yolo), in which case approve everything.
   # Os::Extension pairs this human confirmer with a ReadOnlyCommandApprover
@@ -245,7 +245,7 @@ app = Os::App.new(
     c.add_listener rate_limited_listener
     c.add_listener token_log
     # Keeps the footer's model name in step with leader-menu model switches.
-    c.add_listener model_listener
+    c.add_listener status_footer_updater
     # Keeps the footer's plan-mode badge in step with the shared flag
     # (the leader menu's 'p' toggle or the model's enter/exit tools).
     c.add_listener plan_mode_listener

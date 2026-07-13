@@ -14,15 +14,16 @@ require 'pikuri-core'
 # delegate's own line instead, e.g. +⤷ researcher  8k/60k+, so the readout
 # doesn't freeze while the main agent blocks in the +agent+ tool.
 #
-# Drive it with the setters and the spinner controls, plus the nested
-# {ModelListener} (folded into the agent's +ListenerList+) which re-points
-# {#current_model} whenever a +run_loop+ switch lands:
+# Drive it with the setters and the spinner controls. It also duck-types as
+# an agent listener via {#on_event} — fold it into the agent's +ListenerList+
+# and it re-points {#current_model} whenever a +run_loop+ model switch lands:
 #
 #   footer = Shared::StatusFooterUpdater.new(screen:, window:, token_log:)
 #   footer.current_model = 'Local Qwen 3.6'  # boot model
 #   footer.interloper = agent.interloper     # enables the "N queued" segment
 #   footer.plan_active = true                # lights the badge
 #   footer.start_animation                   # spinner on for a turn; stop_animation after
+#   config.add_listener(footer)              # re-points current_model on a switch
 #
 # +token_log+ must be the *same* {Pikuri::Agent::Listener::TokenLog}
 # instance wired into the agent — the footer reads its cached +status_line+
@@ -140,39 +141,27 @@ class Shared::StatusFooterUpdater
     refresh
   end
 
-  # On a +run_loop+ model switch ({Pikuri::Agent::Event::ModelSwitched}),
-  # hands the switched-to transport to the footer's {#current_model=} (which
-  # resolves it to a friendly name); ignores every other event. Fold it into
-  # the agent's +ListenerList+.
+  # Agent-listener entry point (duck-typed — the footer plays the listener
+  # role without subclassing +Pikuri::Agent::Listener::Base+): on a
+  # +run_loop+ model switch ({Pikuri::Agent::Event::ModelSwitched}), re-points
+  # {#current_model} to the switched-to transport; ignores every other event.
+  # Fold the footer into the agent's +ListenerList+ for this.
   #
-  # A listener: {#on_event} is invoked on the agent's worker thread and
-  # marshals the footer update onto the UI thread via +screen.event_queue.submit+.
-  class ModelListener < Pikuri::Agent::Listener::Base
-    # @param footer [Shared::StatusFooterUpdater] the footer to update.
-    # @param screen [Tuile::Screen] marshals the update back from the worker
-    #   thread via its +event_queue+.
-    def initialize(footer:, screen:)
-      super()
-      @footer = footer
-      @screen = screen
-    end
+  # Safe from any thread: invoked on the agent's worker thread, it marshals
+  # the {#current_model=} back onto the UI thread via +screen.event_queue.submit+.
+  #
+  # @param event [Pikuri::Agent::Event::Base] any agent event; only
+  #   {Pikuri::Agent::Event::ModelSwitched} is acted on.
+  # @return [void]
+  def on_event(event)
+    return unless event.is_a?(Pikuri::Agent::Event::ModelSwitched)
 
-    # Push the switched-to transport onto the footer; ignore every other
-    # event.
-    #
-    # @param event [Pikuri::Agent::Event::Base] any agent event; only
-    #   {Pikuri::Agent::Event::ModelSwitched} is acted on.
-    # @return [void]
-    def on_event(event)
-      return unless event.is_a?(Pikuri::Agent::Event::ModelSwitched)
-
-      @screen.event_queue.submit { @footer.current_model = event.to }
-    end
-
-    # @return [String] short label used by +Pikuri::Agent#to_s+ when this
-    #   listener is in its +ListenerList+.
-    def to_s = 'Shared::StatusFooterUpdater::ModelListener'
+    @screen.event_queue.submit { self.current_model = event.to }
   end
+
+  # @return [String] short label used by +Pikuri::Agent#to_s+ when the footer
+  #   is in its +ListenerList+.
+  def to_s = 'Shared::StatusFooterUpdater'
 
   private
 

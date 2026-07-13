@@ -73,6 +73,23 @@ RSpec.describe Shared::StatusFooterUpdater do
       label.current_model = transport('big-model', api_base: 'http://other/v1')
       assert_equal ' Other Cloud ', footer_text.to_s
     end
+
+    # The footer duck-types as an agent listener: a ModelSwitched event
+    # re-points current_model to the switched-to transport (resolved via
+    # names); every other event is ignored.
+    it 're-points the model on a ModelSwitched event (#on_event)' do
+      switched = Pikuri::Agent::Event::ModelSwitched.new(
+        from: Pikuri::Agent::ChatTransport.new(model: 'small'),
+        to: transport('big-model')
+      )
+      label.on_event(switched)
+      assert_equal ' Big Cloud ', footer_text.to_s
+    end
+
+    it 'ignores non-ModelSwitched events (#on_event)' do
+      label.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'noise'))
+      assert_equal '', footer_text.to_s
+    end
   end
 
   it 'renders the plan-mode badge when active (even with nothing else set)' do

@@ -21,13 +21,13 @@ RSpec.describe Shared::ConversationWindow do
     assert_kind_of Shared::ConversationTextView::Listener, window.listener
   end
 
-  it 'owns the footer model-name listener it exposes for the agent ListenerList' do
-    assert_kind_of Shared::StatusFooterUpdater::ModelListener, window.model_listener
-  end
-
   it 'drives its Shared::StatusFooterUpdater as border chrome, leaving the Window footer slot empty' do
     assert_kind_of Shared::StatusFooterUpdater, window.status_footer_updater
     assert_nil window.footer
+  end
+
+  it 'exposes the footer, which duck-types as an agent listener for the ListenerList' do
+    assert_respond_to window.status_footer_updater, :on_event
   end
 
   it 'forwards current_model= to the footer' do

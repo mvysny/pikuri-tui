@@ -28,8 +28,8 @@ module Os
   # the +Screen+ — neither exists until the screen is initialized.
   # Resolving that is why the constructor takes a block: App builds the
   # components (the {Shared::ConversationWindow} owns the
-  # {Shared::ConversationTextView::Listener} / {Shared::StatusFooterUpdater::ModelListener}) and the confirmer,
-  # then yields +(listener, confirmer, model_listener, plan_mode_listener)+;
+  # {Shared::ConversationTextView::Listener} / {Shared::StatusFooterUpdater}) and the confirmer,
+  # then yields +(listener, confirmer, status_footer_updater, plan_mode_listener)+;
   # the block returns a constructed +Pikuri::Agent+ that App installs. The
   # bin uses this seam to pick model / tools / sandbox / extension without
   # App learning about any of them.
@@ -85,10 +85,10 @@ module Os
     #   log, fed into the conversation-window {Shared::StatusFooterUpdater}.
     attr_reader :token_log
 
-    # @return [Shared::StatusFooterUpdater::ModelListener] the footer model-name listener yielded to
-    #   the build block. The host must include it in the agent's
-    #   +ListenerList+ so +ModelSwitched+ events reach the footer.
-    def model_listener = @conversation_window.model_listener
+    # @return [Shared::StatusFooterUpdater] the footer, which doubles as the
+    #   model-name listener, yielded to the build block. The host must include
+    #   it in the agent's +ListenerList+ so +ModelSwitched+ events reach it.
+    def status_footer_updater = @conversation_window.status_footer_updater
 
     # @return [Code::PlanModeListener] the footer plan-mode-badge listener
     #   yielded to the build block. The host must include it in the
@@ -126,10 +126,10 @@ module Os
     #   flip one flag. The +p+ toggle is always registered; the default is
     #   a fresh flag starting *not* in plan mode. The footer badge tracks
     #   it via {Code::PlanModeListener}.
-    # @yield [listener, confirmer, model_listener, plan_mode_listener]
+    # @yield [listener, confirmer, status_footer_updater, plan_mode_listener]
     #   one-shot factory invoked exactly once during construction.
     #   Receives the {Shared::ConversationTextView::Listener} bound to this app's conversation
-    #   pane, the {Code::ConfirmerPopup}, the {Shared::StatusFooterUpdater::ModelListener} that keeps
+    #   pane, the {Code::ConfirmerPopup}, the {Shared::StatusFooterUpdater} that keeps
     #   the footer model name current, and the {Code::PlanModeListener}
     #   that keeps the footer plan-mode badge current; must return a
     #   constructed +Pikuri::Agent+ whose +ListenerList+ includes the
@@ -140,8 +140,8 @@ module Os
     # @yieldparam confirmer [Code::ConfirmerPopup] the modal confirmer;
     #   pass it to the +Os::Extension+ (which threads it into the
     #   write/bash tools).
-    # @yieldparam model_listener [Shared::StatusFooterUpdater::ModelListener] the footer model-name
-    #   listener; include it in the agent's +ListenerList+.
+    # @yieldparam status_footer_updater [Shared::StatusFooterUpdater] the footer,
+    #   which doubles as the model-name listener; include it in the agent's +ListenerList+.
     # @yieldparam plan_mode_listener [Code::PlanModeListener] the footer
     #   plan-mode-badge listener; include it in the agent's +ListenerList+
     #   (alongside the +Os::Extension+ that emits the events it renders).
@@ -163,13 +163,13 @@ module Os
       @log_ui.wire!
       @agent = build_agent.call(
         @conversation_window.listener, @confirmer,
-        @conversation_window.model_listener, @plan_mode_listener
+        @conversation_window.status_footer_updater, @plan_mode_listener
       )
       # Deferred from construction: the agent, hence its interloper,
       # doesn't exist until the build block has run.
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model (resolved from its transport);
-      # Shared::StatusFooterUpdater::ModelListener takes over on every later switch.
+      # Shared::StatusFooterUpdater#on_event takes over on every later switch.
       @conversation_window.current_model = @agent.transport
 
       @leader_menu = build_leader_menu

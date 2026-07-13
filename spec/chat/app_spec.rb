@@ -334,7 +334,7 @@ RSpec.describe Chat::App do
   describe 'model picker' do
     let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
     let(:picker_app) do
-      described_class.new(models: choices) { |listener, _model_listener| StubAgent.new(listener, model: 'm1') }
+      described_class.new(models: choices) { |listener, _status_footer_updater| StubAgent.new(listener, model: 'm1') }
     end
 
     it 'seeds the footer with the boot model display name' do

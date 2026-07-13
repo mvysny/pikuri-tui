@@ -22,7 +22,7 @@ module Code
   # the +Screen+ — neither exists until the screen is initialized.
   # Resolving that is why the constructor takes a block: App builds the
   # components (the {Shared::ConversationWindow} owns the
-  # {Shared::ConversationTextView::Listener} / {Shared::StatusFooterUpdater::ModelListener}) and the confirmer,
+  # {Shared::ConversationTextView::Listener} / {Shared::StatusFooterUpdater}) and the confirmer,
   # then yields +(listener, confirmer, …)+; the block returns a constructed
   # +Pikuri::Agent+ that App installs. The bin uses this seam to pick
   # model / tools / workspace / sandbox without App learning about any
@@ -93,10 +93,10 @@ module Code
     #   log, fed into the conversation-window {Shared::StatusFooterUpdater}.
     attr_reader :token_log
 
-    # @return [Shared::StatusFooterUpdater::ModelListener] the footer model-name listener yielded to
-    #   the build block. The host must include it in the agent's
-    #   +ListenerList+ so +ModelSwitched+ events reach the footer.
-    def model_listener = @conversation_window.model_listener
+    # @return [Shared::StatusFooterUpdater] the footer, which doubles as the
+    #   model-name listener, yielded to the build block. The host must include
+    #   it in the agent's +ListenerList+ so +ModelSwitched+ events reach it.
+    def status_footer_updater = @conversation_window.status_footer_updater
 
     # @return [PlanModeListener] the footer plan-mode-badge listener
     #   yielded to the build block. The host must include it in the
@@ -136,11 +136,11 @@ module Code
     #   The +p+ toggle is always registered; the default is a fresh flag
     #   starting *not* in plan mode. The footer badge tracks it via
     #   {PlanModeListener}.
-    # @yield [listener, confirmer, task_listener, model_listener, plan_mode_listener]
+    # @yield [listener, confirmer, task_listener, status_footer_updater, plan_mode_listener]
     #   one-shot factory invoked exactly once during construction.
     #   Receives the {Shared::ConversationTextView::Listener} bound to this app's conversation
     #   pane, the {ConfirmerPopup}, the {TaskListener} bound to the
-    #   sidebar task pane, the {Shared::StatusFooterUpdater::ModelListener} that keeps the footer
+    #   sidebar task pane, the {Shared::StatusFooterUpdater} that keeps the footer
     #   model name current, and the {PlanModeListener} that keeps the
     #   footer plan-mode badge current; must return a constructed
     #   +Pikuri::Agent+ whose +ListenerList+ includes the listeners and
@@ -153,8 +153,8 @@ module Code
     # @yieldparam task_listener [TaskListener] the task-pane listener;
     #   include it in the agent's +ListenerList+ (alongside the
     #   +Pikuri::Tasks::Extension+ that emits the events it renders).
-    # @yieldparam model_listener [Shared::StatusFooterUpdater::ModelListener] the footer model-name
-    #   listener; include it in the agent's +ListenerList+.
+    # @yieldparam status_footer_updater [Shared::StatusFooterUpdater] the footer,
+    #   which doubles as the model-name listener; include it in the agent's +ListenerList+.
     # @yieldparam plan_mode_listener [PlanModeListener] the footer
     #   plan-mode-badge listener; include it in the agent's
     #   +ListenerList+ (alongside the +Pikuri::Code::Extension+ that emits
@@ -177,13 +177,13 @@ module Code
       @log_ui.wire!
       @agent = build_agent.call(
         @conversation_window.listener, @confirmer, @task_listener,
-        @conversation_window.model_listener, @plan_mode_listener
+        @conversation_window.status_footer_updater, @plan_mode_listener
       )
       # Deferred from construction: the agent, hence its interloper,
       # doesn't exist until the build block has run.
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model (resolved from its transport);
-      # Shared::StatusFooterUpdater::ModelListener takes over on every later switch.
+      # Shared::StatusFooterUpdater#on_event takes over on every later switch.
       @conversation_window.current_model = @agent.transport
 
       @leader_menu = build_leader_menu

@@ -4,14 +4,15 @@ require 'tuile'
 
 # A {Tuile::Component::Window} showing a +Pikuri::Agent+ conversation: it
 # frames a {Shared::ConversationTextView} transcript pane and a
-# {Shared::StatusFooterUpdater} footer, and builds the two listeners that
-# keep them current. The host folds those listeners into the agent, then
-# feeds the two values that only exist once the agent is built:
+# {Shared::StatusFooterUpdater} footer. Both duck-type as agent listeners
+# (the transcript via {#listener}, the footer via {#status_footer_updater});
+# the host folds them into the agent, then feeds the two values that only
+# exist once the agent is built:
 #
 #   win = Shared::ConversationWindow.new(token_log: token_log)
-#   config.add_listener(win.listener)       # fold both into the agent's
-#   config.add_listener(win.model_listener) #   ListenerList (plus token_log)
-#   win.interloper = agent.interloper       # mid-turn "N queued" segment
+#   config.add_listener(win.listener)                # transcript + model name, both
+#   config.add_listener(win.status_footer_updater)   #   into the ListenerList (plus token_log)
+#   win.interloper = agent.interloper                # mid-turn "N queued" segment
 #   win.current_model = 'Local Qwen 3.6'
 #
 # The plan-mode badge is not wired here: the footer exposes +plan_active=+
@@ -45,23 +46,22 @@ class Shared::ConversationWindow < Tuile::Component::Window
     # agent status into this window's bottom border (window: self).
     @status_footer_updater = Shared::StatusFooterUpdater.new(screen: screen, window: self, token_log: token_log, names: model_names)
     @listener = @view.listener
-    @model_listener = Shared::StatusFooterUpdater::ModelListener.new(footer: @status_footer_updater, screen: screen)
   end
 
   # @return [Shared::ConversationTextView] the transcript pane; exposed for
   #   tests, production reaches it through {#listener}.
   attr_reader :view
 
-  # @return [Shared::StatusFooterUpdater] the footer-chrome updater; the
-  #   coding / OS shells bind their {Code::PlanModeListener} to it.
+  # The footer-chrome updater, which also duck-types as an agent listener
+  # ({Shared::StatusFooterUpdater#on_event}) to re-point its model name on a
+  # switch — fold it into the agent's +ListenerList+ alongside {#listener}.
+  # The coding / OS shells also bind their {Code::PlanModeListener} to it.
+  #
+  # @return [Shared::StatusFooterUpdater]
   attr_reader :status_footer_updater
 
   # @return [Shared::ConversationTextView::Listener] the transcript listener.
   attr_reader :listener
-
-  # @return [Shared::StatusFooterUpdater::ModelListener] the footer
-  #   model-name listener.
-  attr_reader :model_listener
 
   # Hand the footer the agent's mid-turn input queue so it can render the
   # "N queued" segment.
@@ -74,7 +74,8 @@ class Shared::ConversationWindow < Tuile::Component::Window
 
   # Seed the footer's model-name segment with the boot model (a display name
   # or a transport to resolve — see {Shared::StatusFooterUpdater#current_model=});
-  # {Shared::StatusFooterUpdater::ModelListener} takes over on later switches.
+  # the footer's own {Shared::StatusFooterUpdater#on_event} takes over on
+  # later switches once it's in the +ListenerList+.
   #
   # @param model [String, Pikuri::Agent::ChatTransport, nil]
   # @return [void]
