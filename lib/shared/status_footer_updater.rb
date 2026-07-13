@@ -35,17 +35,14 @@ require 'pikuri-core'
 # (claimed at construction); {#on_status_line} marshals its refresh via
 # +event_queue.submit+.
 class Shared::StatusFooterUpdater
-  # Braille-spinner frames; standard +dots+ animation. Picked over
-  # ASCII +|/-\+ because the Braille glyphs stay a single column
-  # wide regardless of font, so the trailing token line doesn't
-  # jitter horizontally as the frame advances.
+  # Braille dots: single-column-wide in every font, so the trailing token
+  # line doesn't jitter as frames advance — ASCII +|/-\+ would.
   #
   # @return [Array<String>]
   SPINNER = %w[⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏].freeze
 
-  # Seconds between spinner frame updates. 100 ms is the slowest
-  # cadence at which a Braille spinner still reads as motion; any
-  # slower and it looks like the UI is stuck.
+  # Seconds between spinner frames. 100 ms is the slowest cadence that
+  # still reads as motion; slower looks like the UI is stuck.
   #
   # @return [Float]
   FRAME_INTERVAL_S = 0.1
