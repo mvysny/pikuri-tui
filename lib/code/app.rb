@@ -22,7 +22,7 @@ module Code
   # the +Screen+ — neither exists until the screen is initialized.
   # Resolving that is why the constructor takes a block: App builds the
   # components (the {Shared::ConversationWindow} owns the
-  # {Shared::ConversationTextView::Listener} / {Shared::Model::Listener}) and the confirmer,
+  # {Shared::ConversationTextView::Listener} / {Shared::StatusFooterUpdater::ModelListener}) and the confirmer,
   # then yields +(listener, confirmer, …)+; the block returns a constructed
   # +Pikuri::Agent+ that App installs. The bin uses this seam to pick
   # model / tools / workspace / sandbox without App learning about any
@@ -90,7 +90,7 @@ module Code
     #   log, fed into the conversation-window {Shared::StatusFooterUpdater}.
     attr_reader :token_log
 
-    # @return [Shared::Model::Listener] the footer model-name listener yielded to
+    # @return [Shared::StatusFooterUpdater::ModelListener] the footer model-name listener yielded to
     #   the build block. The host must include it in the agent's
     #   +ListenerList+ so +ModelSwitched+ events reach the footer.
     def model_listener = @conversation_window.model_listener
@@ -137,7 +137,7 @@ module Code
     #   one-shot factory invoked exactly once during construction.
     #   Receives the {Shared::ConversationTextView::Listener} bound to this app's conversation
     #   pane, the {ConfirmerPopup}, the {TaskListener} bound to the
-    #   sidebar task pane, the {Shared::Model::Listener} that keeps the footer
+    #   sidebar task pane, the {Shared::StatusFooterUpdater::ModelListener} that keeps the footer
     #   model name current, and the {PlanModeListener} that keeps the
     #   footer plan-mode badge current; must return a constructed
     #   +Pikuri::Agent+ whose +ListenerList+ includes the listeners and
@@ -150,7 +150,7 @@ module Code
     # @yieldparam task_listener [TaskListener] the task-pane listener;
     #   include it in the agent's +ListenerList+ (alongside the
     #   +Pikuri::Tasks::Extension+ that emits the events it renders).
-    # @yieldparam model_listener [Shared::Model::Listener] the footer model-name
+    # @yieldparam model_listener [Shared::StatusFooterUpdater::ModelListener] the footer model-name
     #   listener; include it in the agent's +ListenerList+.
     # @yieldparam plan_mode_listener [PlanModeListener] the footer
     #   plan-mode-badge listener; include it in the agent's
@@ -182,7 +182,7 @@ module Code
       # interloper — doesn't exist until the build block has run.
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model's display name; the
-      # Shared::Model::Listener takes over on every later switch.
+      # Shared::StatusFooterUpdater::ModelListener takes over on every later switch.
       @conversation_window.current_model = @model_picker.display_name(@agent.transport)
 
       @leader_menu = build_leader_menu

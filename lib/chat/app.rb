@@ -19,7 +19,7 @@ module Chat
   # exist until the screen is initialized. Resolving that cycle is why the
   # constructor takes a block: App builds the components (the
   # {Shared::ConversationWindow} builds and owns the {Shared::ConversationTextView::Listener}
-  # and {Shared::Model::Listener}), then yields them to the block; the block
+  # and {Shared::StatusFooterUpdater::ModelListener}), then yields them to the block; the block
   # returns a constructed +Pikuri::Agent+ that App installs. The bin
   # script uses this seam to pick model/tools/transport without App
   # learning about any of them.
@@ -80,7 +80,7 @@ module Chat
     #   events; the App doesn't register listeners itself.
     attr_reader :token_log
 
-    # @return [Shared::Model::Listener] the footer model-name listener yielded to
+    # @return [Shared::StatusFooterUpdater::ModelListener] the footer model-name listener yielded to
     #   the build block. The host must include it in the agent's
     #   +ListenerList+ so +ModelSwitched+ events reach the footer.
     def model_listener = @conversation_window.model_listener
@@ -105,13 +105,13 @@ module Chat
     #   single-connection hosts can ignore it.
     # @yield [listener, model_listener] one-shot factory invoked exactly
     #   once during construction. The block receives the {Shared::ConversationTextView::Listener}
-    #   bound to this app's conversation pane and the {Shared::Model::Listener}
+    #   bound to this app's conversation pane and the {Shared::StatusFooterUpdater::ModelListener}
     #   that keeps the footer's model name current, and must return a
     #   constructed +Pikuri::Agent+ whose +ListenerList+ includes both
     #   (plus the +token_log+ exposed at {#token_log}).
     # @yieldparam listener [Shared::ConversationTextView::Listener] the conversation-pane
     #   listener; include it in the agent's +ListenerList+.
-    # @yieldparam model_listener [Shared::Model::Listener] the footer model-name
+    # @yieldparam model_listener [Shared::StatusFooterUpdater::ModelListener] the footer model-name
     #   listener; include it in the agent's +ListenerList+.
     # @yieldreturn [Pikuri::Agent] the wired agent.
     # @raise [LocalJumpError] if no block is given (no agent → no app).
@@ -133,7 +133,7 @@ module Chat
       # interloper — doesn't exist until the build block has run.
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model's display name; the
-      # Shared::Model::Listener takes over on every later switch.
+      # Shared::StatusFooterUpdater::ModelListener takes over on every later switch.
       @conversation_window.current_model = @model_picker.display_name(@agent.transport)
 
       @leader_menu = build_leader_menu

@@ -206,15 +206,14 @@ Zeitwerk over `lib/` and eager-loads it.
   thinking-pane path.
 - `Shared::Model` — namespace (implicit — no `lib/shared/model.rb`,
   autovivified from `lib/shared/model/`) for the model-switch subsystem
-  (the connection/transport value object, the footer-updating listener,
-  the leader-menu picker).
+  (the connection/transport value object, the leader-menu picker). The
+  `ModelSwitched`→footer listener that once lived here is now
+  `Shared::StatusFooterUpdater::ModelListener`, nested in the footer it
+  drives (see that entry).
 - `lib/shared/model/choice.rb` — `Shared::Model::Choice`, a
   `Data.define` pairing a connection's display name with its
   `ChatTransport`; the one place the Pikuri seam is crossed for model
   switching.
-- `lib/shared/model/listener.rb` — `Shared::Model::Listener`,
-  the listener that consumes `ModelSwitched` and pushes the landed
-  model's display name onto the footer. Shared by all three shells.
 - `lib/shared/model/picker.rb` — `Shared::Model::Picker`, the shared
   leader-menu model-switch picker (connection catalog, name map, pending
   switch, `PickerWindow` popup) all three shells compose.
@@ -258,13 +257,17 @@ Zeitwerk over `lib/` and eager-loads it.
   presenter that keeps the conversation window's footer chrome current
   (it drives `Window#footer_text`; it is not itself a widget), shared by
   all three shells: model name, mid-turn spinner, queued-injection count,
-  token snapshot, and a plan-mode badge.
+  token snapshot, and a plan-mode badge. Nests
+  `Shared::StatusFooterUpdater::ModelListener`, the `ModelSwitched`
+  listener that pushes the landed model's display name onto the footer
+  (COP: the listener is the footer's own tool, like
+  `ConversationTextView::Listener` nesting in its view).
 - `lib/shared/conversation_window.rb` — `Shared::ConversationWindow`, the
   conversation transcript as one cohesive `Tuile::Component::Window`
   subclass shared by all three shells: frames a `Shared::ConversationTextView`
   (which owns its own transcript listener), carries a `Shared::StatusFooterUpdater`
-  footer, and builds the `Shared::Model::Listener` that keeps the footer's
-  model name current. Exposes `#listener` / `#model_listener` for the host
+  footer, and builds the `Shared::StatusFooterUpdater::ModelListener` that
+  keeps the footer's model name current. Exposes `#listener` / `#model_listener` for the host
   to compose into the agent's `ListenerList`. The COP domain component that
   collapsed the conversation-pane wiring each `App` used to hand-assemble.
 - `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
@@ -516,7 +519,7 @@ Zeitwerk over `lib/` and eager-loads it.
   `Shared::` namespace (or `Code::*` when it's coding-family) and
   reuse it — that is how we kill duplication. The building blocks
   already living this way: `Shared::InputArea`, `Shared::StatusFooterUpdater`,
-  `Shared::ConversationWindow`, `Shared::Model::Listener`,
+  `Shared::ConversationWindow`,
   `Shared::LeaderMenu`, `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the OS shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this

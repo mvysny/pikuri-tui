@@ -11,11 +11,11 @@ module Code
   # re-emits on every real transition, and pushes the new posture onto
   # the footer ({Shared::StatusFooterUpdater#plan_active=}).
   #
-  # The companion to {Shared::Model::Listener} / {TaskListener}: same
+  # The companion to {Shared::StatusFooterUpdater::ModelListener} / {TaskListener}: same
   # worker-thread-to-UI-thread marshaling, the smallest possible slice of
   # the event stream (one event class). Coding/OS-shell-only — it lives in
   # +Code+ (not in the {Shared} namespace like
-  # {Shared::Model::Listener}) because plan mode is a +:code+-group concern: the
+  # {Shared::StatusFooterUpdater::ModelListener}) because plan mode is a +:code+-group concern: the
   # event is a +:code+-group constant the chat shell never loads. The
   # shared {Shared::StatusFooterUpdater} exposes +plan_active=+ for every shell, but only
   # the coding and OS shells wire this listener to drive it; the chat

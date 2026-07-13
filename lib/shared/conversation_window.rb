@@ -6,7 +6,7 @@ require 'tuile'
 # three shells: a {Tuile::Component::Window} that frames a
 # {Shared::ConversationTextView} (the scrolling transcript pane, which owns
 # its own {Shared::ConversationTextView::Listener}), carries a
-# {Shared::StatusFooterUpdater} footer, and builds the {Shared::Model::Listener} that
+# {Shared::StatusFooterUpdater} footer, and builds the {Shared::StatusFooterUpdater::ModelListener} that
 # keeps the footer's model name in step with a landed +run_loop+ switch.
 #
 # This is a "domain component" in the sense of AGENTS.md's "Design with
@@ -21,7 +21,7 @@ require 'tuile'
 # == The listener seam
 #
 # The transcript pane builds its {Shared::ConversationTextView::Listener} and
-# this window builds the {Shared::Model::Listener}, both at construction —
+# this window builds the {Shared::StatusFooterUpdater::ModelListener}, both at construction —
 # before the agent exists — and both are exposed ({#listener} /
 # {#model_listener}) for the host to fold into the agent's +ListenerList+.
 # The host owns that final composition because the agent needs more
@@ -38,7 +38,7 @@ require 'tuile'
 # == Threading
 #
 # The listeners self-marshal their UI mutations onto the event-loop thread
-# (see {Shared::ConversationTextView::Listener} / {Shared::Model::Listener}).
+# (see {Shared::ConversationTextView::Listener} / {Shared::StatusFooterUpdater::ModelListener}).
 # {#start_animation} / {#stop_animation} forward to {Shared::StatusFooterUpdater} and
 # so must be called on the UI thread. {#render_turn_error} is the one method
 # called from the agent worker thread; it marshals its own append via the
@@ -58,7 +58,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   #   Defaults to +{}+ — the chat shell registers none.
   # @param model_names [Hash{Array(String, String) => String}]
   #   {Shared::Model::Choice.key} → display name, forwarded to
-  #   {Shared::Model::Listener}'s +names:+. Defaults to +{}+.
+  #   {Shared::StatusFooterUpdater::ModelListener}'s +names:+. Defaults to +{}+.
   def initialize(token_log:, title: 'Conversation', markdown: true, tool_formatters: {}, model_names: {})
     super(title)
     @view = Shared::ConversationTextView.new(markdown: markdown, tool_formatters: tool_formatters)
@@ -73,7 +73,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
     # agent status into this window's bottom border (window: self).
     @status_footer_updater = Shared::StatusFooterUpdater.new(screen: screen, window: self, token_log: token_log)
     @listener = @view.listener
-    @model_listener = Shared::Model::Listener.new(footer: @status_footer_updater, screen: screen, names: model_names)
+    @model_listener = Shared::StatusFooterUpdater::ModelListener.new(footer: @status_footer_updater, screen: screen, names: model_names)
   end
 
   # @return [Shared::ConversationTextView] the conversation transcript pane.
@@ -92,7 +92,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   #   the host includes it in the agent's +ListenerList+.
   attr_reader :listener
 
-  # @return [Shared::Model::Listener] the footer model-name listener; the
+  # @return [Shared::StatusFooterUpdater::ModelListener] the footer model-name listener; the
   #   host includes it in the agent's +ListenerList+.
   attr_reader :model_listener
 
@@ -106,7 +106,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   end
 
   # Seed / update the footer's model-name segment. The host sets the boot
-  # model once after the agent is built; {Shared::Model::Listener} takes
+  # model once after the agent is built; {Shared::StatusFooterUpdater::ModelListener} takes
   # over on every later switch.
   #
   # @param name [String, nil]

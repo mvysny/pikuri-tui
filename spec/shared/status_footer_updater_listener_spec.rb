@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Shared::Model::Listener do
+RSpec.describe Shared::StatusFooterUpdater::ModelListener do
   # Minimal footer stand-in: the listener only touches +current_model=+.
   let(:footer) { Struct.new(:current_model).new }
   # Keyed on [model, api_base] (Shared::Model::Choice.key), not the model id alone.

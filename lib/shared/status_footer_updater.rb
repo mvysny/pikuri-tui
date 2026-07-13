@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 
 require 'tuile'
+require 'pikuri-core'
 
 # Keeps the conversation window's bottom-border chrome
 # ({Tuile::Component::Window#footer_text}) current, surfacing the agent's
 # status: an optional plan-mode badge
 # (a leading notice-toned "‖ Plan Mode" when active), the current model's
 # display name (the leading segment after any badge, updated by
-# {Shared::Model::Listener} when a +run_loop+ model switch lands), whether the agent
+# {Shared::StatusFooterUpdater::ModelListener} when a +run_loop+ model switch lands), whether the agent
 # is mid-turn (a spinner ticks while +run_loop+ is on the worker thread),
 # how many mid-turn messages are queued in the agent's
 # +Pikuri::Agent::Control::Interloper+ awaiting delivery ("N queued" —
@@ -120,10 +121,10 @@ class Shared::StatusFooterUpdater
   # The display name of the agent's current model, shown as the
   # footer's leading segment (after any plan-mode badge). Set by {App}
   # once after the agent is built (the boot model) and again by
-  # {Shared::Model::Listener} each time a +run_loop(transport:)+ switch lands — so
+  # {Shared::StatusFooterUpdater::ModelListener} each time a +run_loop(transport:)+ switch lands — so
   # it tracks the model the agent is *actually* on, never an optimistic
   # guess. +nil+/empty renders no model segment. Assigning re-runs
-  # {#refresh}; must be set on the UI thread (the {Shared::Model::Listener}
+  # {#refresh}; must be set on the UI thread (the {Shared::StatusFooterUpdater::ModelListener}
   # marshals via +submit+).
   #
   # @return [String, nil]
@@ -221,6 +222,98 @@ class Shared::StatusFooterUpdater
 
     ticker.cancel
     refresh
+  end
+
+  # Keeps the enclosing footer's model name in step with the agent's
+  # actual model. A {Pikuri::Agent::Listener::Base} subclass that consumes
+  # the {Pikuri::Agent::Event::ModelSwitched} the agent emits from the top
+  # of +run_loop+ when a +transport:+ switch lands, and pushes the new
+  # model's display name onto the {Shared::StatusFooterUpdater} that owns
+  # it (via +current_model=+).
+  #
+  # Nested in the footer updater by the COP rule (AGENTS.md "Design with
+  # components"): the footer *component* owns keeping the agent's status
+  # current, and this listener is merely the tool it uses to catch model
+  # switches — the same shape as {Shared::ConversationTextView::Listener}
+  # nesting inside the view it renders into. Its companions
+  # {Shared::ConversationTextView::Listener} / {Code::TaskListener} /
+  # {Code::PlanModeListener} follow the same worker-thread-to-UI-thread
+  # marshaling and each act on the smallest possible slice of the event
+  # stream (one event class).
+  #
+  # == Footer-only, by decision
+  #
+  # The switch is surfaced *only* in the footer — never echoed into the
+  # conversation transcript — so this listener owns the whole UI reaction
+  # to a switch and {Shared::ConversationTextView::Listener} ignores
+  # +ModelSwitched+ entirely. The footer reflects the model the agent is
+  # actually on (it updates when the switch *lands*, not when the user
+  # picks), so it can never advertise a model a failed switch never
+  # reached.
+  #
+  # == Names
+  #
+  # {Pikuri::Agent::Event::ModelSwitched} carries the raw
+  # {Pikuri::Agent::ChatTransport} (model *id*, which is often long and
+  # ugly — +"unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"+). The +names+ map
+  # ({Shared::Model::Choice.key} → {Shared::Model::Choice#name}, built by
+  # the App from its +models:+ list) resolves it to the friendly connection
+  # name; a transport with no entry (e.g. a model reached some other way)
+  # falls back to the model id itself. The map is keyed on the
+  # +[model, api_base]+ pair, not the model id alone: two connections can
+  # run the same model on different servers, so the id alone can't tell
+  # +"Local Qwen 3.6"+ from +"mavi-fw Qwen 3.6"+ (see
+  # {Shared::Model::Choice.key}).
+  #
+  # == Threading
+  #
+  # {#on_event} fires on the agent's worker thread; it marshals the footer
+  # mutation onto the event-loop thread via +screen.event_queue.submit+,
+  # the same rule {Code::TaskListener} follows.
+  class ModelListener < Pikuri::Agent::Listener::Base
+    # @param footer [#current_model=] the conversation-window footer to
+    #   update (a {Shared::StatusFooterUpdater}). Lifetime is owned by the
+    #   host +App+.
+    # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals
+    #   the update back from the worker thread. Passed explicitly (not the
+    #   singleton) so tests can inject a {Tuile::FakeScreen}.
+    # @param names [Hash{Array(String, String) => String}]
+    #   {Shared::Model::Choice.key} ([model, api_base]) → display name;
+    #   transports absent from the map render as their raw model id.
+    def initialize(footer:, screen:, names: {})
+      super()
+      @footer = footer
+      @screen = screen
+      @names = names
+    end
+
+    # Pushes the switched-to model's display name onto the footer; ignores
+    # every other event. Called from the agent's worker thread — the footer
+    # mutation is marshaled onto the event-loop thread.
+    #
+    # @param event [Pikuri::Agent::Event::Base] any agent event; only
+    #   {Pikuri::Agent::Event::ModelSwitched} is acted on.
+    # @return [void]
+    def on_event(event)
+      return unless event.is_a?(Pikuri::Agent::Event::ModelSwitched)
+
+      name = display_name(event.to)
+      @screen.event_queue.submit { @footer.current_model = name }
+    end
+
+    # @return [String] short label used by +Pikuri::Agent#to_s+ when this
+    #   listener is in its +ListenerList+.
+    def to_s = 'Shared::StatusFooterUpdater::ModelListener'
+
+    # Resolve a transport to its friendly connection name, falling back to
+    # the raw model id when the +[model, api_base]+ pair isn't in the map.
+    #
+    # @param transport [Pikuri::Agent::ChatTransport] the landed transport
+    #   (typically a {Pikuri::Agent::Event::ModelSwitched}'s +to:+).
+    # @return [String]
+    def display_name(transport)
+      @names.fetch(Shared::Model::Choice.key(transport), transport.model)
+    end
   end
 
   private

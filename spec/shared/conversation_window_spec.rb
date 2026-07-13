@@ -22,7 +22,7 @@ RSpec.describe Shared::ConversationWindow do
   end
 
   it 'owns the footer model-name listener it exposes for the agent ListenerList' do
-    assert_kind_of Shared::Model::Listener, window.model_listener
+    assert_kind_of Shared::StatusFooterUpdater::ModelListener, window.model_listener
   end
 
   it 'drives its Shared::StatusFooterUpdater as border chrome, leaving the Window footer slot empty' do

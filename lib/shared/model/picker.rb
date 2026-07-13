@@ -15,7 +15,7 @@ require 'tuile'
 # and the *pending* transport (a pick not yet applied). It does NOT own the
 # *current* model — that authority stays with pikuri
 # (+Pikuri::Agent#transport+) and the footer (moved on-land by
-# {Shared::Model::Listener}), so a failed switch never advertises a model it never
+# {Shared::StatusFooterUpdater::ModelListener}), so a failed switch never advertises a model it never
 # reached. The picker only records the user's request; +App#start_turn+
 # drains it via {#take_pending} and hands it to the next +run_loop+, and the
 # footer moves only once the switch lands. This is why {#open} takes the
@@ -45,7 +45,7 @@ class Shared::Model::Picker
 
   # @return [Hash{Array(String, String) => String}] the {Shared::Model::Choice.key}
   #   ([model, api_base]) → display-name map, for wiring into
-  #   {Shared::Model::Listener}'s +names:+ so a landed
+  #   {Shared::StatusFooterUpdater::ModelListener}'s +names:+ so a landed
   #   {Pikuri::Agent::Event::ModelSwitched} resolves to a friendly name.
   attr_reader :names
 
@@ -57,7 +57,7 @@ class Shared::Model::Picker
   # Resolve a transport to its friendly connection name, falling back to
   # the raw model id when the +[model, api_base]+ pair isn't in the
   # catalog. Used to seed the footer with the boot model's name at
-  # construction (the {Shared::Model::Listener} takes over on every later switch).
+  # construction (the {Shared::StatusFooterUpdater::ModelListener} takes over on every later switch).
   #
   # @param transport [Pikuri::Agent::ChatTransport] the transport to name
   #   (typically the agent's boot transport).
