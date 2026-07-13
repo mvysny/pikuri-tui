@@ -28,11 +28,9 @@ module Code
   # snapshot rather than diffing — the final event of a batch leaves the
   # pane correct.
   #
-  # == Threading
-  #
-  # {#on_event} fires on the agent's worker thread; it marshals the
+  # {#on_event} fires on the agent's worker thread and marshals the
   # +TextView+ rewrite onto the event-loop thread via
-  # +screen.event_queue.submit+, the same rule {Shared::ConversationTextView::Listener} follows.
+  # +screen.event_queue.submit+.
   class TaskListener < Pikuri::Agent::Listener::Base
     # Shown in the (otherwise empty) task pane before the agent has
     # created any tasks. Painted in the +:detail+ tone so it reads as

@@ -11,6 +11,8 @@ module Chat
   # {App} via {Tuile::Screen#register_global_shortcut}, which bypasses
   # the cursor-owner suppression that would otherwise let the focused
   # {Tuile::Component::TextArea} swallow them.
+  #
+  # UI-thread-confined.
   class Layout < Tuile::Component::Layout
     # Number of rows the bottom input pane occupies: 3 lines of editable
     # text + 2 rows of {Tuile::Component::Window} frame.

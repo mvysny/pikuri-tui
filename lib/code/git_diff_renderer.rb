@@ -8,6 +8,8 @@ module Code
   # leader-menu diff popup reads as one visual family with the conversation
   # pane instead of carrying git's own coloring.
   #
+  #   ansi = Code::GitDiffRenderer.render(git_diff_output, theme: theme, max_width: 100)
+  #
   # == How it reuses {DiffRenderer}
   #
   # A unified diff already hands us, per hunk, both sides of the change: the

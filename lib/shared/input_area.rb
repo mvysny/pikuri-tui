@@ -2,39 +2,36 @@
 
 require 'tuile'
 
-# The bottom-pane text input shared by all three shells. Subclasses
-# {Tuile::Component::TextArea} to rebind Enter from "insert newline" to
-# "submit and clear" — pikuri's CLI is line-at-a-time, and Shift+Enter for
-# newline is not portable across terminals (most don't distinguish it from
-# a plain Enter on the wire). All other TextArea behaviour (caret motion,
-# word-jumps, backspace/delete) is inherited unchanged.
+# The bottom-pane text input: a {Tuile::Component::TextArea} that rebinds
+# Enter from "insert a newline" to "submit the buffer and clear it".
 #
-# This is one of the cross-cutting components the three shells share rather
-# than copy (like {Shared::ConversationTextView} / {Shared::LeaderMenu}): its behaviour carries no
-# shell-specific divergence, so there is nothing for parallel copies to
-# drift into (see {Chat} / {Code} / {Os} for where the duplicate-don't-share
-# line is drawn — at {Chat::App} / {Chat::Layout} and their peers, which
-# genuinely diverge).
+#   input = Shared::InputArea.new(on_submit: method(:submit_message))
+#   # Enter on "hi"   → submit_message("hi"), then the field clears
+#   # Enter on "   "  → no-op (a blank buffer can't burn a turn)
 #
-# Empty / whitespace-only buffers are not submitted — Enter is a no-op
-# so the user can't accidentally burn a turn on a blank message.
+# Enter is line-at-a-time because pikuri's turn is, and Shift+Enter is not
+# used for a newline: most terminals don't distinguish it from a plain Enter
+# on the wire. All other TextArea behaviour (caret motion, word-jumps,
+# backspace/delete) is inherited unchanged.
+#
+# UI-thread-confined.
 class Shared::InputArea < Tuile::Component::TextArea
   # @param on_submit [Proc, Method] one-arg callable invoked when the
   #   user presses Enter on a non-blank buffer. Receives the buffer text
-  #   *before* it is cleared; Shared::InputArea is responsible for the clear, so
-  #   callers don't need to wipe the input in their handler.
+  #   *before* it is cleared; this class owns the clear, so callers don't
+  #   wipe the input in their handler.
   def initialize(on_submit:)
     super()
     @on_submit = on_submit
   end
 
-  # Intercepts Enter to fire {@on_submit}; everything else falls through
-  # to {Tuile::Component::TextArea#handle_key}. Returns true on a
-  # consumed Enter (including the blank-buffer no-op case) so the key
-  # doesn't get re-dispatched up the tree as something else.
+  # Intercept Enter to submit; every other key falls through to
+  # {Tuile::Component::TextArea#handle_key}. Returns +true+ on a consumed
+  # Enter — including the blank-buffer no-op — so the key isn't
+  # re-dispatched up the tree as something else.
   #
   # @param key [String]
-  # @return [Boolean]
+  # @return [Boolean] +true+ if the key was consumed here.
   def handle_key(key)
     return submit if key == Tuile::Keys::ENTER && active?
 

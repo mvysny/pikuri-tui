@@ -9,25 +9,16 @@
 #
 # The shell machinery (worker-thread turn loop, diagnostic-log wiring,
 # leader-menu / Ctrl+C shortcuts, footer) is ~90% the same as {Chat::App},
-# but the two are deliberately kept as independent copies rather than
-# factored onto a common base. Rationale: the chat shell is functional
-# and specced, and a shared base would refactor it for a DRY win that
-# the project's "thin shell, readable not obfuscated" ceiling doesn't
-# ask for. The coding shell adds one thing chat has not — a
-# confirmation popup wired into the write/bash tools — and pays for it
-# with a little duplication instead of a base-class abstraction. A third
-# shell has since landed ({Os::App}, the OS assistant) and the call was
-# still to duplicate the genuinely-divergent shell-specific pieces (App /
-# Layout) rather than extract a base — though the OS shell does reuse this
-# namespace's {ConfirmerPopup} / diff adapters directly, since those are
-# cross-cutting tool wiring, not shell scaffolding.
-#
-# The two pieces that carried *no* divergence — the Enter-submits input
-# and the footer label — were the exception: they are shared top-level
-# {Shared::InputArea} / {Shared::StatusFooterUpdater} components, not per-shell copies. Duplicate only
-# where the copies genuinely drift; the input never did, and the footer's
-# only difference (chat's lack of a plan-mode badge) collapses to chat
-# simply never calling +Shared::StatusFooterUpdater#plan_active=+.
+# but the two shells are kept as independent copies rather than factored
+# onto a common base: the project's "thin shell, readable not obfuscated"
+# ceiling doesn't ask for the DRY win, and the coding shell's one genuine
+# addition — a confirmation popup on the write/bash tools — is cheaper as a
+# little duplication than a base-class abstraction. The OS shell later made
+# the same call (reusing this namespace's {ConfirmerPopup} / diff adapters,
+# which are cross-cutting tool wiring, not shell scaffolding). Only pieces
+# that carry *no* shell-specific divergence are extracted into {Shared}
+# instead of copied ({Shared::InputArea}, {Shared::StatusFooterUpdater}, …);
+# duplicate only where the copies genuinely drift.
 #
 # == Code-only dependencies
 #

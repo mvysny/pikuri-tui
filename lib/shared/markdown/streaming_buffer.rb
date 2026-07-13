@@ -2,21 +2,19 @@
 
 require 'tuile'
 
-# Stateful buffer that turns a stream of Markdown deltas into in-place
-# rewrites of a +Tuile::Component::TextView::Region+. The buffer keeps
-# the region's content equal to the rendered form of the accumulated
-# source: each {#append} rerenders the currently-open block and assigns
-# the result back via +Region#text=+. The TextView's per-hard-line wrap
-# cache means only the changed tail is re-spliced, and an unchanged
-# render is short-circuited inside +Region#text=+, so per-token cost
-# stays bounded.
+# Turns a stream of Markdown deltas into in-place rewrites of one
+# +Tuile::Component::TextView::Region+:
 #
-# The buffer is UI-unaware in the sense that it doesn't know about the
-# surrounding panes or layout — it owns one +Region+ and rewrites only
-# that region. Mutations of the region call +Tuile::Screen#check_locked+,
-# so the buffer must be driven from the UI thread (or a +FakeScreen+).
-# The listener is responsible for marshaling agent-event dispatch onto
-# the UI thread before calling into the buffer.
+#   buf = Shared::Markdown::StreamingBuffer.new(render: renderer, region: region)
+#   buf.append('## Hel')          # region shows the partial render, live
+#   buf.append("lo\n")
+#   buf.finalize(final_markdown)   # one authoritative render; buffer now dead
+#
+# Each {#append} re-renders the currently-open block and assigns the result
+# back via +Region#text=+; the TextView's per-hard-line wrap cache
+# re-splices only the changed tail, and an unchanged render short-circuits
+# inside +Region#text=+, so per-token cost stays bounded. The buffer owns
+# exactly one +Region+ and knows nothing of the surrounding panes.
 #
 # == Why re-render-on-each-token
 #
@@ -82,12 +80,8 @@ require 'tuile'
 # +#source+ (the cancel-preserve case) skips the re-render entirely
 # — the region already matches.
 #
-# == Threading
-#
-# Not thread-safe. The region's mutators check
-# +Tuile::Screen#check_locked+, so the buffer must be driven from
-# whichever thread holds the UI lock (in practice, the UI thread; in
-# tests, any thread under +Tuile::Screen.fake+).
+# UI-thread-confined (the region's mutators call
+# +Tuile::Screen#check_locked+).
 class Shared::Markdown::StreamingBuffer
   # Probe marker appended after the committed source at commit time so
   # we can ask the renderer "what does committed render to, given

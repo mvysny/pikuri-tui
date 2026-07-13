@@ -17,17 +17,15 @@ require 'tuile'
 # +Tuile.logger+ ever swaps in a custom one (e.g. +TTY::Logger+) the
 # counter goes dark while the lines still render. Acceptable: it's a UI
 # hint, not a correctness signal, and pikuri-tui controls both logger
-# constructions in {ChatApp}.
+# constructions in {Shared::Log::UI#wire!}.
 #
-# == Threading
+# == Thread-safety
 #
-# +#write+ and +#puts+ are called from arbitrary threads (stdlib +Logger+
-# writes synchronously on the thread that invoked +#error+, which may be
-# the agent's worker thread or any background thread). Both methods
-# forward to {Tuile::Component::LogWindow} via +event_queue.submit+, so
-# the actual UI mutation lands on the event-loop thread. The on-error
-# callback is invoked synchronously on the caller's thread and is
-# responsible for marshaling its own UI work back.
+# Thread-safe. +#write+ / +#puts+ are called from arbitrary threads (a
+# stdlib +Logger+ writes synchronously on whichever thread invoked
+# +#error+) and forward to {Tuile::Component::LogWindow}, which marshals
+# onto the event-loop thread itself. The +on_error+ callback runs
+# synchronously on the caller's thread and marshals its own UI work back.
 class Shared::Log::CountingIO
   # Default-formatter prefixes that mark a write as error-class. +ERROR+
   # is +"E,"+; +FATAL+ is +"F,"+. Frozen so prefix comparisons stay

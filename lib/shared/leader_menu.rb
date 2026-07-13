@@ -2,51 +2,46 @@
 
 require 'tuile'
 
-# A "leader key" command menu: a modal popup listing app actions, each
-# bound to a single follow-up key, opened by one reserved leader shortcut
-# (the bins bind +Ctrl+K+). The lazyvim / VS-Code "which-key" pattern
-# retargeted at Tuile — one leader key stands in for a fistful of
-# per-action global shortcuts, and the popup advertises every binding, so
-# nothing has to be memorized and the terminal's scarce unprintable-key
-# namespace (much of it eaten by tmux, flow control, etc.) is freed.
+# A "leader key" command menu: a modal popup listing app actions, each on
+# one follow-up key, opened by a single reserved shortcut (the shells bind
+# +Ctrl+K+). Register actions with {#add} (chainable) before the first
+# {#open}:
 #
-# Actions are registered with {#add} (chainable) before the menu is first
-# opened; {#open} renders them through a {Tuile::Component::PickerWindow}
-# popup keyed by each action's follow-up key. A matching key runs that
-# action's callback; ESC and +Ctrl+C+ both cancel the menu (the latter via
-# the {CancelPopup} wrapper), as does any unbound key bubbling to the
-# popup — none run anything.
+#   menu = Shared::LeaderMenu.new(screen: screen)
+#   menu.add('l', 'logs') { log_ui.open }
+#   menu.add('q', 'quit') { app.quit }
+#   # Ctrl+K opens the popup; "l" runs the logs action; ESC / Ctrl+C cancel
 #
-# Built on {Tuile::Component::PickerWindow} rather than reimplemented: it
-# already gives single-key options, a callback with the picked key, the
-# ESC/+q+ dismissal idiom, and a self-closing popup wrapper. The follow-up
-# keys are *printable* (+l+ / +d+ / +p+ / +m+ / +q+) — legal here because a
-# popup consumes them directly, unlike {Tuile::Screen#register_global_shortcut}
-# which rejects printable keys so they can't hijack typing in the input.
+# The which-key pattern (lazyvim / VS Code) retargeted at Tuile: one leader
+# key stands in for a fistful of global shortcuts, and the popup advertises
+# every binding, so nothing has to be memorized and the terminal's scarce
+# unprintable-key namespace (much of it eaten by tmux, flow control) stays
+# free. Each picked callback is deferred to the next event-loop tick so the
+# menu popup is fully closed *before* the action runs — an action that
+# opens another popup (logs, git diff, model picker) then never stacks a
+# second modal over this one.
 #
-# Each picked callback is deferred to the next event-loop tick (via
-# +screen.event_queue.submit+) so the menu popup is fully closed *before*
-# the action runs — an action that opens another popup (logs, git diff,
-# model picker) then never stacks a second modal popup over this one.
+# == Implementation details
 #
-# Shared by both shells (like {Shared::Log::Popup}); each {Chat::App} / {Code::App}
-# builds one with its own action set — the chat shell wires +logs+ /
-# +switch model+ / +quit+, the coding shell adds +git diff+ / +plan mode+.
+# Built on {Tuile::Component::PickerWindow} (single-key options, a
+# picked-key callback, the ESC/+q+ dismissal idiom, a self-closing popup
+# wrapper). Follow-up keys are *printable* (+l+ / +d+ / +p+ / +m+ / +q+) —
+# legal because the popup consumes them directly, unlike
+# {Tuile::Screen#register_global_shortcut}, which rejects printable keys so
+# they can't hijack typing in the input. ESC and any unbound key dismiss;
+# +Ctrl+C+ dismisses too, via {CancelPopup} (it would otherwise be
+# suppressed while a modal popup is open).
+#
+# UI-thread-confined.
 class Shared::LeaderMenu
   # The popup caption shown above the action list.
   # @return [String]
   CAPTION = 'Menu'
 
-  # The {Tuile::Component::Popup} wrapping the menu's {PickerWindow}, with
-  # one addition over the base: +Ctrl+C+ dismisses it, exactly like ESC.
-  #
-  # +Ctrl+C+ is otherwise an app-level global shortcut (cancel turn / quit)
-  # that {Tuile::Screen} suppresses while a modal popup is open, so without
-  # this it would do nothing here. Folding it in makes the user's universal
-  # "get me out" key cancel the menu like it cancels everything else. The
-  # key reaches this override by bubbling up from the focused list (it is
-  # not an option key, so {PickerWindow} declines it first) — the same path
-  # ESC and +q+-close take.
+  # The menu's {Tuile::Component::Popup}, adding one thing over the base:
+  # +Ctrl+C+ dismisses it, exactly like ESC. The key bubbles up from the
+  # focused list (not an option key, so {PickerWindow} declines it first) —
+  # the same path ESC / +q+-close take.
   class CancelPopup < Tuile::Component::Popup
     # @param key [String]
     # @return [Boolean] true if the key was handled.

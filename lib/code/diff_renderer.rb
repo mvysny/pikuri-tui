@@ -8,6 +8,8 @@ module Code
   # diff for the conversation pane — the visual the edit / write tool
   # formatters paint instead of dumping raw arguments.
   #
+  #   ansi = Code::DiffRenderer.render(old_src, new_src, width: 80, palette: palette)
+  #
   # == Two-tier coloring
   #
   # Every changed line gets a full-width background "bar" (the +line+ tier:

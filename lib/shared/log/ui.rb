@@ -5,17 +5,19 @@ require 'pikuri-core'
 require 'tuile'
 
 # The diagnostic-log subsystem shared by all three shells: the eager
-# +LogWindow+, its {Shared::Log::Popup}, the {Shared::Log::CountingIO} that routes every
-# pikuri / Tuile log line into that window, the unread-error tally, and
-# the +Ctrl+K+ leader-menu global shortcut whose status-bar hint carries
-# that tally.
+# +LogWindow+, its {Shared::Log::Popup}, the {Shared::Log::CountingIO} that
+# routes every pikuri / Tuile log line into that window, the unread-error
+# tally, and the +Ctrl+K+ leader-menu global shortcut whose status-bar hint
+# carries that tally. Wired in two phases:
 #
-# Extracted from the byte-identical +wire_logging+ / +menu_hint+ /
-# error-counter cluster the three +App+s used to each carry. The +App+
-# keeps only the two seams that genuinely differ: *what* +Ctrl+K+ does
-# (its own {Shared::LeaderMenu}, supplied to {#install_shortcut}) and *when* the
-# two phases fire (wire early, before the agent is built; install the
-# shortcut late, once the menu exists).
+#   log_ui = Shared::Log::UI.new(screen: screen)
+#   log_ui.wire!                                  # early: route logs here (pre-agent)
+#   # ... build the agent and the leader menu ...
+#   log_ui.install_shortcut { leader_menu.open }  # late: Ctrl+K opens the menu
+#
+# The +App+ supplies only the two seams that differ: *what* +Ctrl+K+ does
+# (its own {Shared::LeaderMenu}) and *when* the phases fire — wire early,
+# before the agent is built; install the shortcut once the menu exists.
 #
 # == Why registration lives here, not in the App
 #
@@ -27,12 +29,7 @@ require 'tuile'
 # the +Ctrl+K+ registration belongs to this class and not to the App's
 # +register_shortcuts+ (which keeps the genuinely shell-agnostic +Ctrl+C+).
 #
-# == Threading
-#
-# {#on_error_logged} fires on the *logging* thread (any thread), so it
-# marshals the counter mutation + hint refresh onto the event-loop thread
-# via +screen.event_queue.submit+. Every other method is called on the UI
-# thread (construction, leader-menu dispatch, popup dismissal).
+# UI-thread-confined, with exceptions.
 class Shared::Log::UI
   # @return [Tuile::Component::LogWindow] the eager-constructed diagnostic
   #   window. Exposed so the App can re-expose it (tests, extra logger sinks).
@@ -93,7 +90,7 @@ class Shared::Log::UI
   end
 
   # Opens the log popup (the leader menu's +l+ action). A no-op if it is
-  # already open. Runs on the event-loop thread (global-shortcut dispatch).
+  # already open.
   #
   # @return [void]
   def open

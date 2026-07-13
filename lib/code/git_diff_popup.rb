@@ -21,6 +21,8 @@ module Code
   # A diff needs room, so the popup is sized {Tuile::Fraction::FULL}
   # (fullscreen) rather than the default half-screen; the wrapped +TextView+
   # scrolls within it.
+  #
+  # UI-thread-confined.
   class GitDiffPopup < Tuile::Component::Popup
     # @param diff_window [Tuile::Component::Window] the framed, scrollable
     #   "Git diff" window this popup wraps. Its +TextView+ is owned and

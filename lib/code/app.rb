@@ -52,6 +52,9 @@ module Code
   #   turn is running, Enter routes the message into the agent's
   #   +Pikuri::Agent::Control::Interloper+ instead of starting a second
   #   +run_loop+. The flag is read and written only on the UI thread.
+  #
+  # UI-thread-confined (App's own methods; the worker it spawns runs the
+  # pikuri loop off-thread and marshals back).
   class App
     LOG = Pikuri.logger_for('code')
     private_constant :LOG
@@ -278,8 +281,7 @@ module Code
     # - +Ctrl+K+ opens the {Shared::LeaderMenu} command popup. +over_popups: false+
     #   (the default), so it can't stack over an open popup. The {Shared::Log::UI} owns
     #   this binding because its hint also carries the unread-error tally —
-    #   the only always-visible status-bar surface left now that the direct
-    #   +Ctrl+L+ is gone.
+    #   the only always-visible status-bar surface.
     # - +Ctrl+C+ runs the {#on_interrupt} escalation (cancel turn ->
     #   unfocus -> quit). The one direct accelerator kept: it is the urgent
     #   mid-turn interrupt, not a command we want behind a chord. Also
@@ -461,7 +463,7 @@ module Code
     # never "falls through" to the loop's unhandled-key quit the way ESC
     # does. Three states, in priority order:
     #
-    # 1. A turn is running -> cancel it (the historical behavior). The
+    # 1. A turn is running -> cancel it. The
     #    {Shared::ConversationTextView::Listener} renders the +Cancelled+ event; the worker's
     #    +ensure+ clears {@turn_in_progress}.
     # 2. Nothing running but something is focused (normally the {Shared::InputArea})

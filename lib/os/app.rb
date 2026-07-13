@@ -58,6 +58,9 @@ module Os
   #   turn is running, Enter routes the message into the agent's
   #   +Pikuri::Agent::Control::Interloper+ instead of starting a second
   #   +run_loop+. The flag is read and written only on the UI thread.
+  #
+  # UI-thread-confined (App's own methods; the worker it spawns runs the
+  # pikuri loop off-thread and marshals back).
   class App
     LOG = Pikuri.logger_for('os')
     private_constant :LOG
@@ -400,7 +403,7 @@ module Os
     # never "falls through" to the loop's unhandled-key quit the way ESC
     # does. Three states, in priority order:
     #
-    # 1. A turn is running -> cancel it (the historical behavior). The
+    # 1. A turn is running -> cancel it. The
     #    {Shared::ConversationTextView::Listener} renders the +Cancelled+ event; the worker's
     #    +ensure+ clears {@turn_in_progress}.
     # 2. Nothing running but something is focused (normally the {Shared::InputArea})

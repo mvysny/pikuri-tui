@@ -27,14 +27,15 @@
 # stdlib logger wires one today) replay through +#write+ too; the cosmetic
 # difference of a chomped trailing newline is acceptable.
 #
-# == Threading
+# == Thread-safety
 #
-# Boot is single-threaded — every logger that reaches this object runs on
-# the main thread before any worker starts — but writes are guarded by a
-# +Mutex+ so a stray background write can't corrupt the buffer. {#replay_into}
-# runs during +App+ setup on the thread that will own the event loop, so it
-# delegates marshaling to the +Shared::Log::CountingIO+ sink (which submits each line
-# to the UI thread) rather than touching the +LogWindow+ directly.
+# Thread-safe: writes are +Mutex+-guarded, so even a stray background
+# write can't corrupt the buffer (boot is effectively single-threaded —
+# every logger reaching this object runs on the main thread before any
+# worker starts — but the lock makes the guarantee unconditional).
+# {#replay_into} delegates marshaling to the {Shared::Log::CountingIO} sink
+# (which submits each line to the UI thread) rather than touching the
+# +LogWindow+ directly.
 class Shared::Log::BufferingIO
   # Default cap on retained lines. Boot volume is a handful of lines; the
   # cap is a backstop against an unexpected pre-screen log loop, not a tuning

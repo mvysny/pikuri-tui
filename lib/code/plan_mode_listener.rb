@@ -11,15 +11,12 @@ module Code
   # re-emits on every real transition, and pushes the new posture onto
   # the footer ({Shared::StatusFooterUpdater#plan_active=}).
   #
-  # The companion to {Shared::StatusFooterUpdater::ModelListener} / {TaskListener}: same
-  # worker-thread-to-UI-thread marshaling, the smallest possible slice of
-  # the event stream (one event class). Coding/OS-shell-only — it lives in
-  # +Code+ (not in the {Shared} namespace like
-  # {Shared::StatusFooterUpdater::ModelListener}) because plan mode is a +:code+-group concern: the
-  # event is a +:code+-group constant the chat shell never loads. The
-  # shared {Shared::StatusFooterUpdater} exposes +plan_active=+ for every shell, but only
-  # the coding and OS shells wire this listener to drive it; the chat
-  # shell never sets it, so its badge stays hidden.
+  # The companion to {Shared::StatusFooterUpdater::ModelListener} /
+  # {TaskListener}: same worker-thread-to-UI-thread marshaling, one event
+  # class. It lives in +Code+ rather than {Shared} because plan mode is a
+  # +:code+-group concern — the event is a +:code+-group constant the chat
+  # shell never loads (which is also why the chat shell's badge stays
+  # hidden: it never wires this listener).
   #
   # == Why the event, not the control
   #
@@ -31,14 +28,11 @@ module Code
   # event stream. The footer therefore reflects the authoritative flag,
   # never an inference about who toggled it.
   #
-  # == Threading
-  #
   # {#on_event} fires on whatever thread flipped the flag — the agent's
-  # worker thread for a model flip, the UI thread for a +p+ menu toggle —
-  # so it marshals the footer mutation onto the event-loop thread via
-  # +screen.event_queue.submit+, the same rule {TaskListener} follows.
-  # (+submit+ from the UI thread simply enqueues, so the host-flip path is
-  # safe too.)
+  # worker thread for a model flip, the UI thread for a +p+ menu toggle — so
+  # it marshals the footer mutation onto the event-loop thread via
+  # +screen.event_queue.submit+ (a +submit+ from the UI thread simply
+  # enqueues, so the host-flip path is safe too).
   class PlanModeListener < Pikuri::Agent::Listener::Base
     # @param footer [#plan_active=] the conversation-window footer to
     #   update (a {Shared::StatusFooterUpdater}). Lifetime is owned by the host +App+.

@@ -4,12 +4,12 @@ require 'kramdown'
 require 'kramdown-parser-gfm'
 require 'tuile'
 
-# Single entry point for turning a Markdown string into ANSI for the
-# conversation pane. All of pikuri-tui's Markdown rendering routes
-# through here — the non-streaming +Assistant+ path
-# ({Shared::ConversationTextView#render_markdown}) and the streaming path
-# ({Shared::Markdown::StreamingBuffer}, via the +render:+ callable passed at
-# construction).
+# Turns a Markdown string into ANSI for the conversation pane — the single
+# entry point every pikuri-tui Markdown render goes through, one-shot
+# ({Shared::ConversationTextView#render_markdown}) or per-delta (the
+# +render:+ callable a {Shared::Markdown::StreamingBuffer} is built with):
+#
+#   ansi = Shared::Markdown::Renderer.render(md, width: 80, dark: true)
 #
 # == Pipeline
 #
@@ -21,12 +21,9 @@ require 'tuile'
 #    soft breaks (CommonMark semantics), matching how LLMs emit
 #    markdown.
 # 3. *Render*: {Shared::Markdown::AnsiConverter}, this project's own
-#    +Kramdown::Converter+ subclass. It replaced +tty-markdown+
-#    (whose stale dependency pins blocked updates) and natively
-#    handles what this module previously patched around with
-#    source-injection hacks: loose lists render loose — bulleted
-#    *and* ordered, numbering intact — and block spacing comes out
-#    right the first time, so there is no post-processing pass.
+#    +Kramdown::Converter+ subclass, straight to ANSI with no
+#    post-processing pass — loose lists render loose (bulleted *and*
+#    ordered, numbering intact) and block spacing comes out right.
 #
 # Parser and converter warnings are forwarded to the +'markdown'+ pikuri
 # logger (the diagnostic pane), not the conversation pane.

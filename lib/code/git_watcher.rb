@@ -19,10 +19,9 @@ module Code
   # == Why two views
   #
   # A real unified diff is far too wide for a 40%-width sidebar. So the
-  # sidebar shows only the {PORCELAIN_COMMAND} file list (the same
-  # +git status+ short codes the coding shell showed before) annotated
-  # with {NUMSTAT_COMMAND} +/- line counts, and the hunks themselves go to
-  # a near-fullscreen popup.
+  # sidebar shows only the {PORCELAIN_COMMAND} file list (the +git status+
+  # short codes) annotated with {NUMSTAT_COMMAND} +/- line counts, and the
+  # hunks themselves go to a near-fullscreen popup.
   #
   # == What the diff covers
   #
@@ -54,8 +53,6 @@ module Code
   # +text=+ assignment in {#render}. Because the rendered diff is part of the
   # {Snapshot}, a terminal resize (which changes {#diff_width}) re-renders the
   # bars at the new width on the next poll.
-  #
-  # == Threading
   #
   # The poll runs on its own thread (started by {#start}, stopped by
   # {#stop}); like the agent worker it must not touch the UI directly, so

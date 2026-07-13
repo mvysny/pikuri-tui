@@ -39,6 +39,9 @@ require 'tuile'
 # grayscale repaint is independent of the flag — a +markdown: false+
 # thinking buffer is still a {Shared::Markdown::StreamingBuffer} with a
 # recolor-only render function, so the gray tint survives.
+#
+# UI-thread-confined (the nested {Listener} marshals the event stream onto
+# the UI thread before driving these verbs).
 class Shared::ConversationTextView < Tuile::Component::TextView
   # Cap, in characters, applied to tool-result content before it lands in
   # the pane. Mirrors the terminal listener's cap so the two renderers stay
@@ -272,11 +275,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # +Tokens+ / +ContextCap+ stay silent (their consumer is
   # +Pikuri::Agent::Listener::TokenLog+).
   #
-  # == Threading
-  #
-  # {#on_event} fires on the agent's worker thread; it wraps the whole
-  # dispatch in +screen.event_queue.submit+ so every region mutation runs on
-  # the event-loop thread under the UI lock. The queue is FIFO, so events
+  # {#on_event} fires on the agent's worker thread and wraps the whole
+  # dispatch in +screen.event_queue.submit+, so every region mutation runs
+  # on the event-loop thread under the UI lock; the queue is FIFO, so events
   # still land in order.
   class Listener < Pikuri::Agent::Listener::Base
     # Leading spaces a sub-agent's listener prepends to every block, so its

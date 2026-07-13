@@ -2,14 +2,18 @@
 
 require 'tomlrb'
 
-# Layered TOML configuration shared by both shells.
+# Layered TOML configuration loaded once at boot by all three shells,
+# before the screen is up, and read from there on:
 #
-# Hosts the resolved config values (the model connections, the
-# web-search provider keys, the coding shell's sandbox / confirm
-# switches, and its MCP server list), loads them from the XDG config
-# search path, and overlays the command-line overrides the bins pass in.
-# One {Config} is built once at boot, before the screen is up, and read
-# from there on.
+#   config = Shared::Config.load(overrides: { model: cli_model })
+#   config.primary_llm   # the boot connection
+#   config.llms          # every [[llm]], for the model picker
+#   config.sandbox       # coding/OS sandbox switch (flag > file > default)
+#
+# It holds the resolved model connections, the web-search provider keys,
+# the coding shell's sandbox / confirm switches, and its MCP server list,
+# merged from the XDG config search path with the bins' CLI overrides on
+# top.
 #
 # == Precedence
 #
@@ -29,7 +33,7 @@ require 'tomlrb'
 #
 # == The Pikuri seam
 #
-# This class is eager-loaded by BOTH shells, including the chat shell,
+# This class is eager-loaded by all three shells, including the chat shell,
 # whose +Bundler.setup(:default)+ never puts +pikuri-mcp+ (nor the rest of
 # the +:code+ group) on the load path. So {Config} references nothing from
 # those gems: MCP servers surface as plain {McpServer} value objects whose
@@ -44,7 +48,7 @@ require 'tomlrb'
 # The one +Pikuri+ touch allowed here is +pikuri-core+'s logging facade:
 # {.load} reports which config files it read — and any loose-permissions
 # advisory ({.warn_loose_perms}) — through +Pikuri.logger_for+ (memoized,
-# +progname+-tagged), which both shells load (+pikuri-core+ is in the
+# +progname+-tagged), which all three shells load (+pikuri-core+ is in the
 # +:default+ group). +Pikuri.log_io+ defaults to +$stderr+, so these lines
 # surface immediately at boot — before any screen exists. The bins install a
 # {Shared::Log::BufferingIO} as that boot sink, which tees to +$stderr+ and retains
@@ -58,6 +62,8 @@ require 'tomlrb'
 # violation — raises {Error}. Loading runs at boot before the screen is
 # up, so the bins rescue {Error} into a plain +warn+ + +exit+ rather
 # than the usual route-to-LogWindow path (there is no LogWindow yet).
+#
+# Immutable.
 class Shared::Config
   LOG = Pikuri.logger_for('config')
   private_constant :LOG
@@ -135,10 +141,10 @@ class Shared::Config
     def http? = !url.nil?
   end
 
-  # The web-search provider keys, shared by both shells (chat wires
-  # +web_search+ as a main tool, the coding shell as a sub-agent-only
-  # tool). Both fields are +nil+ when omitted; pikuri's search cascade
-  # then runs DuckDuckGo-only and the paid provider simply stays out.
+  # The web-search provider keys (chat wires +web_search+ as a main tool;
+  # the coding / OS shells wire it sub-agent-only). Both fields are +nil+
+  # when omitted; pikuri's search cascade then runs DuckDuckGo-only and the
+  # paid provider simply stays out.
   #
   # These are secrets and get the same treatment as {Llm#api_key}: stored
   # literally in this parent-only file (never an env var pikuri would
@@ -504,7 +510,7 @@ class Shared::Config
 
   # Overlay the primary-connection CLI overrides. A +nil+ override keeps
   # the loaded/default value. Only the first {Llm} is touched — it is the
-  # one both shells use today.
+  # one the shells use today.
   def self.apply_llm_overrides(llms, overrides)
     return llms unless overrides[:server] || overrides[:model]
 

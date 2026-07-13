@@ -14,12 +14,12 @@ require 'tuile'
 # {Shared::Markdown::Renderer} trip through {Shared::Markdown::StreamingBuffer} would either
 # corrupt the text or add unwanted styling.
 #
-# == Lifecycle and threading
+# == Lifecycle
 #
 # Identical to {Shared::Markdown::StreamingBuffer}: one buffer per turn, drive
-# {#append} until done, then {#finalize} exactly once. Not thread-safe;
-# the region's mutators check +Tuile::Screen#check_locked+, so the
-# buffer must be driven from whichever thread holds the UI lock.
+# {#append} until done, then {#finalize} exactly once.
+#
+# UI-thread-confined (the region's mutators call +Tuile::Screen#check_locked+).
 class Shared::Markdown::PassthroughBuffer
   # @param region [Tuile::Component::TextView::Region] the region to
   #   write into. The buffer assumes exclusive ownership for its

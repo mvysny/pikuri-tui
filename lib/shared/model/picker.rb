@@ -2,12 +2,14 @@
 
 require 'tuile'
 
-# The leader-menu model picker, shared by all three shells: owns the
-# configured-connection catalog, the pending-switch state, and the
-# +Tuile::Component::PickerWindow+ popup that lets the user switch model
-# mid-session. Extracted from the three +App+s (which each carried a
-# byte-identical copy) per AGENTS.md's component-oriented dedup rule — a
-# standalone building block the shells compose, not a shared base class.
+# The leader-menu model picker, shared by all three shells: the
+# configured-connection catalog, the pending-switch slot, and the
+# +Tuile::Component::PickerWindow+ popup that switches model mid-session.
+#
+#   picker = Shared::Model::Picker.new(models: choices)
+#   picker.multiple?                       # gate the leader-menu "m" entry
+#   picker.open(current: agent.transport)  # popup; a pick becomes pending
+#   picker.take_pending                    # App#start_turn drains it into run_loop
 #
 # == What it owns (and what it deliberately doesn't)
 #
@@ -23,12 +25,7 @@ require 'tuile'
 # reference: the picker is a catalog + a request slot, not a source of
 # truth.
 #
-# == Threading
-#
-# Both {#open} (from the leader-menu callback / global-shortcut dispatch)
-# and {#take_pending} (from +App#start_turn+) run on the UI thread, so the
-# pending-transport write and read need no lock. Mirrors the rule the
-# +App+s followed when this state lived inline.
+# UI-thread-confined.
 class Shared::Model::Picker
   # @return [String] caption shown at the top of the picker popup.
   CAPTION = 'Switch model'

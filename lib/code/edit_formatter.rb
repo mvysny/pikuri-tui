@@ -9,11 +9,10 @@ module Code
   # default +→ edit(path=…, old_string=…, new_string=…)+ argument dump.
   #
   # The diff is self-contained — the +ToolCall+ event already carries both
-  # strings, so no file read is needed (the seam stays clean and nothing
-  # blocks the UI thread on IO). Installed in {Shared::ConversationTextView}'s
-  # +tool_formatters+ map by +bin/pikuri-tui-code+; the listener calls
-  # {#render_call} on the +ToolCall+ and {#render_result} on the paired
-  # +ToolResult+.
+  # strings, so no file read is needed (nothing blocks the UI thread on
+  # IO). Implements the {Shared::ConversationTextView} +tool_formatters+
+  # protocol: {#render_call} on the +ToolCall+, {#render_result} on the
+  # paired +ToolResult+.
   class EditFormatter
     LOG = Pikuri.logger_for('formatter')
     private_constant :LOG

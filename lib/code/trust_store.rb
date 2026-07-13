@@ -10,9 +10,7 @@ module Code
   # read-only git (+status+/+diff+/+log+/+show+/…). That is sound only
   # because the user has vouched for the repo's +.git/config+ +
   # +.gitattributes+ — even a bare +git diff+ runs whatever
-  # +diff.*.textconv+ / +core.fsmonitor+ the repo config directs. Upstream
-  # +bin/pikuri-code+ asks every session and persists nothing; this store is
-  # the pikuri-tui addition that remembers the affirmation.
+  # +diff.*.textconv+ / +core.fsmonitor+ the repo config directs.
   #
   # The file is a plain newline-delimited list of realpath'd project-root
   # paths under {Pikuri::Paths.state} (no TOML — the project's +tomlrb+ is
@@ -33,9 +31,6 @@ module Code
   #   concurrently could each append a line; the duplicate is harmless
   #   because {#trusted?} dedupes on read. Append-only (never rewrite) avoids
   #   the worse race of clobbering a concurrent writer.
-  #
-  # Mirrors the candid "Residual the allowlist does NOT close" framing in
-  # pikuri's +ReadOnlyCommandApprover+.
   class TrustStore
     LOG = Pikuri.logger_for('trust')
     private_constant :LOG

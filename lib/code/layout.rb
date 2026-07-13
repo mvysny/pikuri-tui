@@ -28,6 +28,8 @@ module Code
   # the cursor-owner suppression that would otherwise let the focused
   # {Tuile::Component::TextArea} swallow them. The confirmation and git-diff
   # popups are modal overlays, not part of this layout.
+  #
+  # UI-thread-confined.
   class Layout < Tuile::Component::Layout
     # Number of rows the bottom input pane occupies: 3 lines of editable
     # text + 2 rows of {Tuile::Component::Window} frame.

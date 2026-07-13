@@ -17,6 +17,8 @@ require 'tuile'
 # +on_dismiss+ callback fires so it can reset the conversation Window's
 # error-count cell — the user has now *seen* the logs, so the unread
 # counter resets.
+#
+# UI-thread-confined.
 class Shared::Log::Popup < Tuile::Component::Popup
   # @param log_window [Tuile::Component::LogWindow] the eager-constructed
   #   log destination this popup wraps. Its parent is set to +self+

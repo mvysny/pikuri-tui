@@ -14,14 +14,13 @@ module Code
   #
   # == The decision: approve / edit / reject
   #
-  # Upstream pikuri replaced the boolean confirmer with the richer
-  # {Pikuri::Workspace::Confirmer#ask} primitive, which returns a sum
-  # type — {Pikuri::Workspace::Confirmer::Approved} (carrying the
-  # possibly-edited {Pikuri::Workspace::Confirmer::Request#detail}) or
-  # {Pikuri::Workspace::Confirmer::Rejected} (carrying an optional
-  # steering reason). This popup implements {#ask} (the base derives
-  # {#confirm?} from it for the mutation gates that need only a Boolean).
-  # It surfaces three outcomes across up to two stacked popups:
+  # This popup implements the {Pikuri::Workspace::Confirmer#ask} primitive,
+  # which returns a sum type — {Pikuri::Workspace::Confirmer::Approved}
+  # (carrying the possibly-edited {Pikuri::Workspace::Confirmer::Request#detail})
+  # or {Pikuri::Workspace::Confirmer::Rejected} (carrying an optional
+  # steering reason); the base derives {#confirm?} from it for the mutation
+  # gates that need only a Boolean. It surfaces three outcomes across up to
+  # two stacked popups:
   #
   # * *Approve* (+y+) — run the operation with +detail+ unchanged.
   # * *Edit* (+e+, editable requests only) — the human rewrites the

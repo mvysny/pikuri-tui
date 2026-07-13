@@ -4,28 +4,19 @@ require 'kramdown/converter'
 require 'rouge'
 require 'unicode/display_width'
 
-# Renders a kramdown parse tree to ANSI for the conversation pane.
+# Renders a kramdown parse tree to ANSI for the conversation pane — a
+# +Kramdown::Converter::Base+ subclass walking the tree and emitting
+# SGR-styled terminal text, scoped to the element set LLM chat output
+# actually produces. Two behaviors worth calling out:
 #
-# This is the in-house replacement for +tty-markdown+'s converter —
-# same architectural shape (a +Kramdown::Converter::Base+ subclass
-# walking the parse tree, emitting SGR-styled terminal text), scoped
-# down to the element set LLM chat output actually produces, and
-# owning two behaviors tty-markdown got wrong:
-#
-# - *Loose lists render loose.* A blank line between list items in
-#   the source produces a blank line between rendered items (the
-#   list-level looseness rule, as in CommonMark). tty-markdown
-#   collapsed loose and tight lists into the same output, which
-#   {Shared::Markdown::Renderer} used to patch around with an HTML-comment
-#   injection hack — bullets only, because splitting ordered lists
-#   broke their numbering. Rendering the list ourselves makes both
-#   problems disappear: looseness is read off the parse tree
-#   (kramdown marks tight items' paragraphs +:transparent+) and
+# - *Loose lists render loose.* A blank line between list items in the
+#   source produces a blank line between rendered items (the CommonMark
+#   list-level looseness rule): looseness is read off the parse tree
+#   (kramdown marks tight items' paragraphs +:transparent+) and ordered
 #   numbering comes from the item index.
-# - *Paragraphs wrap as a whole.* Inline styling spans (bold, code,
-#   links) flow with the surrounding text; tty-markdown wrapped each
-#   text fragment independently, mis-measuring every line that
-#   contained inline markup.
+# - *Paragraphs wrap as a whole.* Inline styling spans (bold, code, links)
+#   flow with the surrounding text and are measured together, so a line
+#   with inline markup wraps at the right column.
 #
 # == Output contract
 #
@@ -45,8 +36,7 @@ require 'unicode/display_width'
 # == Use via Shared::Markdown::Renderer
 #
 # Callers don't touch this class directly — {Shared::Markdown::Renderer.render}
-# parses the source with kramdown (GFM dialect) and invokes
-# {.convert} the way tty-markdown's own entry point did:
+# parses the source with kramdown (GFM dialect) and invokes {.convert}:
 #
 #   doc = Kramdown::Document.new(src, input: 'GFM', width: 80, ...)
 #   ansi, warnings = Shared::Markdown::AnsiConverter.convert(doc.root, doc.options)
@@ -66,12 +56,10 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
   RESET = "\e[0m"
   private_constant :RESET
 
-  # SGR prefixes per element kind. The palette follows tty-markdown's
-  # default theme (yellow accents, cyan headers) so the swap doesn't
-  # change the conversation pane's look, with one upgrade: emphasis
-  # carries the italic attribute (and strong carries bold) in addition
-  # to the color, so {Shared::Markdown::Grayscale} keeps the structure visible after
-  # flattening colors away.
+  # SGR prefixes per element kind: yellow accents, cyan headers. Emphasis
+  # carries the italic attribute (and strong carries bold) in addition to
+  # the color, so {Shared::Markdown::Grayscale} keeps the structure visible
+  # after flattening colors away.
   STYLES = {
     header: "\e[36;1m",
     em: "\e[33;3m",
@@ -138,9 +126,8 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
   LIGHT_CODE_THEME = Rouge::Theme.find('github.light').new
   private_constant :LIGHT_CODE_THEME
 
-  # Indent added per header level, mirroring tty-markdown's layout
-  # convention: content under an H2 sits 2 columns deep, under an
-  # H3 4 columns, and so on.
+  # Indent added per header level: content under an H2 sits 2 columns
+  # deep, under an H3 4 columns, and so on.
   INDENT_STEP = 2
   private_constant :INDENT_STEP
 
@@ -220,8 +207,7 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
 
   def convert_header(el, opts)
     level = el.options[:level]
-    # Top-level headers set the indent for everything that follows —
-    # tty-markdown's signature layout, kept for visual continuity.
+    # Top-level headers set the indent for everything that follows.
     @current_indent = (level - 1) * INDENT_STEP if opts[:parent]&.type == :root
     style = level == 1 ? STYLES[:header] + UNDERLINE : STYLES[:header]
     block(inline(el, opts), style: style)
@@ -323,8 +309,7 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
   end
 
   # HTML comments render as nothing — they carry no reader-visible
-  # content. (tty-markdown rendered them as gray "# …" lines, which
-  # leaked annotation noise into the conversation pane.)
+  # content.
   def convert_xml_comment(_el, _opts)
     ''
   end
@@ -521,10 +506,9 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
   end
 
   # Syntax-highlight a code block via rouge. Untagged or
-  # unrecognized languages render in plain code yellow (matching
-  # tty-markdown's fallback); rouge blowing up degrades to
-  # unstyled code plus a collected warning — never a raise on the
-  # render path.
+  # unrecognized languages render in plain code yellow; rouge blowing up
+  # degrades to unstyled code plus a collected warning — never a raise on
+  # the render path.
   #
   # On a light terminal ({@dark} false) the formatter is themed with
   # {LIGHT_CODE_THEME}; on dark it uses +Terminal256+'s default theme
