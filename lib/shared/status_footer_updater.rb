@@ -47,54 +47,33 @@ class Shared::StatusFooterUpdater
   # @return [Float]
   FRAME_INTERVAL_S = 0.1
 
-  # The main agent's mid-loop input queue, or +nil+ when the host
-  # wired none. Installed by {App} *after* the agent is built (the
-  # label is constructed before the agent exists — same
-  # chicken-and-egg as the listener/agent cycle documented on
-  # {App#initialize}). When set, every refresh appends an
-  # "N queued" segment while +#size+ reports pending injections.
-  # Read only on the UI thread (the ticker block); +Interloper#size+
-  # is itself documented as safe from any thread.
+  # The agent's mid-loop input queue; its +#size+ drives the "N queued"
+  # segment. +nil+ until the host wires one.
   #
   # @return [Pikuri::Agent::Control::Interloper, nil]
   attr_accessor :interloper
 
-  # The display name of the agent's current model, shown as the
-  # footer's leading segment (after any plan-mode badge). Set by {App}
-  # once after the agent is built (the boot model) and again by
-  # {Shared::StatusFooterUpdater::ModelListener} each time a +run_loop(transport:)+ switch lands — so
-  # it tracks the model the agent is *actually* on, never an optimistic
-  # guess. +nil+/empty renders no model segment. Assigning re-runs
-  # {#refresh}; must be set on the UI thread (the {Shared::StatusFooterUpdater::ModelListener}
-  # marshals via +submit+).
+  # Display name shown as the footer's leading segment (after any badge);
+  # +nil+/empty renders no model segment.
   #
   # @return [String, nil]
   attr_reader :current_model
 
-  # Whether the agent is currently in plan mode (a read-only posture
-  # where the file-mutation tools refuse). When +true+, {#refresh}
-  # leads with a notice-toned "‖ Plan Mode" badge so the posture is
-  # impossible to miss against the dim hint chrome. Driven by
-  # {Code::PlanModeListener} off the +Pikuri::Code::PlanModeChanged+
-  # event — so it tracks the shared +Pikuri::Workspace::ReadOnly+ flag
-  # whether the model or the leader menu's +p+ toggle flipped it. The
-  # chat shell wires no listener and never sets this, so its footer
-  # stays badge-less. Assigning re-runs {#refresh}; must be set on the
-  # UI thread.
+  # Whether the agent is in plan mode; when +true+ the footer leads with a
+  # notice-toned "‖ Plan Mode" badge.
   #
   # @return [Boolean]
   attr_reader :plan_active
 
-  # @param screen [Tuile::Screen] screen whose +event_queue+ drives
-  #   the spinner ticker.
-  # @param window [Tuile::Component::Window] the conversation window
-  #   whose {Tuile::Component::Window#footer_text} this keeps current.
-  #   Its +on_theme_changed+ listener slot is claimed so a palette flip
-  #   re-bakes the chrome in the new theme's +hint_color+.
-  # @param token_log [Pikuri::Agent::Listener::TokenLog] main
-  #   agent's token log; +#status_line+ is read on every refresh,
-  #   and its +on_status_line+ observer slot is claimed so each new
-  #   line refreshes the footer immediately (see the class docs).
+  # Claims the +token_log.on_status_line+ and +window.on_theme_changed+
+  # observer slots.
+  #
+  # @param screen [Tuile::Screen] drives the spinner ticker via its
+  #   +event_queue+.
+  # @param window [Tuile::Component::Window] whose +footer_text+ this keeps
+  #   current.
+  # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token
+  #   log; must be the *same* instance wired into the agent (see class docs).
   def initialize(screen:, window:, token_log:)
     @screen = screen
     @window = window
@@ -124,15 +103,7 @@ class Shared::StatusFooterUpdater
     refresh
   end
 
-  # Start the spinner ticker (idempotent — calling twice keeps the
-  # existing ticker). Each tick advances {@spinner_frame} to
-  # {SPINNER}'s next glyph and calls {#refresh} on the event-loop
-  # thread. The frame lives in an ivar (rather than being passed
-  # into +refresh+) so a refresh triggered between ticks — the
-  # +on_status_line+ push — repaints with the current glyph instead
-  # of blanking the spinner until the next frame.
-  #
-  # Must be called on the UI thread.
+  # Start the mid-turn spinner ticker; idempotent.
   #
   # @return [void]
   def start_animation
@@ -144,15 +115,7 @@ class Shared::StatusFooterUpdater
     end
   end
 
-  # Cancel the spinner ticker and settle the label back to its idle
-  # text (no spinner glyph). Idempotent.
-  #
-  # The post-cancel +refresh+ runs inline because we're already on
-  # the UI thread; any ticker firing that was queued mid-cancel is a
-  # no-op once +Ticker#cancelled?+ flips, so this +refresh+ is the
-  # last write either way.
-  #
-  # Must be called on the UI thread.
+  # Stop the spinner ticker and settle the footer back to idle; idempotent.
   #
   # @return [void]
   def stop_animation
@@ -181,15 +144,12 @@ class Shared::StatusFooterUpdater
   # {#on_event} fires on the agent's worker thread and marshals the footer
   # mutation onto the event-loop thread via +screen.event_queue.submit+.
   class ModelListener < Pikuri::Agent::Listener::Base
-    # @param footer [#current_model=] the conversation-window footer to
-    #   update (a {Shared::StatusFooterUpdater}). Lifetime is owned by the
-    #   host +App+.
-    # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals
-    #   the update back from the worker thread. Passed explicitly (not the
-    #   singleton) so tests can inject a {Tuile::FakeScreen}.
+    # @param footer [Shared::StatusFooterUpdater] the footer to update.
+    # @param screen [Tuile::Screen] marshals the update back from the worker
+    #   thread via its +event_queue+.
     # @param names [Hash{Array(String, String) => String}]
-    #   {Shared::Model::Choice.key} ([model, api_base]) → display name;
-    #   transports absent from the map render as their raw model id.
+    #   {Shared::Model::Choice.key} → display name; transports absent from the
+    #   map render as their raw model id.
     def initialize(footer:, screen:, names: {})
       super()
       @footer = footer
@@ -197,9 +157,8 @@ class Shared::StatusFooterUpdater
       @names = names
     end
 
-    # Pushes the switched-to model's display name onto the footer; ignores
-    # every other event. Called from the agent's worker thread — the footer
-    # mutation is marshaled onto the event-loop thread.
+    # Push the switched-to model's display name onto the footer; ignore
+    # every other event.
     #
     # @param event [Pikuri::Agent::Event::Base] any agent event; only
     #   {Pikuri::Agent::Event::ModelSwitched} is acted on.
@@ -228,27 +187,13 @@ class Shared::StatusFooterUpdater
 
   private
 
-  # +TokenLog#on_status_line+ observer: a fresh status line was
-  # formatted. Fires on the agent-loop thread, so the mutation +
-  # {#refresh} marshal to the UI thread via +submit+.
-  #
-  # A main-agent line (+id+ empty) clears any transient sub-agent
-  # segment and the footer reverts to the main context window (read
-  # from +TokenLog#status_line+ in {#refresh}). A sub-agent line
-  # (+id+ non-empty, inherited through +TokenLog#for_sub_agent+)
-  # stashes the *pushed* line under {@sub_status} — the sub-agent's
-  # own {TokenLog} is a different instance, so {#refresh} can't poll
-  # it — and the footer shows it labeled with the id while the
-  # delegation runs (e.g. a long RESEARCHER turn, during which the
-  # main agent is blocked in the +agent+ tool and emits no lines of
-  # its own). It reverts the moment the main agent resumes and emits
-  # its next line. A sub-agent that pushes an empty line (e.g. a
-  # reset) clears the segment too.
+  # +TokenLog#on_status_line+ observer: stash a sub-agent's pushed line
+  # (+id+ non-empty) for {#refresh} to show, or clear the stash on a
+  # main-agent or empty line. We stash rather than poll because a sub-agent's
+  # +TokenLog+ is a separate instance {#refresh} can't reach.
   #
   # @param id [String] owning agent's id; +""+ for the main agent.
-  # @param status_line [String] the freshly formatted line (used
-  #   only for the sub-agent path; the main path re-reads
-  #   +TokenLog#status_line+, safe from any thread).
+  # @param status_line [String] the freshly formatted line.
   # @return [void]
   def on_status_line(id, status_line)
     @screen.event_queue.submit do
@@ -262,13 +207,8 @@ class Shared::StatusFooterUpdater
     end
   end
 
-  # Recompute the window's footer chrome from the plan-mode badge, the
-  # current spinner frame, the interloper's pending count, and the token
-  # log's status line, and assign it to
-  # {Tuile::Component::Window#footer_text}. The badge is notice-toned so it
-  # stands out; the rest is baked in the current theme's +hint_color+
-  # (re-derived on theme flips via the window's +on_theme_changed+
-  # listener). Must run on the UI thread.
+  # Rebuild the footer text from the current state (badge, spinner, queued
+  # count, token line) and assign it to {Tuile::Component::Window#footer_text}.
   #
   # @return [void]
   def refresh
