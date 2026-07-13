@@ -130,6 +130,14 @@ loaded (gated on `Pikuri::Workspace` — the OS subtree reuses the
   `screen.event_queue.submit { … }`. This is non-negotiable: most
   Tuile UI methods raise `"UI lock not held"` if you violate it,
   and the ones that don't will silently corrupt the repaint set.
+  In class rdoc, **the UI thread** names exactly this thread — the one
+  that owns `Screen#run_event_loop` — and a class whose every method must
+  run on it is tagged `UI-thread-confined` (per the global CLAUDE.md
+  thread-safety rule), with any off-thread-safe exceptions marked on the
+  methods themselves. This is the project-specific definition that rule's
+  `<Role>-thread-confined` tag defers to; everything else about
+  thread-safety (the mutable/not-thread-safe default, the vocabulary) is
+  global and lives there, not here.
 
 - **Multi-window layouts beyond log + input — out of scope until
   there's a concrete need.** (Streaming and mid-loop input used
