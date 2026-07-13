@@ -11,7 +11,7 @@ require 'pikuri-core'
 # The companion to {Shared::ConversationTextView::Listener} / {Code::TaskListener}: same
 # worker-thread-to-UI-thread marshaling, the smallest possible slice of
 # the event stream (one event class). Shared by all three shells (the
-# footer model name is a +current_model=+ setter {Shared::StatusLabel} exposes),
+# footer model name is a +current_model=+ setter {Shared::StatusFooterUpdater} exposes),
 # so it lives in the {Shared} namespace rather than in any shell's
 # namespace.
 #
@@ -44,7 +44,7 @@ require 'pikuri-core'
 # the same rule {Code::TaskListener} follows.
 class Shared::Model::Listener < Pikuri::Agent::Listener::Base
   # @param footer [#current_model=] the conversation-window footer to
-  #   update (a {Shared::StatusLabel}). Lifetime is owned by the host +App+.
+  #   update (a {Shared::StatusFooterUpdater}). Lifetime is owned by the host +App+.
   # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals
   #   the update back from the worker thread. Passed explicitly (not the
   #   singleton) so tests can inject a {Tuile::FakeScreen}.

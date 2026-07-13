@@ -6,7 +6,7 @@ require 'tuile'
 # three shells: a {Tuile::Component::Window} that frames a
 # {Shared::ConversationTextView} (the scrolling transcript pane, which owns
 # its own {Shared::ConversationTextView::Listener}), carries a
-# {Shared::StatusLabel} footer, and builds the {Shared::Model::Listener} that
+# {Shared::StatusFooterUpdater} footer, and builds the {Shared::Model::Listener} that
 # keeps the footer's model name in step with a landed +run_loop+ switch.
 #
 # This is a "domain component" in the sense of AGENTS.md's "Design with
@@ -28,7 +28,7 @@ require 'tuile'
 # listeners than these two (the +TokenLog+, and in the coding / OS shells a
 # {Code::TaskListener} / {Code::PlanModeListener}). The plan-mode badge in
 # particular is driven by a listener the *shell* builds against this window's
-# {#status_label} — the footer exposes +plan_active=+, but the
+# {#status_footer_updater} — the footer exposes +plan_active=+, but the
 # +Code::PlanModeListener+ that feeds it is a +:code+-group concern the chat
 # shell never loads, so it stays out of this shared component. The two footer
 # values the host can only supply once the agent is built — the mid-turn
@@ -39,13 +39,13 @@ require 'tuile'
 #
 # The listeners self-marshal their UI mutations onto the event-loop thread
 # (see {Shared::ConversationTextView::Listener} / {Shared::Model::Listener}).
-# {#start_animation} / {#stop_animation} forward to {Shared::StatusLabel} and
+# {#start_animation} / {#stop_animation} forward to {Shared::StatusFooterUpdater} and
 # so must be called on the UI thread. {#render_turn_error} is the one method
 # called from the agent worker thread; it marshals its own append via the
 # screen's event queue.
 class Shared::ConversationWindow < Tuile::Component::Window
   # @param token_log [Pikuri::Agent::Listener::TokenLog] the main agent's
-  #   token log, fed into the {Shared::StatusLabel} footer. The host must
+  #   token log, fed into the {Shared::StatusFooterUpdater} footer. The host must
   #   wire the *same* instance into the agent's +ListenerList+.
   # @param title [String] the window's border caption. Defaults to
   #   +'Conversation'+ (the coding shell passes its project root, the OS
@@ -69,11 +69,11 @@ class Shared::ConversationWindow < Tuile::Component::Window
     # hands them its own inherited +#screen+ property (the {Tuile::Screen}
     # singleton, fake-able via +Tuile::Screen.fake+ for tests). Its
     # +event_queue+ marshals {#render_turn_error} and drives the spinner.
-    # Border chrome, not a widget slot: the Shared::StatusLabel embeds the
+    # Border chrome, not a widget slot: the Shared::StatusFooterUpdater embeds the
     # agent status into this window's bottom border (window: self).
-    @status_label = Shared::StatusLabel.new(screen: screen, window: self, token_log: token_log)
+    @status_footer_updater = Shared::StatusFooterUpdater.new(screen: screen, window: self, token_log: token_log)
     @listener = @view.listener
-    @model_listener = Shared::Model::Listener.new(footer: @status_label, screen: screen, names: model_names)
+    @model_listener = Shared::Model::Listener.new(footer: @status_footer_updater, screen: screen, names: model_names)
   end
 
   # @return [Shared::ConversationTextView] the conversation transcript pane.
@@ -81,12 +81,12 @@ class Shared::ConversationWindow < Tuile::Component::Window
   #   {#listener}.
   attr_reader :view
 
-  # @return [Shared::StatusLabel] the footer chrome. Named +status_label+
-  #   rather than +footer+ so it doesn't shadow
+  # @return [Shared::StatusFooterUpdater] the footer-chrome updater. Named
+  #   +status_footer_updater+ rather than +footer+ so it doesn't shadow
   #   {Tuile::Component::Window#footer} (which stays +nil+ — the status is
   #   border chrome via +footer_text+, not a footer-slot component). The
   #   coding / OS shells bind their {Code::PlanModeListener} to this.
-  attr_reader :status_label
+  attr_reader :status_footer_updater
 
   # @return [Shared::ConversationTextView::Listener] the transcript listener;
   #   the host includes it in the agent's +ListenerList+.
@@ -102,7 +102,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @param interloper [Pikuri::Agent::Control::Interloper, nil]
   # @return [void]
   def interloper=(interloper)
-    @status_label.interloper = interloper
+    @status_footer_updater.interloper = interloper
   end
 
   # Seed / update the footer's model-name segment. The host sets the boot
@@ -112,19 +112,19 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @param name [String, nil]
   # @return [void]
   def current_model=(name)
-    @status_label.current_model = name
+    @status_footer_updater.current_model = name
   end
 
   # Start the footer's mid-turn spinner. Must be called on the UI thread.
   #
   # @return [void]
-  def start_animation = @status_label.start_animation
+  def start_animation = @status_footer_updater.start_animation
 
   # Stop the footer's mid-turn spinner, settling it back to idle. Must be
   # called on the UI thread.
   #
   # @return [void]
-  def stop_animation = @status_label.stop_animation
+  def stop_animation = @status_footer_updater.stop_animation
 
   # Append a one-line, error-themed turn-failure notice to the transcript
   # so the user sees a turn ended in failure without opening the log

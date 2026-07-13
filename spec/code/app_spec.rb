@@ -165,15 +165,15 @@ RSpec.describe Code::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'wires a Shared::StatusLabel that drives the conversation Window as border chrome (not a widget slot)' do
+  it 'wires a Shared::StatusFooterUpdater that drives the conversation Window as border chrome (not a widget slot)' do
     app
-    assert_kind_of Shared::StatusLabel, app.instance_variable_get(:@conversation_window).status_label
+    assert_kind_of Shared::StatusFooterUpdater, app.instance_variable_get(:@conversation_window).status_footer_updater
     assert_nil app.screen.pane.content.conversation.footer
   end
 
-  it "hands the agent's interloper to the Shared::StatusLabel for the queued-count display" do
+  it "hands the agent's interloper to the Shared::StatusFooterUpdater for the queued-count display" do
     app
-    assert_same app.agent.interloper, app.instance_variable_get(:@conversation_window).status_label.interloper
+    assert_same app.agent.interloper, app.instance_variable_get(:@conversation_window).status_footer_updater.interloper
   end
 
   it 'queues a mid-turn submission into the interloper instead of starting a second run_loop' do
@@ -266,7 +266,7 @@ RSpec.describe Code::App do
     end
 
     it 'seeds the footer with the boot model display name' do
-      footer = picker_app.instance_variable_get(:@conversation_window).status_label
+      footer = picker_app.instance_variable_get(:@conversation_window).status_footer_updater
       assert_equal 'Local', footer.current_model
     end
 

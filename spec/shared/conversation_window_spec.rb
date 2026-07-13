@@ -25,20 +25,20 @@ RSpec.describe Shared::ConversationWindow do
     assert_kind_of Shared::Model::Listener, window.model_listener
   end
 
-  it 'drives its Shared::StatusLabel as border chrome, leaving the Window footer slot empty' do
-    assert_kind_of Shared::StatusLabel, window.status_label
+  it 'drives its Shared::StatusFooterUpdater as border chrome, leaving the Window footer slot empty' do
+    assert_kind_of Shared::StatusFooterUpdater, window.status_footer_updater
     assert_nil window.footer
   end
 
   it 'forwards current_model= to the footer' do
     window.current_model = 'Local Qwen'
-    assert_equal 'Local Qwen', window.status_label.current_model
+    assert_equal 'Local Qwen', window.status_footer_updater.current_model
   end
 
   it 'forwards interloper= to the footer for the queued-count display' do
     interloper = Pikuri::Agent::Control::Interloper.new
     window.interloper = interloper
-    assert_same interloper, window.status_label.interloper
+    assert_same interloper, window.status_footer_updater.interloper
   end
 
   it 'forwards markdown: through to its Shared::ConversationTextView' do

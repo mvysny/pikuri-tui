@@ -3,7 +3,7 @@
 RSpec.describe Chat::App do
   # Minimal +Pikuri::Agent+ stand-in: App only reaches for +run_loop+
   # (from the worker thread), +cancellable+ (from {Chat::App#on_interrupt})
-  # and +interloper+ (mid-turn queueing + the Shared::StatusLabel handoff).
+  # and +interloper+ (mid-turn queueing + the Shared::StatusFooterUpdater handoff).
   # Anything else stays untouched, so we don't pay the network / RubyLLM
   # cost in a unit spec.
   #
@@ -216,17 +216,17 @@ RSpec.describe Chat::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'wires a Shared::StatusLabel that drives the conversation Window as border chrome (token status + spinner)' do
+  it 'wires a Shared::StatusFooterUpdater that drives the conversation Window as border chrome (token status + spinner)' do
     app
-    assert_kind_of Shared::StatusLabel, status_label
+    assert_kind_of Shared::StatusFooterUpdater, status_footer_updater
     # The status is border chrome (footer_text), not a footer-slot
     # component, so the Window's own footer stays nil.
     assert_nil app.screen.pane.content.conversation.footer
   end
 
-  it "hands the agent's interloper to the Shared::StatusLabel for the queued-count display" do
+  it "hands the agent's interloper to the Shared::StatusFooterUpdater for the queued-count display" do
     app
-    assert_same app.agent.interloper, status_label.interloper
+    assert_same app.agent.interloper, status_footer_updater.interloper
   end
 
   it 'queues a mid-turn submission into the interloper instead of starting a second run_loop' do
@@ -295,12 +295,12 @@ RSpec.describe Chat::App do
     assert_includes rendered, 'mid-turn message dropped'
   end
 
-  it 'feeds the Shared::StatusLabel from the same TokenLog the host wires into the agent' do
+  it 'feeds the Shared::StatusFooterUpdater from the same TokenLog the host wires into the agent' do
     explicit_token_log = Pikuri::Agent::Listener::TokenLog.new
     explicit_app = described_class.new(token_log: explicit_token_log) do |listener|
       StubAgent.new(listener)
     end
-    footer = status_label(explicit_app)
+    footer = status_footer_updater(explicit_app)
     assert_same explicit_token_log, footer.instance_variable_get(:@token_log)
   end
 
@@ -338,7 +338,7 @@ RSpec.describe Chat::App do
     end
 
     it 'seeds the footer with the boot model display name' do
-      footer = status_label(picker_app)
+      footer = status_footer_updater(picker_app)
       assert_equal 'Local', footer.current_model
     end
 
@@ -369,16 +369,16 @@ RSpec.describe Chat::App do
       app = described_class.new(models: pair) do |listener, _ml|
         StubAgent.new(listener, model: 'qwen3', api_base: 'http://mavi-fw:8080/v1')
       end
-      assert_equal 'Remote Qwen', status_label(app).current_model
+      assert_equal 'Remote Qwen', status_footer_updater(app).current_model
     end
   end
 
   private
 
   # The conversation window owns the footer now (Chat::ConversationWindow),
-  # so reach the Shared::StatusLabel through it rather than a former App ivar.
-  def status_label(some_app = app)
-    some_app.instance_variable_get(:@conversation_window).status_label
+  # so reach the Shared::StatusFooterUpdater through it rather than a former App ivar.
+  def status_footer_updater(some_app = app)
+    some_app.instance_variable_get(:@conversation_window).status_footer_updater
   end
 
   def model_choice(name, model, api_base: 'http://x/v1')

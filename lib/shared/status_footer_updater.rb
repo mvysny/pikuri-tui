@@ -89,7 +89,7 @@ require 'tuile'
 # host calls them from {App#start_turn} (pre-spawn) and from the
 # +ensure+ block's +event_queue.submit+ (post-loop), which is the
 # UI thread in both cases.
-class Shared::StatusLabel
+class Shared::StatusFooterUpdater
   # Braille-spinner frames; standard +dots+ animation. Picked over
   # ASCII +|/-\+ because the Braille glyphs stay a single column
   # wide regardless of font, so the trailing token line doesn't

@@ -73,7 +73,7 @@ module Chat
     def log_window = @log_ui.log_window
 
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's
-    #   token log, fed into the conversation-window {Shared::StatusLabel}.
+    #   token log, fed into the conversation-window {Shared::StatusFooterUpdater}.
     #   The host's build block must include this instance (or one
     #   the host supplied via the +token_log:+ ctor arg) in the
     #   agent's +ListenerList+ so it actually receives +Tokens+
@@ -279,7 +279,7 @@ module Chat
     # message to the chat history and emitting a +UserTurn+ with
     # +mid_loop: true+ — which {Shared::ConversationTextView::Listener} echoes into the
     # conversation pane like any other user turn. Until then the
-    # {Shared::StatusLabel} advertises the pending count.
+    # {Shared::StatusFooterUpdater} advertises the pending count.
     #
     # When the host wired no interloper into the agent, the message is
     # dropped with a warn in the diagnostic log — same observable

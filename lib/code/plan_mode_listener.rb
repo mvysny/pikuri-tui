@@ -9,7 +9,7 @@ module Code
   # {Pikuri::Agent::Listener::Base} subclass that consumes the
   # {Pikuri::Code::PlanModeChanged} event +Pikuri::Code::Extension+
   # re-emits on every real transition, and pushes the new posture onto
-  # the footer ({Shared::StatusLabel#plan_active=}).
+  # the footer ({Shared::StatusFooterUpdater#plan_active=}).
   #
   # The companion to {Shared::Model::Listener} / {TaskListener}: same
   # worker-thread-to-UI-thread marshaling, the smallest possible slice of
@@ -17,7 +17,7 @@ module Code
   # +Code+ (not in the {Shared} namespace like
   # {Shared::Model::Listener}) because plan mode is a +:code+-group concern: the
   # event is a +:code+-group constant the chat shell never loads. The
-  # shared {Shared::StatusLabel} exposes +plan_active=+ for every shell, but only
+  # shared {Shared::StatusFooterUpdater} exposes +plan_active=+ for every shell, but only
   # the coding and OS shells wire this listener to drive it; the chat
   # shell never sets it, so its badge stays hidden.
   #
@@ -41,7 +41,7 @@ module Code
   # safe too.)
   class PlanModeListener < Pikuri::Agent::Listener::Base
     # @param footer [#plan_active=] the conversation-window footer to
-    #   update (a {Shared::StatusLabel}). Lifetime is owned by the host +App+.
+    #   update (a {Shared::StatusFooterUpdater}). Lifetime is owned by the host +App+.
     # @param screen [Tuile::Screen] the screen whose +event_queue+
     #   marshals the update back onto the event-loop thread. Passed
     #   explicitly (not the singleton) so tests can inject a

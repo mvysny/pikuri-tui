@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Shared::StatusLabel do
+RSpec.describe Shared::StatusFooterUpdater do
   let(:token_log)   { Pikuri::Agent::Listener::TokenLog.new }
   let(:event_queue) { Tuile::Screen.instance.event_queue }
   let(:window)      { Tuile::Component::Window.new }

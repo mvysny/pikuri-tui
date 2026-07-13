@@ -24,10 +24,10 @@
 #
 # The two pieces that carried *no* divergence — the Enter-submits input
 # and the footer label — were the exception: they are shared top-level
-# {Shared::InputArea} / {Shared::StatusLabel} components, not per-shell copies. Duplicate only
+# {Shared::InputArea} / {Shared::StatusFooterUpdater} components, not per-shell copies. Duplicate only
 # where the copies genuinely drift; the input never did, and the footer's
 # only difference (chat's lack of a plan-mode badge) collapses to chat
-# simply never calling +Shared::StatusLabel#plan_active=+.
+# simply never calling +Shared::StatusFooterUpdater#plan_active=+.
 #
 # == Code-only dependencies
 #

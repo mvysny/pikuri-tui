@@ -87,7 +87,7 @@ module Code
     def log_window = @log_ui.log_window
 
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
-    #   log, fed into the conversation-window {Shared::StatusLabel}.
+    #   log, fed into the conversation-window {Shared::StatusFooterUpdater}.
     attr_reader :token_log
 
     # @return [Shared::Model::Listener] the footer model-name listener yielded to
@@ -252,7 +252,7 @@ module Code
 
       @confirmer = ConfirmerPopup.new(screen: @screen)
       @task_listener = TaskListener.new(text_view: @tasks_view, screen: @screen)
-      @plan_mode_listener = PlanModeListener.new(footer: @conversation_window.status_label, screen: @screen)
+      @plan_mode_listener = PlanModeListener.new(footer: @conversation_window.status_footer_updater, screen: @screen)
       @git_watcher = GitWatcher.new(
         summary_view: @git_summary_view, diff_view: @git_diff_view, screen: @screen
       )

@@ -62,9 +62,9 @@ The three shells keep their genuinely-divergent scaffolding (`App` /
 additionally reuses the `Code::*` confirmer / diff adapters directly).
 The pieces that carried no divergence are shared top-level components
 instead: the Enter-submits input (`Shared::InputArea`) and the
-conversation-window footer (`Shared::StatusLabel`) — the footer's
+conversation-window footer updater (`Shared::StatusFooterUpdater`) — the footer's
 only cross-shell difference, chat's lack of a plan-mode badge, collapses
-to chat simply never calling `Shared::StatusLabel#plan_active=`. Their dependencies are
+to chat simply never calling `Shared::StatusFooterUpdater#plan_active=`. Their dependencies are
 split across Bundler groups: `bin/pikuri-tui-chat` runs
 `Bundler.setup(:default)`, `bin/pikuri-tui-code` runs
 `Bundler.setup(:default, :code)`, and `bin/pikuri-tui-os` runs
@@ -111,7 +111,7 @@ loaded (gated on `Pikuri::Workspace` — the OS subtree reuses the
   validation, and save). Whether a component references `Pikuri::*`
   is not a constraint we impose from outside — it falls out of what
   the component is *for*. A conversation window that renders the
-  agent's event stream, the `Shared::StatusLabel` footer, the
+  agent's event stream, the `Shared::StatusFooterUpdater` footer, the
   `Code::ConfirmerPopup`, and the `Shared::Model::*` adapters all
   legitimately own their Pikuri wiring (build their own listener,
   register their own confirmer); a pure layout container like
@@ -254,14 +254,15 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/shared/input_area.rb` — `Shared::InputArea`, the bottom-pane
   `TextArea` subclass that rebinds Enter to submit-and-clear (blank
   buffers are a no-op). Shared by all three shells.
-- `lib/shared/status_label.rb` — `Shared::StatusLabel`, the
-  conversation-window footer chrome shared by all three shells: model
-  name, mid-turn spinner, queued-injection count, token snapshot, and a
-  plan-mode badge.
+- `lib/shared/status_footer_updater.rb` — `Shared::StatusFooterUpdater`, the
+  presenter that keeps the conversation window's footer chrome current
+  (it drives `Window#footer_text`; it is not itself a widget), shared by
+  all three shells: model name, mid-turn spinner, queued-injection count,
+  token snapshot, and a plan-mode badge.
 - `lib/shared/conversation_window.rb` — `Shared::ConversationWindow`, the
   conversation transcript as one cohesive `Tuile::Component::Window`
   subclass shared by all three shells: frames a `Shared::ConversationTextView`
-  (which owns its own transcript listener), carries a `Shared::StatusLabel`
+  (which owns its own transcript listener), carries a `Shared::StatusFooterUpdater`
   footer, and builds the `Shared::Model::Listener` that keeps the footer's
   model name current. Exposes `#listener` / `#model_listener` for the host
   to compose into the agent's `ListenerList`. The COP domain component that
@@ -461,16 +462,22 @@ Zeitwerk over `lib/` and eager-loads it.
   or directly under `Shared` when standalone); shell-specific code
   goes under its shell namespace (`Chat` / `Code` / `Os`). Don't
   add a bare top-level constant outside those homes.
-- **Widget-class suffix on Tuile subclasses/wrappers.** A class
+- **Widget-class suffix on Tuile subclasses/wrappers only.** A class
   that extends or wraps a Tuile component carries that component's
   class as its name suffix, so the primitive it's built on is
   legible at the reference site: `Shared::InputArea` (a `TextArea`),
-  `Shared::StatusLabel` (a `Label`), `Shared::Log::Popup` / `GitDiffPopup` (both
-  `Popup`s), `LogWindow` / `PickerWindow` (both `Window`s). Name the
-  prefix for what the component *does*, never for the slot it sits in
-  — `Shared::StatusLabel`, not `FooterLabel` (placement is the instance's
-  concern, carried by the `@footer_label` ivar, not the reusable
-  class's).
+  `Shared::Log::Popup` / `GitDiffPopup` (both `Popup`s), `LogWindow` /
+  `PickerWindow` (both `Window`s). Name the prefix for what the
+  component *does*, never for the slot it sits in — `Shared::InputArea`
+  (what it does), not `BottomArea` (where it sits). A class that is
+  *not* a Tuile subclass or wrapper takes no widget suffix at all:
+  `Shared::StatusFooterUpdater` is a presenter — it drives a
+  `Window`'s `footer_text` but owns no widget of its own — so it gets a
+  plain agent-noun name in the `GitWatcher` / `GitDiffRenderer` /
+  `*Listener` family, and would have been actively misleading as a
+  `*Label` (there is no `Label` there). "Footer" in its name is its
+  contract — the border chrome it keeps current — not an incidental
+  slot.
 - **Tests: rspec-core with minitest-style asserts.** Use the
   `rspec-core` runner (`describe`/`it`) but write assertions in
   the minitest style (`assert_equal`, `assert`, `refute`, …)
@@ -508,7 +515,7 @@ Zeitwerk over `lib/` and eager-loads it.
   appears in more than one shell, extract it once into the
   `Shared::` namespace (or `Code::*` when it's coding-family) and
   reuse it — that is how we kill duplication. The building blocks
-  already living this way: `Shared::InputArea`, `Shared::StatusLabel`,
+  already living this way: `Shared::InputArea`, `Shared::StatusFooterUpdater`,
   `Shared::ConversationWindow`, `Shared::Model::Listener`,
   `Shared::LeaderMenu`, `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the OS shell reuses verbatim.
