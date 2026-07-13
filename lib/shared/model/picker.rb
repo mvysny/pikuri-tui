@@ -42,26 +42,15 @@ class Shared::Model::Picker
 
   # @return [Hash{Array(String, String) => String}] the {Shared::Model::Choice.key}
   #   ([model, api_base]) → display-name map, for wiring into
-  #   {Shared::StatusFooterUpdater::ModelListener}'s +names:+ so a landed
-  #   {Pikuri::Agent::Event::ModelSwitched} resolves to a friendly name.
+  #   {Shared::StatusFooterUpdater}'s +names:+ so a transport it's handed
+  #   (the boot model, or a landed {Pikuri::Agent::Event::ModelSwitched})
+  #   resolves to a friendly name.
   attr_reader :names
 
   # @return [Boolean] true when there is more than one connection to pick
   #   between — the gate the shells use to decide whether to register the
   #   leader-menu +m+ entry (so the menu never offers a no-op pick).
   def multiple? = @models.size > 1
-
-  # Resolve a transport to its friendly connection name, falling back to
-  # the raw model id when the +[model, api_base]+ pair isn't in the
-  # catalog. Used to seed the footer with the boot model's name at
-  # construction (the {Shared::StatusFooterUpdater::ModelListener} takes over on every later switch).
-  #
-  # @param transport [Pikuri::Agent::ChatTransport] the transport to name
-  #   (typically the agent's boot transport).
-  # @return [String]
-  def display_name(transport)
-    @names.fetch(Shared::Model::Choice.key(transport), transport.model)
-  end
 
   # Open the picker popup: one entry per configured connection, the active
   # one (matched by {Shared::Model::Choice.key} — [model, api_base], so two

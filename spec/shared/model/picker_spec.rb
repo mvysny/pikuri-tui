@@ -49,17 +49,6 @@ RSpec.describe Shared::Model::Picker do
     end
   end
 
-  describe '#display_name' do
-    it 'resolves a transport to its connection name' do
-      assert_equal 'Cloud', picker.display_name(choices[1].transport)
-    end
-
-    it 'falls back to the raw model id when the pair is not in the catalog' do
-      stranger = model_choice('x', 'mystery', api_base: 'http://y/v1').transport
-      assert_equal 'mystery', picker.display_name(stranger)
-    end
-  end
-
   describe '#open' do
     it 'numbers entries and flags the active one with a marker' do
       options, = capture_picker { picker.open(current: choices[0].transport) }

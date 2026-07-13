@@ -69,10 +69,15 @@ class Shared::StatusFooterUpdater
   #   current.
   # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token
   #   log; must be the *same* instance wired into the agent (see class docs).
-  def initialize(screen:, window:, token_log:)
+  # @param names [Hash{Array(String, String) => String}]
+  #   {Shared::Model::Choice.key} → display name, used to resolve a transport
+  #   passed to {#current_model=}; transports absent from the map render as
+  #   their raw model id.
+  def initialize(screen:, window:, token_log:, names: {})
     @screen = screen
     @window = window
     @token_log = token_log
+    @names = names
     @interloper = nil
     @current_model = nil
     @plan_active = false
@@ -84,10 +89,22 @@ class Shared::StatusFooterUpdater
     refresh
   end
 
-  # @param name [String, nil] new current-model display name.
+  # Set the model segment, from either a ready display name or a transport
+  # to resolve. A transport is keyed on the +[model, api_base]+ pair
+  # ({Shared::Model::Choice.key}), not the model id alone — two connections
+  # can run the same model on different servers — and falls back to its raw
+  # model id when absent from the +names+ map.
+  #
+  #   footer.current_model = 'Local Qwen 3.6'   # a literal name (boot seed)
+  #   footer.current_model = agent.transport    # resolved via names:
+  #
+  # @param model [String, Pikuri::Agent::ChatTransport, nil] a display name
+  #   shown verbatim, a transport resolved through +names+, or +nil+ to clear
+  #   the segment.
   # @return [void]
-  def current_model=(name)
-    @current_model = name
+  def current_model=(model)
+    @current_model =
+      model.is_a?(Pikuri::Agent::ChatTransport) ? display_name(model) : model
     refresh
   end
 
@@ -124,15 +141,9 @@ class Shared::StatusFooterUpdater
   end
 
   # On a +run_loop+ model switch ({Pikuri::Agent::Event::ModelSwitched}),
-  # pushes the switched-to model's friendly name onto the footer's
-  # {#current_model}; ignores every other event. Fold it into the agent's
-  # +ListenerList+.
-  #
-  # +names+ resolves a transport to its display name. It's keyed on the
-  # +[model, api_base]+ pair ({Shared::Model::Choice.key}), not the model id
-  # alone — two connections can run the same model on different servers, so
-  # the id can't tell +"Local Qwen 3.6"+ from +"mavi-fw Qwen 3.6"+. A
-  # transport absent from the map falls back to its raw model id.
+  # hands the switched-to transport to the footer's {#current_model=} (which
+  # resolves it to a friendly name); ignores every other event. Fold it into
+  # the agent's +ListenerList+.
   #
   # A listener: {#on_event} is invoked on the agent's worker thread and
   # marshals the footer update onto the UI thread via +screen.event_queue.submit+.
@@ -140,18 +151,14 @@ class Shared::StatusFooterUpdater
     # @param footer [Shared::StatusFooterUpdater] the footer to update.
     # @param screen [Tuile::Screen] marshals the update back from the worker
     #   thread via its +event_queue+.
-    # @param names [Hash{Array(String, String) => String}]
-    #   {Shared::Model::Choice.key} → display name; transports absent from the
-    #   map render as their raw model id.
-    def initialize(footer:, screen:, names: {})
+    def initialize(footer:, screen:)
       super()
       @footer = footer
       @screen = screen
-      @names = names
     end
 
-    # Push the switched-to model's display name onto the footer; ignore
-    # every other event.
+    # Push the switched-to transport onto the footer; ignore every other
+    # event.
     #
     # @param event [Pikuri::Agent::Event::Base] any agent event; only
     #   {Pikuri::Agent::Event::ModelSwitched} is acted on.
@@ -159,26 +166,24 @@ class Shared::StatusFooterUpdater
     def on_event(event)
       return unless event.is_a?(Pikuri::Agent::Event::ModelSwitched)
 
-      name = display_name(event.to)
-      @screen.event_queue.submit { @footer.current_model = name }
+      @screen.event_queue.submit { @footer.current_model = event.to }
     end
 
     # @return [String] short label used by +Pikuri::Agent#to_s+ when this
     #   listener is in its +ListenerList+.
     def to_s = 'Shared::StatusFooterUpdater::ModelListener'
-
-    # Resolve a transport to its friendly connection name, falling back to
-    # the raw model id when the +[model, api_base]+ pair isn't in the map.
-    #
-    # @param transport [Pikuri::Agent::ChatTransport] the landed transport
-    #   (typically a {Pikuri::Agent::Event::ModelSwitched}'s +to:+).
-    # @return [String]
-    def display_name(transport)
-      @names.fetch(Shared::Model::Choice.key(transport), transport.model)
-    end
   end
 
   private
+
+  # Resolve a transport to its friendly connection name via +names+, falling
+  # back to the raw model id when the +[model, api_base]+ pair isn't mapped.
+  #
+  # @param transport [Pikuri::Agent::ChatTransport]
+  # @return [String]
+  def display_name(transport)
+    @names.fetch(Shared::Model::Choice.key(transport), transport.model)
+  end
 
   # +TokenLog#on_status_line+ observer: stash a sub-agent's pushed line
   # (+id+ non-empty) for {#refresh} to show, or clear the stash on a

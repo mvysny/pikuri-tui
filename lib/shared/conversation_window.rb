@@ -28,8 +28,9 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @param tool_formatters [Hash{String => Object}] per-tool diff formatters,
   #   forwarded to {Shared::ConversationTextView}.
   # @param model_names [Hash{Array(String, String) => String}]
-  #   {Shared::Model::Choice.key} → display name, forwarded to
-  #   {Shared::StatusFooterUpdater::ModelListener}.
+  #   {Shared::Model::Choice.key} → display name, forwarded to the
+  #   {Shared::StatusFooterUpdater} so a transport passed to {#current_model=}
+  #   resolves to a friendly name.
   def initialize(token_log:, title: 'Conversation', markdown: true, tool_formatters: {}, model_names: {})
     super(title)
     @view = Shared::ConversationTextView.new(markdown: markdown, tool_formatters: tool_formatters)
@@ -42,9 +43,9 @@ class Shared::ConversationWindow < Tuile::Component::Window
     # +event_queue+ marshals {#render_turn_error} and drives the spinner.
     # Border chrome, not a widget slot: the Shared::StatusFooterUpdater embeds the
     # agent status into this window's bottom border (window: self).
-    @status_footer_updater = Shared::StatusFooterUpdater.new(screen: screen, window: self, token_log: token_log)
+    @status_footer_updater = Shared::StatusFooterUpdater.new(screen: screen, window: self, token_log: token_log, names: model_names)
     @listener = @view.listener
-    @model_listener = Shared::StatusFooterUpdater::ModelListener.new(footer: @status_footer_updater, screen: screen, names: model_names)
+    @model_listener = Shared::StatusFooterUpdater::ModelListener.new(footer: @status_footer_updater, screen: screen)
   end
 
   # @return [Shared::ConversationTextView] the transcript pane; exposed for
@@ -71,13 +72,14 @@ class Shared::ConversationWindow < Tuile::Component::Window
     @status_footer_updater.interloper = interloper
   end
 
-  # Seed the footer's model-name segment with the boot model;
+  # Seed the footer's model-name segment with the boot model (a display name
+  # or a transport to resolve — see {Shared::StatusFooterUpdater#current_model=});
   # {Shared::StatusFooterUpdater::ModelListener} takes over on later switches.
   #
-  # @param name [String, nil]
+  # @param model [String, Pikuri::Agent::ChatTransport, nil]
   # @return [void]
-  def current_model=(name)
-    @status_footer_updater.current_model = name
+  def current_model=(model)
+    @status_footer_updater.current_model = model
   end
 
   # Start the footer's mid-turn spinner.

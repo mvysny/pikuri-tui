@@ -44,6 +44,37 @@ RSpec.describe Shared::StatusFooterUpdater do
     assert_equal '', footer_text.to_s
   end
 
+  describe 'a transport handed to #current_model=' do
+    # Keyed on [model, api_base] (Shared::Model::Choice.key), not the model id alone.
+    let(:names) { { ['big-model', 'http://cloud/v1'] => 'Big Cloud' } }
+    let(:label) do
+      described_class.new(screen: Tuile::Screen.instance, window: window, token_log: token_log, names: names)
+    end
+
+    def transport(model, api_base: 'http://cloud/v1')
+      Pikuri::Agent::ChatTransport.new(
+        model: model, provider: :openai, assume_model_exists: true,
+        api_base: api_base, api_key: 'k'
+      )
+    end
+
+    it 'resolves to the display name from the names map' do
+      label.current_model = transport('big-model')
+      assert_equal ' Big Cloud ', footer_text.to_s
+    end
+
+    it 'falls back to the raw model id when the names map has no entry' do
+      label.current_model = transport('mystery-model')
+      assert_equal ' mystery-model ', footer_text.to_s
+    end
+
+    it 'distinguishes connections sharing a model id on different servers' do
+      names[['big-model', 'http://other/v1']] = 'Other Cloud'
+      label.current_model = transport('big-model', api_base: 'http://other/v1')
+      assert_equal ' Other Cloud ', footer_text.to_s
+    end
+  end
+
   it 'renders the plan-mode badge when active (even with nothing else set)' do
     label.plan_active = true
     assert_equal ' ‖ Plan Mode ', footer_text.to_s

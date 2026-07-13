@@ -133,9 +133,9 @@ module Chat
       # Deferred from construction: the agent, hence its interloper,
       # doesn't exist until the build block has run.
       @conversation_window.interloper = @agent.interloper
-      # Seed the footer with the boot model's display name; the
+      # Seed the footer with the boot model (resolved from its transport);
       # Shared::StatusFooterUpdater::ModelListener takes over on every later switch.
-      @conversation_window.current_model = @model_picker.display_name(@agent.transport)
+      @conversation_window.current_model = @agent.transport
 
       @leader_menu = build_leader_menu
       @screen.on_error = method(:on_screen_error)
