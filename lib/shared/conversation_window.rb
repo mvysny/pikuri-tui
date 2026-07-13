@@ -18,8 +18,6 @@ require 'tuile'
 # via {#status_footer_updater}, but the +Code::PlanModeListener+ feeding it
 # is a +:code+-group concern, so the coding / OS shells bind it themselves.
 #
-# == Thread-safety
-#
 # UI-thread-confined, with exceptions.
 class Shared::ConversationWindow < Tuile::Component::Window
   # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token

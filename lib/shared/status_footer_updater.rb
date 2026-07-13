@@ -28,8 +28,6 @@ require 'pikuri-core'
 # instance wired into the agent — the footer reads its cached +status_line+
 # rather than subscribing to events itself.
 #
-# == Thread-safety
-#
 # UI-thread-confined, with exceptions.
 class Shared::StatusFooterUpdater
   # Braille dots: single-column-wide in every font, so the trailing token
@@ -135,8 +133,6 @@ class Shared::StatusFooterUpdater
   # alone — two connections can run the same model on different servers, so
   # the id can't tell +"Local Qwen 3.6"+ from +"mavi-fw Qwen 3.6"+. A
   # transport absent from the map falls back to its raw model id.
-  #
-  # == Thread-safety
   #
   # A listener: {#on_event} is invoked on the agent's worker thread and
   # marshals the footer update onto the UI thread via +screen.event_queue.submit+.
