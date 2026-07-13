@@ -179,10 +179,8 @@ module Code
         @conversation_window.listener, @confirmer, @task_listener,
         @conversation_window.model_listener, @plan_mode_listener
       )
-      # The footer renders a "N queued" segment off the interloper's
-      # +peek+ while mid-turn injections are pending. Installed here
-      # (rather than at construction) because the agent — and therefore its
-      # interloper — doesn't exist until the build block has run.
+      # Deferred from construction: the agent, hence its interloper,
+      # doesn't exist until the build block has run.
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model's display name; the
       # Shared::StatusFooterUpdater::ModelListener takes over on every later switch.

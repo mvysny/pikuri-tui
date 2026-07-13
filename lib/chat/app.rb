@@ -130,10 +130,8 @@ module Chat
       build_components
       @log_ui.wire!
       @agent = build_agent.call(@conversation_window.listener, @conversation_window.model_listener)
-      # The footer renders a "N queued" segment off the interloper's
-      # +peek+ while mid-turn injections are pending. Installed here
-      # (rather than at construction) because the agent — and therefore its
-      # interloper — doesn't exist until the build block has run.
+      # Deferred from construction: the agent, hence its interloper,
+      # doesn't exist until the build block has run.
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model's display name; the
       # Shared::StatusFooterUpdater::ModelListener takes over on every later switch.
