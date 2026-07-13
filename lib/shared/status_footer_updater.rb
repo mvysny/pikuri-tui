@@ -168,52 +168,21 @@ class Shared::StatusFooterUpdater
     refresh
   end
 
-  # Keeps the enclosing footer's model name in step with the agent's
-  # actual model. A {Pikuri::Agent::Listener::Base} subclass that consumes
-  # the {Pikuri::Agent::Event::ModelSwitched} the agent emits from the top
-  # of +run_loop+ when a +transport:+ switch lands, and pushes the new
-  # model's display name onto the {Shared::StatusFooterUpdater} that owns
-  # it (via +current_model=+).
+  # On a +run_loop+ model switch ({Pikuri::Agent::Event::ModelSwitched}),
+  # pushes the switched-to model's friendly name onto the footer's
+  # {#current_model}; ignores every other event. Fold it into the agent's
+  # +ListenerList+.
   #
-  # Nested in the footer updater by the COP rule (AGENTS.md "Design with
-  # components"): the footer *component* owns keeping the agent's status
-  # current, and this listener is merely the tool it uses to catch model
-  # switches — the same shape as {Shared::ConversationTextView::Listener}
-  # nesting inside the view it renders into. Its companions
-  # {Shared::ConversationTextView::Listener} / {Code::TaskListener} /
-  # {Code::PlanModeListener} follow the same worker-thread-to-UI-thread
-  # marshaling and each act on the smallest possible slice of the event
-  # stream (one event class).
+  # +names+ resolves a transport to its display name. It's keyed on the
+  # +[model, api_base]+ pair ({Shared::Model::Choice.key}), not the model id
+  # alone — two connections can run the same model on different servers, so
+  # the id can't tell +"Local Qwen 3.6"+ from +"mavi-fw Qwen 3.6"+. A
+  # transport absent from the map falls back to its raw model id.
   #
-  # == Footer-only, by decision
+  # == Implementation details
   #
-  # The switch is surfaced *only* in the footer — never echoed into the
-  # conversation transcript — so this listener owns the whole UI reaction
-  # to a switch and {Shared::ConversationTextView::Listener} ignores
-  # +ModelSwitched+ entirely. The footer reflects the model the agent is
-  # actually on (it updates when the switch *lands*, not when the user
-  # picks), so it can never advertise a model a failed switch never
-  # reached.
-  #
-  # == Names
-  #
-  # {Pikuri::Agent::Event::ModelSwitched} carries the raw
-  # {Pikuri::Agent::ChatTransport} (model *id*, which is often long and
-  # ugly — +"unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"+). The +names+ map
-  # ({Shared::Model::Choice.key} → {Shared::Model::Choice#name}, built by
-  # the App from its +models:+ list) resolves it to the friendly connection
-  # name; a transport with no entry (e.g. a model reached some other way)
-  # falls back to the model id itself. The map is keyed on the
-  # +[model, api_base]+ pair, not the model id alone: two connections can
-  # run the same model on different servers, so the id alone can't tell
-  # +"Local Qwen 3.6"+ from +"mavi-fw Qwen 3.6"+ (see
-  # {Shared::Model::Choice.key}).
-  #
-  # == Threading
-  #
-  # {#on_event} fires on the agent's worker thread; it marshals the footer
-  # mutation onto the event-loop thread via +screen.event_queue.submit+,
-  # the same rule {Code::TaskListener} follows.
+  # {#on_event} fires on the agent's worker thread and marshals the footer
+  # mutation onto the event-loop thread via +screen.event_queue.submit+.
   class ModelListener < Pikuri::Agent::Listener::Base
     # @param footer [#current_model=] the conversation-window footer to
     #   update (a {Shared::StatusFooterUpdater}). Lifetime is owned by the
