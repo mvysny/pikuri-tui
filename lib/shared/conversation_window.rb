@@ -61,22 +61,19 @@ class Shared::ConversationWindow < Tuile::Component::Window
   #   {Shared::Model::Listener}'s +names:+. Defaults to +{}+.
   def initialize(token_log:, title: 'Conversation', markdown: true, tool_formatters: {}, model_names: {})
     super(title)
-    # Resolve the Screen singleton once for the footer chrome the window
-    # builds directly (its +event_queue+ marshals {#render_turn_error} and
-    # drives the footer spinner). The window is a composition, so it reaches
-    # for the singleton the same way {App} does rather than taking a
-    # +screen:+ arg — +Tuile::Screen.fake+ installs a fake for tests. The
-    # transcript pane resolves the singleton the same way; the leaf listeners
-    # the window builds directly still receive the screen explicitly.
-    @screen = Tuile::Screen.instance
     @view = Shared::ConversationTextView.new(markdown: markdown, tool_formatters: tool_formatters)
     self.content = @view
     self.scrollbar = true
+    # The footer chrome and the leaf listeners this window builds directly
+    # aren't components, so they take the screen explicitly — this window
+    # hands them its own inherited +#screen+ property (the {Tuile::Screen}
+    # singleton, fake-able via +Tuile::Screen.fake+ for tests). Its
+    # +event_queue+ marshals {#render_turn_error} and drives the spinner.
     # Border chrome, not a widget slot: the Shared::StatusLabel embeds the
     # agent status into this window's bottom border (window: self).
-    @status_label = Shared::StatusLabel.new(screen: @screen, window: self, token_log: token_log)
+    @status_label = Shared::StatusLabel.new(screen: screen, window: self, token_log: token_log)
     @listener = @view.listener
-    @model_listener = Shared::Model::Listener.new(footer: @status_label, screen: @screen, names: model_names)
+    @model_listener = Shared::Model::Listener.new(footer: @status_label, screen: screen, names: model_names)
   end
 
   # @return [Shared::ConversationTextView] the conversation transcript pane.
@@ -137,8 +134,8 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @param exception [StandardError] the caught library exception.
   # @return [void]
   def render_turn_error(exception)
-    @screen.event_queue.submit do
-      @view.add_line(@screen.theme.error("! #{exception.class}: #{exception.message}"))
+    screen.event_queue.submit do
+      @view.add_line(screen.theme.error("! #{exception.class}: #{exception.message}"))
     end
   end
 end

@@ -64,11 +64,12 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     self.auto_scroll = true
     @markdown = markdown
     @tool_formatters = tool_formatters
-    # Resolve the Screen singleton once for theme access + the listener's
-    # event-queue marshaling (fake-able via +Tuile::Screen.fake+), the same
-    # way {Shared::ConversationWindow} does.
-    @screen = Tuile::Screen.instance
-    @listener = Listener.new(view: self, screen: @screen, indent: 0)
+    # Theme access rides this component's own inherited +#screen+ property
+    # (the {Tuile::Screen} singleton, fake-able via +Tuile::Screen.fake+). The
+    # listener isn't a component, so it takes the screen explicitly — it
+    # marshals UI mutations back through the event queue and is unit-tested
+    # with a {Tuile::FakeScreen}.
+    @listener = Listener.new(view: self, screen: screen, indent: 0)
   end
 
   # @return [Shared::ConversationTextView::Listener] the main-agent listener
@@ -83,7 +84,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
 
   # @return [Tuile::Theme] the screen's current theme (re-read each call so
   #   an OS light/dark flip is picked up).
-  def theme = @screen.theme
+  def theme = screen.theme
 
   # Render width for a fresh streaming buffer: the pane's current width less
   # two columns for the scrollbar gutter, floored at 1 so a not-yet-laid-out
@@ -132,7 +133,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @param indent [Integer] leading spaces baked into the render proc.
   # @return [Shared::Markdown::StreamingBuffer]
   def build_thinking_buffer(region, indent: 0)
-    thinking = @screen.theme[:thinking]
+    thinking = screen.theme[:thinking]
     render = if @markdown
                markdown = build_markdown_renderer
                ->(md) { Shared::Markdown::Grayscale.recolor(markdown.call(md), fg: thinking) }
@@ -166,7 +167,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @param content [String] reasoning Markdown
   # @return [String] gray-toned ANSI text
   def render_thinking(content)
-    Shared::Markdown::Grayscale.recolor(render_markdown(content), fg: @screen.theme[:thinking])
+    Shared::Markdown::Grayscale.recolor(render_markdown(content), fg: screen.theme[:thinking])
   end
 
   # Flatten whitespace and cap to {MAX_TOOL_RESULT_CHARS}. Long results
@@ -235,7 +236,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # the live scheme.
   #
   # @return [Boolean]
-  def dark_scheme? = !@screen.theme.equal?(Shared::AppTheme::LIGHT)
+  def dark_scheme? = !screen.theme.equal?(Shared::AppTheme::LIGHT)
 
   # Translates a +Pikuri::Agent+'s normalized event stream into
   # {Shared::ConversationTextView} render calls — the Tuile-targeted

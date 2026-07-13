@@ -143,7 +143,7 @@ module Code
     def ask_decision(**kwargs)
       channel = Queue.new
       @screen.event_queue.submit do
-        Dialog.new(channel: channel, screen: @screen, **kwargs).open
+        Dialog.new(channel: channel, **kwargs).open
       end
       channel.pop
     end
@@ -187,7 +187,7 @@ module Code
       channel = Queue.new
       @screen.event_queue.submit do
         PromptDialog.new(caption: caption, initial: initial, rows: rows,
-                         channel: channel, screen: @screen).open
+                         channel: channel).open
       end
       channel.pop
     end
@@ -211,15 +211,13 @@ module Code
       #   (an editable+flagged request drops the bare-approve path).
       # @param channel [Queue] one-shot channel; the resolved outcome
       #   symbol is pushed exactly once (see {#close}).
-      # @param screen [Tuile::Screen] the screen whose {Shared::AppTheme} colors
-      #   the body — read here at build time on the UI thread.
-      def initialize(question:, detail:, warnings:, editable:, clean:, channel:, screen:)
+      def initialize(question:, detail:, warnings:, editable:, clean:, channel:)
         @channel = channel
         @resolved = false
         @editable = editable
         @clean = clean
         window = Tuile::Component::Window.new('Confirm')
-        window.content = build_body(question, detail, warnings, screen)
+        window.content = build_body(question, detail, warnings)
         super(content: window)
       end
 
@@ -282,9 +280,10 @@ module Code
       # Build the body lines: sanitizer warnings (bold +:notice+ header +
       # one +:notice+ explanation each) when anything was flagged, then the
       # sanitized question (bold, default fg), the sanitized detail
-      # (+:detail+ tone, per line) when present, and the key cue. Colors
-      # come from the {Shared::AppTheme} +theme+ so they track light/dark; lines
-      # are ANSI strings the +TextView+ re-parses via +StyledString.parse+.
+      # (+:detail+ tone, per line) when present, and the key cue. Colors come
+      # from the {Shared::AppTheme} on this popup's own +#screen+ (read at
+      # build time on the UI thread) so they track light/dark; lines are ANSI
+      # strings the +TextView+ re-parses via +StyledString.parse+.
       #
       # A +TextView+ (not a +List+) so long lines word-wrap and scroll
       # inside the popup instead of clipping. The popup is sized top-down
@@ -294,9 +293,8 @@ module Code
       # @param question [Pikuri::Sanitizer::Result]
       # @param detail [Pikuri::Sanitizer::Result, nil]
       # @param warnings [Array<Pikuri::Sanitizer::Warning>]
-      # @param screen [Tuile::Screen] supplies the {Shared::AppTheme} tones.
       # @return [Tuile::Component::TextView] the sanitized body.
-      def build_body(question, detail, warnings, screen)
+      def build_body(question, detail, warnings)
         theme = screen.theme
         lines = []
         unless warnings.empty?
@@ -347,9 +345,7 @@ module Code
       # @param rows [Integer] the field's visible height in rows.
       # @param channel [Queue] one-shot channel; the submitted text or
       #   +:cancel+ is pushed exactly once.
-      # @param screen [Tuile::Screen] the screen the popup mounts on; its
-      #   size sets the prompt's top-down width.
-      def initialize(caption:, initial:, rows:, channel:, screen:)
+      def initialize(caption:, initial:, rows:, channel:)
         @channel = channel
         @resolved = false
         @field = Tuile::Component::TextArea.new
@@ -358,7 +354,8 @@ module Code
         @field.on_escape = -> { resolve(:cancel) }
         window = Tuile::Component::Window.new(caption)
         window.content = @field
-        # Wide box, rows tall + the Window's top/bottom border rows.
+        # Wide box, rows tall + the Window's top/bottom border rows. The
+        # width reads this popup's own inherited +#screen+ size.
         super(content: window, size: Tuile::Size.new(screen.size.width * 4 / 5, rows + 2))
       end
 

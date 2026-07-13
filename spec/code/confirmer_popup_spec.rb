@@ -177,7 +177,7 @@ RSpec.describe Code::ConfirmerPopup do
       d = detail ? Pikuri::Sanitizer.sanitize(detail) : nil
       warnings = q.warnings + (d ? d.warnings : [])
       described_class.new(question: q, detail: d, warnings: warnings,
-                          editable: editable, clean: warnings.empty?, channel: Queue.new, screen: screen)
+                          editable: editable, clean: warnings.empty?, channel: Queue.new)
     end
 
     # The body is a TextView; its #text joins the hard lines with "\n", so
@@ -244,7 +244,7 @@ RSpec.describe Code::ConfirmerPopup do
     let(:channel) { Queue.new }
 
     def prompt_dialog(caption: 'Edit', initial: '', rows: 4)
-      described_class.new(caption: caption, initial: initial, rows: rows, channel: channel, screen: screen)
+      described_class.new(caption: caption, initial: initial, rows: rows, channel: channel)
     end
 
     it 'pre-fills the field with the initial text' do
