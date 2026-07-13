@@ -30,7 +30,7 @@ require 'pikuri-core'
 #
 # == Thread-safety
 #
-# UI-thread-confined, except {#on_status_line} (safe from any thread).
+# UI-thread-confined, with exceptions.
 class Shared::StatusFooterUpdater
   # Braille dots: single-column-wide in every font, so the trailing token
   # line doesn't jitter as frames advance — ASCII +|/-\+ would.

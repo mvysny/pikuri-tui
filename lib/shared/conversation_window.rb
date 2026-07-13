@@ -20,8 +20,7 @@ require 'tuile'
 #
 # == Thread-safety
 #
-# UI-thread-confined, except {#render_turn_error} (safe from the agent
-# worker thread; marshals its own append onto the UI thread).
+# UI-thread-confined, with exceptions.
 class Shared::ConversationWindow < Tuile::Component::Window
   # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token
   #   log, fed into the footer. The host must wire the *same* instance into
