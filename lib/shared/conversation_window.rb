@@ -18,12 +18,10 @@ require 'tuile'
 # via {#status_footer_updater}, but the +Code::PlanModeListener+ feeding it
 # is a +:code+-group concern, so the coding / OS shells bind it themselves.
 #
-# == Threading
+# == Thread-safety
 #
-# The listeners self-marshal their UI mutations onto the event-loop thread.
-# {#start_animation} / {#stop_animation} must be called on the UI thread.
-# {#render_turn_error} is the one method called from the agent worker
-# thread; it marshals its own append via the screen's event queue.
+# UI-thread-confined, except {#render_turn_error} (safe from the agent
+# worker thread; marshals its own append onto the UI thread).
 class Shared::ConversationWindow < Tuile::Component::Window
   # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token
   #   log, fed into the footer. The host must wire the *same* instance into
@@ -85,13 +83,12 @@ class Shared::ConversationWindow < Tuile::Component::Window
     @status_footer_updater.current_model = name
   end
 
-  # Start the footer's mid-turn spinner. Call on the UI thread.
+  # Start the footer's mid-turn spinner.
   #
   # @return [void]
   def start_animation = @status_footer_updater.start_animation
 
-  # Stop the footer's mid-turn spinner, settling it to idle. Call on the UI
-  # thread.
+  # Stop the footer's mid-turn spinner, settling it to idle.
   #
   # @return [void]
   def stop_animation = @status_footer_updater.stop_animation

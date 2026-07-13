@@ -28,12 +28,9 @@ require 'pikuri-core'
 # instance wired into the agent — the footer reads its cached +status_line+
 # rather than subscribing to events itself.
 #
-# == Implementation details
+# == Thread-safety
 #
-# The setters and {#start_animation}/{#stop_animation} must run on the UI
-# thread. The one off-thread entry is the +token_log.on_status_line+ push
-# (claimed at construction); {#on_status_line} marshals its refresh via
-# +event_queue.submit+.
+# UI-thread-confined, except {#on_status_line} (safe from any thread).
 class Shared::StatusFooterUpdater
   # Braille dots: single-column-wide in every font, so the trailing token
   # line doesn't jitter as frames advance — ASCII +|/-\+ would.
@@ -139,10 +136,10 @@ class Shared::StatusFooterUpdater
   # the id can't tell +"Local Qwen 3.6"+ from +"mavi-fw Qwen 3.6"+. A
   # transport absent from the map falls back to its raw model id.
   #
-  # == Implementation details
+  # == Thread-safety
   #
-  # {#on_event} fires on the agent's worker thread and marshals the footer
-  # mutation onto the event-loop thread via +screen.event_queue.submit+.
+  # A listener: {#on_event} is invoked on the agent's worker thread and
+  # marshals the footer update onto the UI thread via +screen.event_queue.submit+.
   class ModelListener < Pikuri::Agent::Listener::Base
     # @param footer [Shared::StatusFooterUpdater] the footer to update.
     # @param screen [Tuile::Screen] marshals the update back from the worker
@@ -191,6 +188,9 @@ class Shared::StatusFooterUpdater
   # (+id+ non-empty) for {#refresh} to show, or clear the stash on a
   # main-agent or empty line. We stash rather than poll because a sub-agent's
   # +TokenLog+ is a separate instance {#refresh} can't reach.
+  #
+  # Safe from any thread: the push arrives on the agent-loop thread, so it
+  # marshals the stash and {#refresh} onto the UI thread via +submit+.
   #
   # @param id [String] owning agent's id; +""+ for the main agent.
   # @param status_line [String] the freshly formatted line.
