@@ -5,8 +5,9 @@
 A trio of Tuile-based TUI front-ends on a shared core, wrapping the
 [pikuri](https://codeberg.org/mvysny/pikuri) library:
 `bin/pikuri-tui-chat` (general-purpose chat), `bin/pikuri-tui-code`
-(in-repo coding agent), and `bin/pikuri-tui-os` (offline,
-network-severed OS assistant for this host). All three bind the same
+(in-repo coding agent), and `bin/pikuri-tui-computer` (desktop
+assistant for this machine: the OS helper + local Thunderbird mail /
+calendar). All three bind the same
 `Pikuri::Agent` and the same `Pikuri::Tool` set as pikuri's own demo
 scripts; they differ only in their system prompt and which tools they
 register.
@@ -36,29 +37,35 @@ one-time, persisted git-config trust prompt — `Code::TrustStore`),
 sub-agent-only network tools, the skill / task / MCP /
 sub-agent extensions, and a plan-mode toggle (a read-only
 posture surfaced as a footer badge) — all ported from pikuri's
-`bin/pikuri-code` demo onto the Tuile shell. `bin/pikuri-tui-os`
-(the `Os` namespace) is the offline OS assistant: the
+`bin/pikuri-code` demo onto the Tuile shell. `bin/pikuri-tui-computer`
+(the `Computer` namespace) is the desktop assistant: the
 chat shell's layout (one conversation pane over an input strip, no
 sidebar — no git or task window) carrying the coding shell's safety
-machinery, driven by one `Pikuri::Os::Extension` (the five file
-tools + a network-severed `FullFsNoNet`-sandboxed `bash` + the
-machine-facts / MACHINE.md system-prompt sections). Web research is
-always on but quarantined: the web tools (`web_search` / `web_scrape`
-/ `fetch`) are registered sub-agent-only, so the main agent holds no
-direct egress and delegates via the `agent` tool to an isolated
+machinery, composing two pikuri surfaces. `Pikuri::Os::Extension`
+brings the OS helper (the five file tools + a network-severed
+`FullFsNoNet`-sandboxed `bash` + the machine-facts / MACHINE.md
+system-prompt sections); `Pikuri::Thunderbird::Extension` brings local
+mail + calendar (search/read + two human-gated outbound hand-offs —
+compose a reply, add an event — that the user Sends/confirms in
+Thunderbird's own UI, so they need no confirmer here). This is pikuri's
+"reassembled trifecta" (whole disk + attacker-authorable email +
+egress), every egress leg human-gated. Web research is on by default
+but quarantined: the web tools (`web_search` / `web_scrape` / `fetch`)
+are registered sub-agent-only, so the main agent holds no direct egress
+and delegates via the `agent` tool to an isolated
 `Pikuri::SubAgent::RESEARCHER` (web tools, no filesystem), with the
-`Code::ConfirmerPopup` gating each research task before it runs (the
-same always-on wiring pikuri's demo puts behind `--with-internet`).
-It owns a `Code::ConfirmerPopup` on writes/bash, surfaces
-plan mode (footer badge + leader `p` toggle), and renders `edit` /
-`write` diffs — all reusing the coding shell's `Code::*` adapters
-verbatim, ported from pikuri's `bin/pikuri-os-assistant` demo. All
-three shells route every command through one leader key (`Ctrl+K` →
-`Shared::LeaderMenu`); only `Ctrl+C` (cancel/quit) stays a direct shortcut.
+`Code::ConfirmerPopup` gating each research task before it runs;
+`--no-internet` drops the researcher. It owns a `Code::ConfirmerPopup`
+on writes/bash, surfaces plan mode (footer badge + leader `p` toggle),
+and renders `edit` / `write` diffs — all reusing the coding shell's
+`Code::*` adapters verbatim, ported from pikuri's
+`pikuri-os/bin/pikuri-computer` demo. All three shells route every
+command through one leader key (`Ctrl+K` → `Shared::LeaderMenu`); only
+`Ctrl+C` (cancel/quit) stays a direct shortcut.
 
 The three shells keep their genuinely-divergent scaffolding (`App` /
 `Layout`) as deliberate parallel copies, not a common base (see
-`lib/code.rb` and `lib/os.rb`; the OS shell
+`lib/code.rb` and `lib/computer.rb`; the computer shell
 additionally reuses the `Code::*` confirmer / diff adapters directly).
 The pieces that carried no divergence are shared top-level components
 instead: the Enter-submits input (`Shared::InputArea`) and the
@@ -67,17 +74,17 @@ only cross-shell difference, chat's lack of a plan-mode badge, collapses
 to chat simply never calling `Shared::StatusFooterUpdater#plan_active=`. Their dependencies are
 split across Bundler groups: `bin/pikuri-tui-chat` runs
 `Bundler.setup(:default)`, `bin/pikuri-tui-code` runs
-`Bundler.setup(:default, :code)`, and `bin/pikuri-tui-os` runs
-`Bundler.setup(:default, :os)` — so the heavier gems stay off the
+`Bundler.setup(:default, :code)`, and `bin/pikuri-tui-computer` runs
+`Bundler.setup(:default, :computer)` — so the heavier gems stay off the
 chat process's load path, and the coding-only gems
-(tasks/skills/mcp) stay off the OS process's. The shared
+(tasks/skills/mcp) stay off the computer process's. The shared
 heavier gems (`pikuri-workspace`/`pikuri-code`/`diff-lcs`/`pikuri-subagents`)
-sit in both `:code` and `:os` via `groups:` (the coding shell spawns
-several personas, the OS shell just the RESEARCHER for web research);
-`pikuri-os` is `:os`-only.
+sit in both `:code` and `:computer` via `groups:` (the coding shell spawns
+several personas, the computer shell the RESEARCHER for web research);
+`pikuri-os` and `pikuri-thunderbird` are `:computer`-only.
 `lib/pikuri_tui.rb` ignores both the `Code` and
-`Os` subtrees entirely when the heavier gems aren't
-loaded (gated on `Pikuri::Workspace` — the OS subtree reuses the
+`Computer` subtrees entirely when the heavier gems aren't
+loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
 `Code::*` adapters and needs the same gems).
 
 ## Scope decisions
@@ -159,7 +166,7 @@ Per-file rationale lives in each source file's YARD header (or, for the
 pointers, not a second copy of the docs. This is an end app, not a library,
 so it carries **no umbrella namespace**: `lib/` itself is the Zeitwerk
 root and every file maps to a top-level constant — the three shells (`Chat`,
-`Code`, `Os`) and the shared toolkit (`Shared::…`). `lib/pikuri_tui.rb` boots
+`Code`, `Computer`) and the shared toolkit (`Shared::…`). `lib/pikuri_tui.rb` boots
 Zeitwerk over `lib/` and eager-loads it.
 
 - `lib/pikuri_tui.rb` — Zeitwerk loader (root `lib/`, so files map to
@@ -171,7 +178,7 @@ Zeitwerk over `lib/` and eager-loads it.
   from `lib/shared/`) for the building blocks reused across all three
   shells, as opposed to each shell's own deliberately-duplicated `App` /
   `Layout` scaffolding — and as distinct from the `Code::*` adapters the
-  OS shell also reuses. Grouped by subsystem below.
+  computer shell also reuses. Grouped by subsystem below.
 - `lib/shared/app_theme.rb` — `Shared::AppTheme`, the
   `Tuile::Theme` subclass carrying the app's accent tokens; single
   source of truth for every UI accent all three shells paint.
@@ -280,7 +287,7 @@ Zeitwerk over `lib/` and eager-loads it.
   conversation-pane wiring each `App` used to hand-assemble.
 - `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
   `lib/chat/`) for the chat front-end (`Chat::App` + `Chat::Layout`); the
-  baseline shell the `Code` / `Os` siblings were copied from.
+  baseline shell the `Code` / `Computer` siblings were copied from.
 - `lib/chat/app.rb` — `Chat::App`, the Tuile
   shell for `bin/pikuri-tui-chat` (conversation `TextView` + diagnostic
   `LogWindow` + input + status bar); takes a `models:` list and wires
@@ -339,14 +346,16 @@ Zeitwerk over `lib/` and eager-loads it.
   `Code::WriteFormatter`, the `tool_formatters` entry for
   `write`; diffs the on-disk file (read via `filesystem`) against
   `content`, falling back when unreadable.
-- `lib/os.rb` — `Os`, namespace for the
-  OS-assistant front-end; home of the duplicate-only-the-shell rationale
-  (copies `Os::App` / `Os::Layout`, reuses the `Code::*` adapters).
-- `lib/os/app.rb` — `Os::App`, the Tuile shell for
-  `bin/pikuri-tui-os`; laid out like `Chat::App` (no sidebar) but carrying
+- `lib/computer.rb` — `Computer`, namespace for the
+  desktop-assistant front-end (OS helper + local Thunderbird mail /
+  calendar); home of the duplicate-only-the-shell rationale
+  (copies `Computer::App` / `Computer::Layout`, reuses the `Code::*` adapters).
+- `lib/computer/app.rb` — `Computer::App`, the Tuile shell for
+  `bin/pikuri-tui-computer`; laid out like `Chat::App` (no sidebar) but carrying
   the coding shell's safety machinery (confirmer, plan mode, diff
-  formatters).
-- `lib/os/layout.rb` — `Os::Layout`, a parallel copy
+  formatters). The bin wires both `Pikuri::Os::Extension` and
+  `Pikuri::Thunderbird::Extension`.
+- `lib/computer/layout.rb` — `Computer::Layout`, a parallel copy
   of `Chat::Layout` (vertical split: conversation top, fixed-height input
   strip bottom, no sidebar).
 - `bin/pikuri-tui-chat` — boot script for the chat agent
@@ -357,13 +366,14 @@ Zeitwerk over `lib/` and eager-loads it.
   the workspace + sandbox + six file/shell tools (with the confirmer /
   trust / plan-mode wiring), and hands them to `Code::App`. Ports
   pikuri's `bin/pikuri-code` demo.
-- `bin/pikuri-tui-os` — boot script for the OS assistant
-  (`Bundler.setup(:default, :os)`): builds the full-fs, network-severed
-  sandbox + `Pikuri::Os::Extension` + a quarantined web RESEARCHER onto
-  `Os::App`. Ports pikuri's `bin/pikuri-os-assistant` demo.
+- `bin/pikuri-tui-computer` — boot script for the desktop assistant
+  (`Bundler.setup(:default, :computer)`): builds the full-fs, network-severed
+  sandbox + `Pikuri::Os::Extension` + `Pikuri::Thunderbird::Extension` (mail /
+  calendar, both outbound hand-offs) + a quarantined web RESEARCHER onto
+  `Computer::App`. Ports pikuri's `pikuri-os/bin/pikuri-computer` demo.
 - `bin/setup` — `bundle install` wrapper.
 - `bin/install` / `bin/uninstall` — symlink `bin/pikuri-tui-chat`,
-  `bin/pikuri-tui-code` and `bin/pikuri-tui-os` into `$PREFIX` (default
+  `bin/pikuri-tui-code` and `bin/pikuri-tui-computer` into `$PREFIX` (default
   `~/.local/bin`) and remove them again. Uninstall only removes symlinks
   that point back into this checkout.
 
@@ -415,8 +425,8 @@ Zeitwerk over `lib/` and eager-loads it.
   (several classes may share one — `Pikuri.logger_for` memoizes per
   name, so they share the `Logger` object): `'markdown'` (renderer /
   grayscale / streaming buffer), `'formatter'` (edit / write), plus
-  `'listener'`, `'git'`, `'log'`, `'config'`, and `'chat'` / `'code'`
-  for the two `App`s. The bins are plain scripts, not classes, so when one
+  `'listener'`, `'git'`, `'log'`, `'config'`, and `'chat'` / `'code'` /
+  `'computer'` for the three `App`s. The bins are plain scripts, not classes, so when one
   needs to log it keeps a local (`main_log = Pikuri.logger_for('main')` —
   the coding bin does, for project-root / skill / safety notices).
 
@@ -471,7 +481,7 @@ Zeitwerk over `lib/` and eager-loads it.
   Reusable building blocks go under `Shared::` (grouped by
   subsystem — `Shared::Log` / `Shared::Model` / `Shared::Markdown`,
   or directly under `Shared` when standalone); shell-specific code
-  goes under its shell namespace (`Chat` / `Code` / `Os`). Don't
+  goes under its shell namespace (`Chat` / `Code` / `Computer`). Don't
   add a bare top-level constant outside those homes.
 - **Widget-class suffix on Tuile subclasses/wrappers only.** A class
   that extends or wraps a Tuile component carries that component's
@@ -529,7 +539,7 @@ Zeitwerk over `lib/` and eager-loads it.
   already living this way: `Shared::InputArea`, `Shared::StatusFooterUpdater`,
   `Shared::ConversationWindow`,
   `Shared::LeaderMenu`, `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
-  the `Code::*` confirmer / diff classes the OS shell reuses verbatim.
+  the `Code::*` confirmer / diff classes the computer shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this
   piece stand alone with a clear contract and carry no
   shell-specific divergence?" — if yes, it belongs in a shared

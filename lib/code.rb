@@ -13,7 +13,7 @@
 # onto a common base: the project's "thin shell, readable not obfuscated"
 # ceiling doesn't ask for the DRY win, and the coding shell's one genuine
 # addition — a confirmation popup on the write/bash tools — is cheaper as a
-# little duplication than a base-class abstraction. The OS shell later made
+# little duplication than a base-class abstraction. The computer shell later made
 # the same call (reusing this namespace's {ConfirmerPopup} / diff adapters,
 # which are cross-cutting tool wiring, not shell scaffolding). Only pieces
 # that carry *no* shell-specific divergence are extracted into {Shared}

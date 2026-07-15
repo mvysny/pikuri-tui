@@ -142,7 +142,7 @@ class Shared::Config
   end
 
   # The web-search provider keys (chat wires +web_search+ as a main tool;
-  # the coding / OS shells wire it sub-agent-only). Both fields are +nil+
+  # the coding / computer shells wire it sub-agent-only). Both fields are +nil+
   # when omitted; pikuri's search cascade then runs DuckDuckGo-only and the
   # paid provider simply stays out.
   #

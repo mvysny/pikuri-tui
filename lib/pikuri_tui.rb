@@ -35,13 +35,14 @@ loader.inflector.inflect(
   'buffering_io' => 'BufferingIO'
 )
 
-# The coding ({Code}) and OS-assistant ({Os}) shells depend on the heavier
+# The coding ({Code}) and computer ({Computer}) shells depend on the heavier
 # pikuri gems — pikuri-workspace defines +Pikuri::Workspace::Confirmer+ (the
 # {Code::ConfirmerPopup} superclass), and pikuri-code backs the rest of the
-# boot wiring. The OS subtree reuses the +Code::*+ adapters (confirmer / diff
-# formatters) and so needs the same gems; it references no +Pikuri::Os::*+
-# constant at load time (only +Code::*+ / +Pikuri::Agent::*+), so it gates on
-# the same +Pikuri::Workspace+ presence rather than on +Pikuri::Os+. The chat
+# boot wiring. The computer subtree reuses the +Code::*+ adapters (confirmer /
+# diff formatters) and so needs the same gems; it references no +Pikuri::Os::*+
+# or +Pikuri::Thunderbird::*+ constant at load time (only +Code::*+ /
+# +Pikuri::Agent::*+), so it gates on the same +Pikuri::Workspace+ presence
+# rather than on +Pikuri::Os+ / +Pikuri::Thunderbird+. The chat
 # shell runs +Bundler.setup(:default)+ and never loads those gems, so
 # eager-loading either subtree there would raise at class-definition time
 # (NameError on +Pikuri::Workspace+). Gate both on that runtime being present —
@@ -52,8 +53,8 @@ loader.inflector.inflect(
 unless defined?(Pikuri::Workspace)
   loader.ignore("#{__dir__}/code.rb")
   loader.ignore("#{__dir__}/code")
-  loader.ignore("#{__dir__}/os.rb")
-  loader.ignore("#{__dir__}/os")
+  loader.ignore("#{__dir__}/computer.rb")
+  loader.ignore("#{__dir__}/computer")
 end
 
 loader.setup

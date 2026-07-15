@@ -8,7 +8,7 @@ Three shells:
 
 - **`pikuri-tui-chat`** — general-purpose chat with web search and calculator tools.
 - **`pikuri-tui-code`** — in-repo coding agent (sandboxed file/shell tools, git diff view, plan mode).
-- **`pikuri-tui-os`** — OS assistant for the local host (file + network-severed sandboxed bash tools), with web research quarantined behind an isolated sub-agent.
+- **`pikuri-tui-computer`** — desktop assistant for this machine: the OS helper (file + network-severed sandboxed bash tools) plus local Thunderbird mail + calendar (search/read + human-gated draft hand-offs), with web research quarantined behind an isolated sub-agent.
 
 Pikuri owns the agent loop, tool execution, and LLM transport. This project owns nothing but the TUI shell: a conversation pane, a diagnostic log pane, an input field, and a status bar.
 
@@ -47,22 +47,29 @@ workspace + bubblewrap sandbox there. `--no-sandbox` / `--no-confirm` /
 `--yolo` relax the safety machinery (see `[code]` below); `--server` /
 `--model` override the connection.
 
-## Run the OS assistant
+## Run the computer assistant
 
 ```sh
-bin/pikuri-tui-os
+bin/pikuri-tui-computer
 ```
 
-An assistant for understanding and operating the local host: the five file
-tools plus a **network-severed** sandboxed `bash`. The main agent holds no
-direct network egress; web research is always on but **quarantined** — the
-`web_search` / `web_scrape` / `fetch` tools are registered sub-agent-only, so
-the main agent delegates each research task to an isolated `RESEARCHER`
-sub-agent (web tools, no filesystem), gated by the same y/n confirmation as
-writes and bash. The sandbox requires
+A desktop assistant for this machine, composing two surfaces: the **OS
+helper** (the five file tools plus a **network-severed** sandboxed `bash`, for
+understanding and operating the local host) and **local Thunderbird mail +
+calendar** — search/read your own messages and events, and draft a reply or
+add an event that opens in Thunderbird for **you** to review and Send/confirm
+(pikuri sends nothing itself).
+
+The main agent holds no direct network egress; web research is on by default
+but **quarantined** — the `web_search` / `web_scrape` / `fetch` tools are
+registered sub-agent-only, so the main agent delegates each research task to
+an isolated `RESEARCHER` sub-agent (web tools, no filesystem), gated by the
+same y/n confirmation as writes and bash. `--no-internet` drops the researcher
+(mail + calendar still work). The sandbox requires
 [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) and refuses to
 start without it. `--no-sandbox` lifts the no-egress guarantee on `bash` (it
 can then reach the internet directly — use only in a throwaway environment);
+`--profile-dir` pins the Thunderbird profile (otherwise auto-discovered);
 `--no-confirm` / `--yolo` / `--server` / `--model` behave as in the other
 shells.
 
@@ -121,7 +128,7 @@ model   = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
 # context_window = 1000000
 
 # Web-search provider keys. Used by the chat shell (web_search is a main
-# tool) and by the sub-agent-only research tools of the coding and OS shells.
+# tool) and by the sub-agent-only research tools of the coding and computer shells.
 # Both fields are optional — set one,
 # both, or neither — and, like api_key, go in verbatim (keep this file
 # chmod 600). pikuri's search cascade decides what to do when a key is unset.
@@ -130,7 +137,7 @@ brave_key = "BSA..."   # Brave Search API key
 exa_key   = "..."      # Exa API key
 
 # Sandbox + confirmation settings. Applies to BOTH the coding shell
-# (bubblewrap sandbox around bash) and the OS assistant (network-severed
+# (bubblewrap sandbox around bash) and the computer assistant (network-severed
 # sandbox); the chat shell has no sandbox and ignores this table.
 [code]
 sandbox = true   # sandbox around bash; --no-sandbox / --yolo force false

@@ -27,12 +27,14 @@ require 'pikuri-tasks'
 require 'pikuri-skills'
 require 'pikuri-mcp'
 require 'pikuri-subagents'
-# Also pull in pikuri-os so an Os-shell spec can build the real
-# Pikuri::Os::Extension. The Os subtree itself eager-loads via
-# the +Pikuri::Workspace+ gate (it reuses the Code:: adapters and
-# references no Pikuri::Os::* constant at load time), so this require is for
-# the extension, not the subtree.
+# Also pull in pikuri-os + pikuri-thunderbird so a computer-shell spec can
+# build the real Pikuri::Os::Extension / Pikuri::Thunderbird::Extension. The
+# Computer subtree itself eager-loads via the +Pikuri::Workspace+ gate (it
+# reuses the Code:: adapters and references no Pikuri::Os::* /
+# Pikuri::Thunderbird::* constant at load time), so these requires are for
+# the extensions, not the subtree.
 require 'pikuri-os'
+require 'pikuri-thunderbird'
 
 require 'pikuri_tui'
 

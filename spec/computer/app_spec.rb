@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-RSpec.describe Os::App do
+RSpec.describe Computer::App do
   # Minimal +Pikuri::Agent+ stand-in — same shape as the chat / code specs'.
-  # The Os::App build block yields FOUR args (listener, confirmer,
+  # The Computer::App build block yields FOUR args (listener, confirmer,
   # status_footer_updater, plan_mode_listener); StubAgent only needs the listener
   # (the real agent's tools / ListenerList would take the rest).
   class StubAgent
@@ -51,9 +51,9 @@ RSpec.describe Os::App do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  it 'mounts an Os::Layout as the screen content with conversation + input panes (no sidebar)' do
+  it 'mounts an Computer::Layout as the screen content with conversation + input panes (no sidebar)' do
     layout = app.screen.pane.content
-    assert_kind_of Os::Layout, layout
+    assert_kind_of Computer::Layout, layout
     assert_kind_of Tuile::Component::Window, layout.conversation
     assert_kind_of Tuile::Component::Window, layout.input
     refute_respond_to layout, :tasks
@@ -369,7 +369,7 @@ RSpec.describe Os::App do
 
   # Dispatch Ctrl+C through the screen's real key handler (private in the
   # release gem) so the test exercises the full chain: global-shortcut
-  # lookup, the +over_popups: false+ gate, then {Os::App#on_interrupt}.
+  # lookup, the +over_popups: false+ gate, then {Computer::App#on_interrupt}.
   def press_ctrl_c
     app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
   end

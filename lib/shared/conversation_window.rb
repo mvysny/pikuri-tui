@@ -17,7 +17,7 @@ require 'tuile'
 #
 # The plan-mode badge is not wired here: the footer exposes +plan_active=+
 # via {#status_footer_updater}, but the +Code::PlanModeListener+ feeding it
-# is a +:code+-group concern, so the coding / OS shells bind it themselves.
+# is a +:code+-group concern, so the coding / computer shells bind it themselves.
 #
 # UI-thread-confined, with exceptions.
 class Shared::ConversationWindow < Tuile::Component::Window
@@ -55,7 +55,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # The footer-chrome updater, which also duck-types as an agent listener
   # ({Shared::StatusFooterUpdater#on_event}) to re-point its model name on a
   # switch — fold it into the agent's +ListenerList+ alongside {#listener}.
-  # The coding / OS shells also bind their {Code::PlanModeListener} to it.
+  # The coding / computer shells also bind their {Code::PlanModeListener} to it.
   #
   # @return [Shared::StatusFooterUpdater]
   attr_reader :status_footer_updater

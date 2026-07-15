@@ -2,12 +2,12 @@
 
 require 'tuile'
 
-module Os
+module Computer
   # Vertical-split root layout for {App}: the conversation Window
   # occupies the top, the input Window occupies a fixed-height strip at
-  # the bottom. A parallel copy of {Chat::Layout} (see {Os} for why the
-  # OS shell duplicates rather than shares) — the OS shell is laid out
-  # like the chat shell, with no sidebar.
+  # the bottom. A parallel copy of {Chat::Layout} (see {Computer} for why the
+  # computer shell duplicates rather than shares) — the computer shell is
+  # laid out like the chat shell, with no sidebar.
   #
   # Layout only — global keybindings (Ctrl+K, Ctrl+C) are installed by
   # {App} via {Tuile::Screen#register_global_shortcut}, which bypasses

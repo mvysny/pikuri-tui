@@ -8,7 +8,7 @@ module Code
   # A {Pikuri::Workspace::Confirmer} that asks the user via a modal
   # Tuile popup instead of stdin — the TUI equivalent of
   # {Pikuri::Workspace::Confirmer::Terminal}. Wired into the coding and
-  # OS shells' +Write+ / +Pikuri::Code::Bash+ / +agent+ (sub-agent
+  # computer shells' +Write+ / +Pikuri::Code::Bash+ / +agent+ (sub-agent
   # delegation) tools so a write-overwrite, a bash command, or a
   # network-reaching delegation pauses for a decision before it runs.
   #

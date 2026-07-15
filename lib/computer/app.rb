@@ -4,8 +4,8 @@ require 'logger'
 require 'pikuri-core'
 require 'tuile'
 
-module Os
-  # The Tuile shell behind +bin/pikuri-tui-os+: the framed conversation
+module Computer
+  # The Tuile shell behind +bin/pikuri-tui-computer+: the framed conversation
   # pane, the framed input pane, the eager diagnostic +LogWindow+
   # (popup-visible via the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+ menu /
   # +Ctrl+C+ cancel status-bar hints, and the agent loop on a worker
@@ -13,13 +13,16 @@ module Os
   #
   # Laid out like {Chat::App} — one conversation Window over an input
   # strip, NO sidebar — but it carries the coding shell's safety
-  # machinery because the OS agent's tools mutate the real host: it owns a
-  # {Code::ConfirmerPopup} (handed to the build block for the +write+ /
-  # +bash+ tools), surfaces plan mode (a footer badge via
+  # machinery because the agent's file/bash tools mutate the real host: it
+  # owns a {Code::ConfirmerPopup} (handed to the build block for the
+  # +write+ / +bash+ tools), surfaces plan mode (a footer badge via
   # {Code::PlanModeListener} + a leader-menu +p+ toggle), and renders
   # +edit+ / +write+ diffs through the bin-supplied +tool_formatters+. It
   # reuses the +Code::*+ adapters directly rather than re-copying them
-  # (see {Os} for the duplicate-only-the-shell rationale).
+  # (see {Computer} for the duplicate-only-the-shell rationale). The bin
+  # also wires a +Pikuri::Thunderbird::Extension+ (mail + calendar); its
+  # outbound tools gate through Thunderbird's own UI, so App needs no extra
+  # confirmer surface for them.
   #
   # == Construction order
   #
@@ -62,7 +65,7 @@ module Os
   # UI-thread-confined (App's own methods; the worker it spawns runs the
   # pikuri loop off-thread and marshals back).
   class App
-    LOG = Pikuri.logger_for('os')
+    LOG = Pikuri.logger_for('computer')
     private_constant :LOG
 
     # @return [Tuile::Screen] the (already-installed) screen this app
@@ -107,7 +110,7 @@ module Os
     #   The host is responsible for wiring the same instance into the
     #   agent's +ListenerList+. Defaults to a fresh instance.
     # @param title [String] the conversation window title. Defaults to
-    #   +"OS Assistant"+; the bin passes the host the agent is rooted at.
+    #   +"Computer"+; the bin passes the host the agent is rooted at.
     # @param markdown [Boolean] forwarded to {Shared::ConversationTextView}'s
     #   +markdown:+ flag (default +true+).
     # @param tool_formatters [Hash{String => Object}] forwarded to
@@ -138,17 +141,17 @@ module Os
     # @yieldparam listener [Shared::ConversationTextView::Listener] the conversation-pane
     #   listener; include it in the agent's +ListenerList+.
     # @yieldparam confirmer [Code::ConfirmerPopup] the modal confirmer;
-    #   pass it to the +Os::Extension+ (which threads it into the
+    #   pass it to the +Pikuri::Os::Extension+ (which threads it into the
     #   write/bash tools).
     # @yieldparam status_footer_updater [Shared::StatusFooterUpdater] the footer,
     #   which doubles as the model-name listener; include it in the agent's +ListenerList+.
     # @yieldparam plan_mode_listener [Code::PlanModeListener] the footer
     #   plan-mode-badge listener; include it in the agent's +ListenerList+
-    #   (alongside the +Os::Extension+ that emits the events it renders).
+    #   (alongside the +Pikuri::Os::Extension+ that emits the events it renders).
     # @yieldreturn [Pikuri::Agent] the wired agent.
     # @raise [LocalJumpError] if no block is given.
-    def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, title: 'OS Assistant', markdown: true, tool_formatters: {}, models: [], plan_mode: Pikuri::Workspace::ReadOnly.new, &build_agent)
-      raise LocalJumpError, 'Os::App requires a block that builds the Pikuri::Agent' unless block_given?
+    def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, title: 'Computer', markdown: true, tool_formatters: {}, models: [], plan_mode: Pikuri::Workspace::ReadOnly.new, &build_agent)
+      raise LocalJumpError, 'Computer::App requires a block that builds the Pikuri::Agent' unless block_given?
 
       @screen = Tuile::Screen.instance
       @token_log = token_log
@@ -248,12 +251,12 @@ module Os
       @log_ui.install_shortcut { @leader_menu.open }
     end
 
-    # Build the {Shared::LeaderMenu} for the OS shell: logs, plan mode, switch
+    # Build the {Shared::LeaderMenu} for the computer shell: logs, plan mode, switch
     # model (only when there's more than one connection), and a hard quit.
     # The model entry is registered only when there's something to switch
     # to, so the menu never offers a no-op pick. (Like {Chat::App}'s set
     # plus +p+ plan mode, but without the coding shell's +d+ git diff —
-    # the OS shell has no git window.)
+    # the computer shell has no git window.)
     #
     # @return [Shared::LeaderMenu]
     def build_leader_menu
