@@ -306,9 +306,14 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/code/layout.rb` — `Code::Layout`, the
   coding shell's dual-pane root: a 60/40 conversation-over-input left
   column beside a task + git sidebar (collapsed when too narrow).
+- `lib/code/task_list_window.rb` —
+  `Code::TaskListWindow`, the sidebar task pane: a `Window` framing a
+  `TextView` and owning the `Code::TaskListener` that renders into it;
+  exposes `#listener` for the agent's `ListenerList`.
 - `lib/code/task_listener.rb` —
   `Code::TaskListener`, a `Pikuri::Agent::Listener::Base`
-  rendering the agent's task-list changes into the sidebar task window.
+  rendering the agent's task-list changes into the `Code::TaskListWindow`
+  pane it's owned by.
 - `lib/code/plan_mode_listener.rb` —
   `Code::PlanModeListener`, a `Pikuri::Agent::Listener::Base`
   driving the footer plan-mode badge off `Pikuri::Code::PlanModeChanged`;

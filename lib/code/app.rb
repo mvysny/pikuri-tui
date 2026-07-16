@@ -71,14 +71,10 @@ module Code
     #   it through the {Shared::ConversationTextView::Listener}.
     def conversation_view = @conversation_window.view
 
-    # @return [Tuile::Component::TextView] the sidebar task-list pane.
-    #   Exposed for tests; production code reaches it through the
-    #   {TaskListener}.
-    attr_reader :tasks_view
-
-    # @return [TaskListener] the task-pane listener handed to the build
-    #   block; the host wires it into the agent's +ListenerList+.
-    attr_reader :task_listener
+    # @return [TaskListener] the task-pane listener (owned by the
+    #   {TaskListWindow}) handed to the build block; the host wires it into
+    #   the agent's +ListenerList+.
+    def task_listener = @task_list_window.listener
 
     # @return [GitWatcher] the background poller that keeps the sidebar
     #   change summary and the {GitDiffPopup} diff current; started/stopped
@@ -176,7 +172,7 @@ module Code
       build_components
       @log_ui.wire!
       @agent = build_agent.call(
-        @conversation_window.listener, @confirmer, @task_listener,
+        @conversation_window.listener, @confirmer, @task_list_window.listener,
         @conversation_window.status_footer_updater, @plan_mode_listener
       )
       # Deferred from construction: the agent, hence its interloper,
@@ -224,12 +220,9 @@ module Code
 
       @input_window = Shared::InputWindow.new(on_submit: method(:submit_message))
 
-      # Sidebar top: the agent's task list, fed by the TaskListener off
-      # the Pikuri::Tasks::ListChanged stream.
-      @tasks_view = Tuile::Component::TextView.new
-      @tasks_window = Tuile::Component::Window.new('Tasks')
-      @tasks_window.content = @tasks_view
-      @tasks_window.scrollbar = true
+      # Sidebar top: the agent's task list, a self-contained pane that owns
+      # its TaskListener off the Pikuri::Tasks::ListChanged stream.
+      @task_list_window = TaskListWindow.new
 
       # Sidebar bottom: the change summary (one "XY path +N -N" line per
       # changed file), kept current by a {GitWatcher} polling git off the
@@ -252,7 +245,6 @@ module Code
       @git_diff_popup = GitDiffPopup.new(diff_window: @git_diff_window)
 
       @confirmer = ConfirmerPopup.new(screen: @screen)
-      @task_listener = TaskListener.new(text_view: @tasks_view, screen: @screen)
       @plan_mode_listener = PlanModeListener.new(footer: @conversation_window.status_footer_updater, screen: @screen)
       @git_watcher = GitWatcher.new(
         summary_view: @git_summary_view, diff_view: @git_diff_view, screen: @screen
@@ -261,7 +253,7 @@ module Code
       @layout = Layout.new(
         conversation: @conversation_window,
         input: @input_window,
-        tasks: @tasks_window,
+        tasks: @task_list_window,
         git: @git_window
       )
     end

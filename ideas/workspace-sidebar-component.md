@@ -1,5 +1,19 @@
 # Idea: `Code::WorkspaceSidebar` — the tasks + git sidebar as one component
 
+## Progress
+
+- **DONE — `Code::TaskListWindow` extracted first** (the certain, decided
+  slice). A `Window` framing a `TextView` and owning its `TaskListener`,
+  exposing `#listener`; `Code::App` composes it and the `Layout` still
+  takes it via `tasks:`. It's the first building block the eventual
+  sidebar will compose. The git pieces below stay hand-assembled for now.
+- **PENDING — the git half + the container.** Revisit whether to wrap the
+  git-changes pane + `GitWatcher` + `GitDiffPopup` + `open_git_diff_popup`
+  + the `start`/`stop` lifecycle into a `WorkspaceSidebar` (likely a
+  `Layout` subclass owning the tasks-over-git split), composing the
+  already-extracted `TaskListWindow`. Open questions below still stand for
+  this half.
+
 ## Problem
 
 `Code::App#build_components` (`code/app.rb:229-259`) hand-assembles a
