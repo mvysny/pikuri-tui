@@ -25,10 +25,10 @@ require 'tuile'
 #
 # This component is *stateless* with respect to a conversation's progress:
 # it holds no "currently-open block" cursor. Each {Listener} carries its own
-# open-stream state (the assistant/thinking streaming buffers, the
-# tool-call/result pairing) and drives this component's stateless helpers.
-# That is what lets a sub-agent be "another thin listener with a bigger
-# indent" writing into this same pane without sharing the parent's open
+# open-stream state (two {Shared::StreamedBlock}s — assistant and thinking —
+# plus the tool-call/result pairing) and drives this component's stateless
+# helpers. That is what lets a sub-agent be "another thin listener with a
+# bigger indent" writing into this same pane without sharing the parent's open
 # blocks (see {Listener#for_sub_agent}).
 #
 # == Markdown flag
@@ -247,10 +247,10 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # conversation pane instead of stdout.
   #
   # This holds the per-conversation *state* the component deliberately does
-  # not: the open assistant streaming buffer + region, the open thinking
-  # buffer + region, the streamed-thinking flag, and the tool-call/result
-  # pairing slot. Everything visual is delegated to the view's stateless
-  # verbs. Because the state lives here (not on the shared view), a
+  # not: two {Shared::StreamedBlock}s (the open assistant and thinking blocks,
+  # each a region + streaming buffer), the streamed-thinking flag, and the
+  # tool-call/result pairing slot. Everything visual is delegated to the view's
+  # stateless verbs. Because the state lives here (not on the shared view), a
   # sub-agent listener minted by {#for_sub_agent} renders into the same pane
   # with its own independent open blocks.
   #
@@ -302,10 +302,17 @@ class Shared::ConversationTextView < Tuile::Component::TextView
       @view = view
       @screen = screen
       @indent = indent
-      @buffer = nil
-      @assistant_region = nil
-      @thinking_buffer = nil
-      @thinking_region = nil
+      # The two open streamed blocks (each a region + streaming buffer). They
+      # differ only in the builder the open-factory calls; everything else -
+      # append, finalize, wipe, preserve - is the same lifecycle.
+      @assistant = Shared::StreamedBlock.new do
+        region = @view.create_region
+        [region, @view.build_assistant_buffer(region, indent: @indent)]
+      end
+      @thinking = Shared::StreamedBlock.new do
+        region = @view.create_region
+        [region, @view.build_thinking_buffer(region, indent: @indent)]
+      end
       @thinking_streamed = false
       # Set on a ToolCall a formatter handled, consumed by the next
       # ToolResult to pair the result with that call. ruby_llm runs tool
@@ -347,53 +354,46 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     def dispatch_event(event)
       case event
       in Pikuri::Agent::Event::UserTurn(content:)
-        flush_assistant(:wipe)
-        release_thinking
+        @assistant.wipe
+        @thinking.preserve
         @thinking_streamed = false
         @view.add_block(@view.theme.user("> #{content}"), indent: @indent)
       in Pikuri::Agent::Event::ThinkingDelta(content:)
-        flush_assistant(:wipe)
-        @thinking_region ||= @view.create_region
-        @thinking_buffer ||= @view.build_thinking_buffer(@thinking_region, indent: @indent)
-        @thinking_buffer.append(content)
+        @assistant.wipe
+        @thinking.append(content)
         @thinking_streamed = true
       in Pikuri::Agent::Event::Thinking(content:)
-        if @thinking_buffer
-          @thinking_buffer.finalize(content)
-          release_thinking
+        if @thinking.open?
+          @thinking.finalize(content)
         elsif !@thinking_streamed
           @view.add_block(@view.render_thinking(content), indent: @indent)
         end
         @thinking_streamed = false
       in Pikuri::Agent::Event::AssistantDelta(content:)
-        release_thinking
-        @assistant_region ||= @view.create_region
-        @buffer ||= @view.build_assistant_buffer(@assistant_region, indent: @indent)
-        @buffer.append(content)
+        @thinking.preserve
+        @assistant.append(content)
       in Pikuri::Agent::Event::Assistant(content:)
-        release_thinking
-        if @buffer
-          @buffer.finalize(content)
-          @buffer = nil
-          @assistant_region = nil
+        @thinking.preserve
+        if @assistant.open?
+          @assistant.finalize(content)
         else
           @view.add_block(@view.render_markdown(content), indent: @indent)
         end
       in Pikuri::Agent::Event::ToolCall(name:, arguments:)
-        flush_assistant(:wipe)
-        release_thinking
+        @assistant.wipe
+        @thinking.preserve
         render_tool_call(name, arguments)
       in Pikuri::Agent::Event::ToolResult(content:)
-        flush_assistant(:wipe)
-        release_thinking
+        @assistant.wipe
+        @thinking.preserve
         render_tool_result(content)
       in Pikuri::Agent::Event::FallbackNotice(reason:)
-        flush_assistant(:wipe)
-        release_thinking
+        @assistant.wipe
+        @thinking.preserve
         @view.add_block(@view.theme.notice("! #{reason}"), indent: @indent)
       in Pikuri::Agent::Event::Cancelled
-        flush_assistant(:preserve)
-        release_thinking
+        @assistant.preserve
+        @thinking.preserve
         @view.add_block(@view.theme.error('! cancelled'), indent: @indent)
       in Pikuri::Agent::Event::Reset
         reset_conversation
@@ -442,50 +442,18 @@ class Shared::ConversationTextView < Tuile::Component::TextView
       end
     end
 
-    # Close out the assistant streaming buffer. +:wipe+ removes the streamed
-    # region entirely (a +ToolCall+ / +UserTurn+ / etc. arrived mid-stream);
-    # +:preserve+ drops the handle but keeps the region's content (the
-    # cancel-preserve case).
-    #
-    # @param mode [:wipe, :preserve]
-    # @return [void]
-    def flush_assistant(mode)
-      return unless @buffer
-
-      case mode
-      when :wipe
-        @assistant_region.remove
-      when :preserve
-        # Region keeps its content; drop the handle below.
-      else
-        raise ArgumentError, "expected :wipe or :preserve, got #{mode.inspect}"
-      end
-      @buffer = nil
-      @assistant_region = nil
-    end
-
-    # Drop the thinking buffer + region handles (no UI mutation — the region
-    # keeps its rendered content). Called from every handler except
-    # +ThinkingDelta+ so the next +ThinkingDelta+ opens a fresh region.
-    #
-    # @return [void]
-    def release_thinking
-      @thinking_buffer = nil
-      @thinking_region = nil
-    end
-
     # Wipe the pane and drop every per-turn render handle on
     # {Pikuri::Agent::Event::Reset} (the host cleared the conversation). The
-    # view is cleared (detaching all regions, including any open buffers'),
-    # and the streaming / pairing slots reset to construction state.
+    # view is cleared (detaching all regions, including any open buffers'), then
+    # both blocks are +preserve+d — dropping their now-detached handles without
+    # a second +region.remove+ — and the streaming / pairing slots reset to
+    # construction state.
     #
     # @return [void]
     def reset_conversation
       @view.clear
-      @buffer = nil
-      @assistant_region = nil
-      @thinking_buffer = nil
-      @thinking_region = nil
+      @assistant.preserve
+      @thinking.preserve
       @thinking_streamed = false
       @pending_formatter = nil
     end
