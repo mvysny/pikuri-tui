@@ -327,8 +327,18 @@ Zeitwerk over `lib/` and eager-loads it.
   driving the footer plan-mode badge off `Pikuri::Code::PlanModeChanged`;
   coding/OS-shell-only.
 - `lib/code/git_watcher.rb` —
-  `Code::GitWatcher`, the background git poller feeding the
-  sidebar change summary and the `GitDiffPopup`'s full diff.
+  `Code::GitWatcher`, the background git poller — the shared (1:many) model
+  half: it produces *data* (a `GitSummaryTextView::Change` list + raw diff)
+  and pushes it to the two panes, which own rendering.
+- `lib/code/git_summary_text_view.rb` —
+  `Code::GitSummaryTextView`, the sidebar "Changes" `TextView` that owns how
+  a git change summary is drawn (per-file `+A -D` line, kind-toned label) via
+  `#changes=` / `#notice=`; fed by `GitWatcher`.
+- `lib/code/git_diff_text_view.rb` —
+  `Code::GitDiffTextView`, the "Git diff" `TextView` (inside `GitDiffPopup`)
+  that owns how a working-tree diff is drawn via `#diff=` / `#notice=`,
+  re-rendering at the new width on resize (`#on_width_changed`); fed by
+  `GitWatcher`.
 - `lib/code/git_diff_popup.rb` —
   `Code::GitDiffPopup`, the fullscreen `Popup` wrapping the
   long-lived Git diff window `GitWatcher` keeps current; opened from the

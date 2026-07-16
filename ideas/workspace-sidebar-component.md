@@ -7,15 +7,19 @@
   `Code::TaskListTextView` (which owns rendering + a nested `Listener`),
   exposing `#listener`. `Code::App` composes it and the `Layout` still
   takes it via `tasks:`. It's the first building block the eventual
-  sidebar will compose. The git pieces below stay hand-assembled for now.
-  (See `ideas/ui-component-shaped-cop.md` for the model/view principle
-  this now follows — and its Actionable 2, the matching git reframing.)
-- **PENDING — the git half + the container.** Revisit whether to wrap the
-  git-changes pane + `GitWatcher` + `GitDiffPopup` + `open_git_diff_popup`
-  + the `start`/`stop` lifecycle into a `WorkspaceSidebar` (likely a
-  `Layout` subclass owning the tasks-over-git split), composing the
-  already-extracted `TaskListWindow`. Open questions below still stand for
-  this half.
+  sidebar will compose.
+- **DONE — the git panes reframed to model/view** (was Actionable 2 in
+  `ideas/ui-component-shaped-cop.md`): `GitSummaryTextView` / `GitDiffTextView`
+  now own rendering; `GitWatcher` is the shared model that feeds them data.
+  So the container work below now composes *reframed* panes, not the old
+  plain-`TextView` + rendering-in-`GitWatcher` shape the sketch below shows.
+- **PENDING — the container.** Revisit whether to wrap the git-changes pane +
+  `GitWatcher` + `GitDiffPopup` + `open_git_diff_popup` + the `start`/`stop`
+  lifecycle into a `WorkspaceSidebar` (likely a `Layout` subclass owning the
+  tasks-over-git split), composing the already-extracted `TaskListWindow`.
+  Open questions below still stand for this half. (The per-pane triple in the
+  sketch below is now `GitSummaryTextView`/`GitDiffTextView` framed by their
+  windows.)
 
 ## Problem
 

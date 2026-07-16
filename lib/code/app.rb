@@ -228,7 +228,7 @@ module Code
       # changed file), kept current by a {GitWatcher} polling git off the
       # UI thread (started in {#run}). The window exists from the start so
       # the layout is real before the first poll lands.
-      @git_summary_view = Tuile::Component::TextView.new
+      @git_summary_view = GitSummaryTextView.new
       @git_window = Tuile::Component::Window.new('Changes')
       @git_window.content = @git_summary_view
       @git_window.scrollbar = true
@@ -236,9 +236,9 @@ module Code
       # The full colored diff is too wide for the sidebar, so it lives in a
       # near-fullscreen popup opened from the leader menu's 'd' entry. Built
       # eagerly (like the
-      # diagnostic LogWindow) so the watcher can write the latest diff into
+      # diagnostic LogWindow) so the watcher can feed the latest diff into
       # it every poll whether or not the popup is currently shown.
-      @git_diff_view = Tuile::Component::TextView.new
+      @git_diff_view = GitDiffTextView.new
       @git_diff_window = Tuile::Component::Window.new('Git diff')
       @git_diff_window.content = @git_diff_view
       @git_diff_window.scrollbar = true

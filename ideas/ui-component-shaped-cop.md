@@ -63,7 +63,23 @@ Tuile class, so strictly `TaskListTextView`. It's clunky next to
 `TextView` suffix. Decide when implementing (lean `TaskListTextView` for
 consistency, or add a convention note if we allow `…View`).
 
-## Actionable 2 — revisit the git pane as case 2 (shared model → injected views)
+## Actionable 2 — revisit the git pane as case 2 (shared model → injected views) — DONE
+
+Landed (full inversion): `Code::GitSummaryTextView < TextView` (owns
+`#changes=` / `#notice=`, `colorize_label`, `summary_line`, nested
+`Change = Data.define(:code, :path, :added, :deleted)`) and
+`Code::GitDiffTextView < TextView` (owns `#diff=` / `#notice=`, `render_diff`,
+`max_width`, and re-renders on resize via `#on_width_changed`). `GitWatcher`
+shrank to the pure shared-model half: poll git, produce data (a `Change` list
++ raw diff text + optional error), and `push` it to the two panes on the UI
+thread. Change-detection now compares **data** (`Snapshot(changes, diff_text,
+error)`), not rendered strings; rendering moved onto the UI thread (accepting
+that cost per the anti-speculative-perf steer), and the diff view owns its own
+width-responsiveness. Specs split cleanly: `git_watcher_spec` asserts the
+captured *data*, the two view specs drive the render verbs with canned data
+(the payoff). Original sketch below for the record.
+
+---
 
 This is the textbook case-2 shape. `GitWatcher` is the **shared model** (a
 poll thread feeding two panes); it stays a plain service. The two panes
@@ -94,13 +110,17 @@ see the note below.)*
 
 - Principle + boundary captured (this file), sharpened with the
   model/view (JTable) framing and the dedicated-vs-shared source cases.
-- **Actionable 1 (task-pane symmetry) DONE** — see above; it's the
-  precedent to measure the git reframing against.
+- **Actionable 1 (task-pane symmetry) DONE** — see above; the precedent the
+  git reframing was measured against.
+- **Actionable 2 (git-pane reframing) DONE** — full inversion; see above.
 - **DONE — principle enshrined** in the `cop` / `tuile` skills, the
   global CLAUDE.md COP block, and an AGENTS.md pointer (*Design with
   components* names the live exemplars; *Working on this codebase* tells the
   agent to read both skills before UI work).
-- **The git reframing (Actionable 2) gets its own brainstorming session.**
+
+Both actionables are done — this file can be **deleted** once the
+`WorkspaceSidebar` container idea (`workspace-sidebar-component.md`, which
+composes these now-reframed panes) no longer references it.
 
 ## Durable nuggets to propagate on completion
 
