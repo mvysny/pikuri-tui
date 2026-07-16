@@ -3,17 +3,16 @@
 require 'tuile'
 
 module Code
-  # {Tuile::Component::Popup} wrapping the long-lived "Git diff" window —
-  # the full, scrollable working-tree diff. Its {GitDiffTextView} renders the
-  # raw diff {GitWatcher} feeds it into the same two-tier inline form as the
-  # edit / write tool calls. The sidebar's {GitSummaryTextView} shows only a
-  # per-file +"+N -N"+ tally; the actual hunks are too wide for a 40%-width
-  # sidebar, so they live here, shown near-fullscreen from the leader menu's
-  # +d+ entry instead.
+  # {Tuile::Component::Popup} wrapping the long-lived {GitDiffWindow} —
+  # the full, scrollable working-tree diff, rendered into the same two-tier
+  # inline form as the edit / write tool calls. The sidebar's {GitSummaryWindow}
+  # shows only a per-file +"+N -N"+ tally; the actual hunks are too wide for a
+  # 40%-width sidebar, so they live here, shown near-fullscreen from the leader
+  # menu's +d+ entry instead.
   #
   # Like {Shared::Log::Popup}, the wrapped window is constructed once and kept across
-  # open/close cycles: {GitWatcher} feeds the latest diff into its
-  # {GitDiffTextView} on every poll whether or not the popup is open, so
+  # open/close cycles: {GitWatcher} feeds the latest diff into the
+  # {GitDiffWindow} on every poll whether or not the popup is open, so
   # opening it always shows current content. {Tuile::Component::Popup}
   # re-parents the window on each {#open}, which is why the same instance can
   # be reopened.
@@ -24,9 +23,8 @@ module Code
   #
   # UI-thread-confined.
   class GitDiffPopup < Tuile::Component::Popup
-    # @param diff_window [Tuile::Component::Window] the framed, scrollable
-    #   "Git diff" window this popup wraps, framing a {GitDiffTextView} that
-    #   {GitWatcher} feeds; the popup only shows/hides it. Its parent is set
+    # @param diff_window [GitDiffWindow] the "Git diff" pane this popup wraps,
+    #   fed by {GitWatcher}; the popup only shows/hides it. Its parent is set
     #   to +self+ here — do not re-parent it elsewhere.
     def initialize(diff_window:)
       super(content: diff_window, size: Tuile::Fraction::FULL)

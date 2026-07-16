@@ -6,7 +6,7 @@ module Code
   # The coding shell's workspace sidebar as one Tuile container: a fixed
   # {TASK_HEIGHT} task pane stacked over the git change-summary pane, plus the
   # off-layout diff popup they share. Composes {TaskListWindow},
-  # {GitSummaryTextView} / {GitDiffTextView}, {GitDiffPopup}, and the
+  # {GitSummaryWindow} / {GitDiffWindow}, {GitDiffPopup}, and the
   # {GitWatcher} service that feeds the two git panes:
   #
   #   +-- tasks ----+   <- fixed TASK_HEIGHT rows
@@ -36,56 +36,49 @@ module Code
     # @return [Integer]
     TASK_HEIGHT = 6
 
-    # Builds the two framed panes, the shared {GitDiffPopup}, and the
-    # {GitWatcher}, then subscribes the git panes to it. Adds the task and
-    # change-summary windows as layout children; the diff window is *not* a
-    # child — it lives in the popup, shown only on {#open_diff}.
+    # Builds the two git panes ({GitSummaryWindow} / {GitDiffWindow}), the shared
+    # {GitDiffPopup}, and the {GitWatcher}, then subscribes the panes to it. Adds
+    # the task and change-summary windows as layout children; the diff window is
+    # *not* a child — it lives in the popup, shown only on {#open_diff}.
     def initialize
       super()
       @task_list_window = TaskListWindow.new
-
-      @git_summary_view = GitSummaryTextView.new
-      @git_window = Tuile::Component::Window.new('Changes')
-      @git_window.content = @git_summary_view
-      @git_window.scrollbar = true
+      @git_summary_window = GitSummaryWindow.new
 
       # The full colored diff is too wide for the sidebar, so it lives in a
       # near-fullscreen popup opened from the leader menu's 'd' entry. Built
       # eagerly (like the diagnostic LogWindow) so the watcher can feed the
       # latest diff into it every poll whether or not the popup is shown.
-      @git_diff_view = GitDiffTextView.new
-      @git_diff_window = Tuile::Component::Window.new('Git diff')
-      @git_diff_window.content = @git_diff_view
-      @git_diff_window.scrollbar = true
+      @git_diff_window = GitDiffWindow.new
       @git_diff_popup = GitDiffPopup.new(diff_window: @git_diff_window)
 
       # GitWatcher is a UI-independent service: it emits Snapshots on its poll
-      # thread and knows nothing of these views. We subscribe, marshal onto the
+      # thread and knows nothing of these panes. We subscribe, marshal onto the
       # event loop, and hand each pane the snapshot (it renders the half it
       # cares about) — the one place the service's data becomes UI.
       @git_watcher = GitWatcher.new
       @git_watcher.on_change do |snapshot|
         screen.event_queue.submit do
-          @git_summary_view.snapshot = snapshot
-          @git_diff_view.snapshot = snapshot
+          @git_summary_window.snapshot = snapshot
+          @git_diff_window.snapshot = snapshot
         end
       end
 
       add(@task_list_window)
-      add(@git_window)
+      add(@git_summary_window)
     end
 
     # @return [GitWatcher] the background git service the panes subscribe to;
     #   exposed for tests.
     attr_reader :git_watcher
 
-    # @return [GitSummaryTextView] the change-summary pane; exposed for tests,
+    # @return [GitSummaryWindow] the change-summary pane; exposed for tests,
     #   production drives it through the {GitWatcher} subscription.
-    attr_reader :git_summary_view
+    attr_reader :git_summary_window
 
-    # @return [GitDiffTextView] the diff pane wrapped by {GitDiffPopup};
-    #   exposed for tests.
-    attr_reader :git_diff_view
+    # @return [GitDiffWindow] the diff pane wrapped by {GitDiffPopup}; exposed
+    #   for tests.
+    attr_reader :git_diff_window
 
     # @return [TaskListTextView::Listener] the task-stream listener (owned by
     #   the task pane's view); fold it into the agent's +ListenerList+.
@@ -131,7 +124,7 @@ module Code
       tasks_h = [TASK_HEIGHT, rect.height].min
       git_h   = rect.height - tasks_h
       @task_list_window.rect = Tuile::Rect.new(rect.left, rect.top, rect.width, tasks_h)
-      @git_window.rect = Tuile::Rect.new(rect.left, rect.top + tasks_h, rect.width, git_h)
+      @git_summary_window.rect = Tuile::Rect.new(rect.left, rect.top + tasks_h, rect.width, git_h)
     end
   end
 end

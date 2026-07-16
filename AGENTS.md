@@ -339,18 +339,18 @@ Zeitwerk over `lib/` and eager-loads it.
   `#on_change` listeners on its poll thread and knows nothing of the UI;
   `Code::WorkspaceSidebar` subscribes, marshals onto the event loop, and
   projects onto the panes. Owns `Snapshot` / `Change`.
-- `lib/code/git_summary_text_view.rb` —
-  `Code::GitSummaryTextView`, the sidebar "Changes" `TextView` that owns how
-  a git change summary is drawn (per-file `+A -D` line, kind-toned label) via
-  `#changes=` / `#notice=`; fed by `GitWatcher`.
-- `lib/code/git_diff_text_view.rb` —
-  `Code::GitDiffTextView`, the "Git diff" `TextView` (inside `GitDiffPopup`)
-  that owns how a working-tree diff is drawn via `#diff=` / `#notice=`,
-  re-rendering at the new width on resize (`#on_width_changed`); fed by
-  `GitWatcher`.
+- `lib/code/git_summary_window.rb` —
+  `Code::GitSummaryWindow`, the sidebar "Changes" pane: a `Window` domain
+  component (subclasses the generic `Window`, renders into its own content view)
+  that draws a git change summary (per-file `XY path +A -D` line, kind-toned
+  label) via `#snapshot=`; fed by `GitWatcher`.
+- `lib/code/git_diff_window.rb` —
+  `Code::GitDiffWindow`, the "Git diff" pane (inside `GitDiffPopup`): a `Window`
+  domain component that draws a working-tree diff via `#snapshot=`, re-rendering
+  at the new width on resize (`#on_width_changed`); fed by `GitWatcher`.
 - `lib/code/git_diff_popup.rb` —
   `Code::GitDiffPopup`, the fullscreen `Popup` wrapping the
-  long-lived Git diff window `GitWatcher` keeps current; opened from the
+  long-lived `GitDiffWindow` `GitWatcher` keeps current; opened from the
   leader menu's `d` entry.
 - `lib/code/git_diff_renderer.rb` —
   `Code::GitDiffRenderer`, renders a plain `git diff` into

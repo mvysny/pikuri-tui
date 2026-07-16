@@ -14,7 +14,7 @@ RSpec.describe Code::WorkspaceSidebar do
     it 'stacks a fixed-height task pane over the git changes pane' do
       sidebar.rect = Tuile::Rect.new(0, 0, 30, 20)
       tasks = sidebar.instance_variable_get(:@task_list_window)
-      changes = sidebar.instance_variable_get(:@git_window)
+      changes = sidebar.git_summary_window
 
       assert_equal Tuile::Rect.new(0, 0, 30, described_class::TASK_HEIGHT), tasks.rect
       assert_equal described_class::TASK_HEIGHT, changes.rect.top
@@ -25,7 +25,7 @@ RSpec.describe Code::WorkspaceSidebar do
     it 'leaves both panes empty when handed an empty rect (collapsed sidebar)' do
       sidebar.rect = Tuile::Rect.new(0, 0, 0, 0)
       assert sidebar.instance_variable_get(:@task_list_window).rect.empty?
-      assert sidebar.instance_variable_get(:@git_window).rect.empty?
+      assert sidebar.git_summary_window.rect.empty?
     end
   end
 
@@ -50,8 +50,8 @@ RSpec.describe Code::WorkspaceSidebar do
     # wire without starting the poll thread.
     def emit(snapshot) = sidebar.git_watcher.send(:emit, snapshot)
 
-    def summary_text = sidebar.git_summary_view.text.to_s
-    def diff_text = sidebar.git_diff_view.text.to_s
+    def summary_text = sidebar.git_summary_window.view.text.to_s
+    def diff_text = sidebar.git_diff_window.view.text.to_s
 
     it 'projects an emitted snapshot onto the two git panes' do
       emit(Code::GitWatcher::Snapshot.new(

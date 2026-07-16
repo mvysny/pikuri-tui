@@ -4,27 +4,27 @@ require 'pikuri-core'
 require 'tuile'
 
 module Code
-  # The sidebar "Changes" pane: a {Tuile::Component::TextView} subclass that
-  # owns *how a git change summary is drawn* — one +"XY path  +A -D"+ line per
-  # changed file, the label toned by change kind (new green, deleted red,
-  # modified yellow) and the +/- markers green/red, a degraded notice when git
-  # failed, or a placeholder when the tree is clean. A {GitWatcher::Snapshot}
-  # arrives through {#snapshot=}, produced by the {GitWatcher} service; the view
-  # owns rendering, the service owns polling and data — the data-in split (see
-  # the `cop` skill).
+  # The sidebar "Changes" pane: a {Tuile::Component::Window} that renders a git
+  # change summary - one +"XY path  +A -D"+ line per changed file, the label
+  # toned by change kind (new green, deleted red, modified yellow) and the +/-
+  # markers green/red, a degraded notice when git failed, a placeholder when the
+  # tree is clean. A {GitWatcher::Snapshot} arrives through {#snapshot=} (produced
+  # by the {GitWatcher} service); the window owns rendering, the service owns
+  # polling and data - the data-in split (see the `cop` skill).
   #
-  #   view = Code::GitSummaryTextView.new
-  #   view.snapshot = Code::GitWatcher::Snapshot.new(
+  #   pane = Code::GitSummaryWindow.new
+  #   pane.snapshot = Code::GitWatcher::Snapshot.new(
   #     changes: [Code::GitWatcher::Change.new(code: 'M', path: 'a.rb', added: 2, deleted: 1)],
   #     diff_text: '…', error: nil)
-  #   # => "M a.rb  +2 -1"  (themed)
+  #   # => frames "M a.rb  +2 -1"  (themed)
   #
-  # Width-independent (one line per file, no reflow), so unlike
-  # {GitDiffTextView} it needs no resize hook.
+  # A domain component built by subclassing the generic {Tuile::Component::Window}
+  # and rendering into its own content view: the coding shell's git-changes pane
+  # is one unit, not a render-only view hand-framed by its host.
   #
-  # UI-thread-confined (the {Code::App} listener marshals {#snapshot=} onto the
-  # UI thread before calling it).
-  class GitSummaryTextView < Tuile::Component::TextView
+  # UI-thread-confined (the {WorkspaceSidebar} subscription marshals {#snapshot=}
+  # onto the UI thread before calling it).
+  class GitSummaryWindow < Tuile::Component::Window
     # Shown when the working tree matches HEAD. Toned +:detail+ as placeholder chrome.
     #
     # @return [String]
@@ -35,15 +35,27 @@ module Code
     # @return [String]
     UNTRACKED_CODE = '??'
 
+    # Frames a fresh scrollable text view captioned "Changes".
+    def initialize
+      super('Changes')
+      @view = Tuile::Component::TextView.new
+      self.content = @view
+      self.scrollbar = true
+    end
+
+    # @return [Tuile::Component::TextView] the framed content view; exposed for
+    #   tests, production drives it through {#snapshot=}.
+    attr_reader :view
+
     # Rewrite the pane from a git snapshot: the degraded notice when git failed,
     # the {PLACEHOLDER} when the tree is clean, else one styled line per changed
-    # file. Ignores the snapshot's diff (that's the {GitDiffTextView}'s half).
-    # Must run on the UI thread.
+    # file. Ignores the snapshot's diff (that's the {GitDiffWindow}'s half). Must
+    # run on the UI thread.
     #
     # @param snapshot [GitWatcher::Snapshot]
     # @return [void]
     def snapshot=(snapshot)
-      self.text =
+      @view.text =
         if snapshot.error
           screen.theme.detail(snapshot.error)
         elsif snapshot.changes.empty?
