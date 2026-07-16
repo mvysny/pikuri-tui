@@ -515,6 +515,18 @@ Zeitwerk over `lib/` and eager-loads it.
 
 ## Working on this codebase
 
+- **Ideas live in `ideas/*.md`, then evaporate.** A new idea — a
+  refactor, a feature, a design worth chewing on before touching code —
+  gets its own markdown file under `ideas/` and is brainstormed *there*:
+  the problem, the sketch, open questions, decisions as they settle. The
+  file is scratch space, not documentation; it may be messy and is not
+  held to the doc rules the rest of the tree follows. Once the idea is
+  implemented, **delete the file** — but first propagate its durable
+  nuggets to where they belong: a contract or gotcha into the relevant
+  class rdoc, a package-map line into this file's Layout section, a
+  cross-cutting rule into Conventions / Scope decisions. `ideas/` holds
+  only *pending* thinking; anything worth keeping after the work lands
+  moves to a durable home, and the transient container disappears.
 - **Pikuri owns the loop and the tools; we own the UI shell.**
   When changing pikuri-tui, the question is "what does the user
   see, and where is focus?" — the agent loop is somebody else's
