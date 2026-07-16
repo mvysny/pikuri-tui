@@ -189,7 +189,9 @@ module Code
       @leader_menu = build_leader_menu
       @screen.on_error = method(:on_screen_error)
       @screen.content = @layout
-      @screen.focused = @input
+      # Focus the window, not the inner area: Tuile's Window→content focus
+      # cascade re-points onto the InputArea so the caret lands there.
+      @screen.focused = @input_window
       register_shortcuts
     end
 
@@ -220,9 +222,7 @@ module Code
         tool_formatters: @tool_formatters, model_names: @model_picker.names
       )
 
-      @input = Shared::InputArea.new(on_submit: method(:submit_message))
-      @input_window = Tuile::Component::Window.new('You')
-      @input_window.content = @input
+      @input_window = Shared::InputWindow.new(on_submit: method(:submit_message))
 
       # Sidebar top: the agent's task list, fed by the TaskListener off
       # the Pikuri::Tasks::ListChanged stream.

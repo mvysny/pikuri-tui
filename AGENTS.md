@@ -68,7 +68,8 @@ The three shells keep their genuinely-divergent scaffolding (`App` /
 `lib/code.rb` and `lib/computer.rb`; the computer shell
 additionally reuses the `Code::*` confirmer / diff adapters directly).
 The pieces that carried no divergence are shared top-level components
-instead: the Enter-submits input (`Shared::InputArea`) and the
+instead: the Enter-submits input (`Shared::InputArea`, framed by
+`Shared::InputWindow`) and the
 conversation-window footer updater (`Shared::StatusFooterUpdater`) — the footer's
 only cross-shell difference, chat's lack of a plan-mode badge, collapses
 to chat simply never calling `Shared::StatusFooterUpdater#plan_active=`. Their dependencies are
@@ -266,7 +267,12 @@ Zeitwerk over `lib/` and eager-loads it.
   all three shells; each `App` registers its own action set.
 - `lib/shared/input_area.rb` — `Shared::InputArea`, the bottom-pane
   `TextArea` subclass that rebinds Enter to submit-and-clear (blank
-  buffers are a no-op). Shared by all three shells.
+  buffers are a no-op); framed by `Shared::InputWindow`. Shared by all
+  three shells.
+- `lib/shared/input_window.rb` — `Shared::InputWindow`, the `Window`
+  captioned "Prompt" framing a `Shared::InputArea`; the host focuses the
+  window and Tuile's content-focus cascade lands the caret on the area.
+  Shared by all three shells.
 - `lib/shared/status_footer_updater.rb` — `Shared::StatusFooterUpdater`, the
   presenter that keeps the conversation window's footer chrome current
   (it drives `Window#footer_text`; it is not itself a widget), shared by
@@ -548,7 +554,8 @@ Zeitwerk over `lib/` and eager-loads it.
   appears in more than one shell, extract it once into the
   `Shared::` namespace (or `Code::*` when it's coding-family) and
   reuse it — that is how we kill duplication. The building blocks
-  already living this way: `Shared::InputArea`, `Shared::StatusFooterUpdater`,
+  already living this way: `Shared::InputArea`, `Shared::InputWindow`,
+  `Shared::StatusFooterUpdater`,
   `Shared::ConversationWindow`,
   `Shared::LeaderMenu`, `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the computer shell reuses verbatim.

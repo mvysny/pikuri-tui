@@ -178,7 +178,9 @@ module Computer
       @leader_menu = build_leader_menu
       @screen.on_error = method(:on_screen_error)
       @screen.content = @layout
-      @screen.focused = @input
+      # Focus the window, not the inner area: Tuile's Window→content focus
+      # cascade re-points onto the InputArea so the caret lands there.
+      @screen.focused = @input_window
       register_shortcuts
     end
 
@@ -206,9 +208,7 @@ module Computer
         tool_formatters: @tool_formatters, model_names: @model_picker.names
       )
 
-      @input = Shared::InputArea.new(on_submit: method(:submit_message))
-      @input_window = Tuile::Component::Window.new('You')
-      @input_window.content = @input
+      @input_window = Shared::InputWindow.new(on_submit: method(:submit_message))
 
       @confirmer = Code::ConfirmerPopup.new(screen: @screen)
       @plan_mode_listener = Code::PlanModeListener.new(footer: @conversation_window.status_footer_updater, screen: @screen)
