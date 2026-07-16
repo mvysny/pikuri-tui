@@ -1,53 +1,11 @@
-# Idea: UI-component-shaped COP as the default target
+# Idea: UI-component-shaped COP — concrete pikuri-tui shapes
 
-## The principle
-
-When a UI framework is in play, prefer expressing a problem as a **UI
-component** — subclass the actual widget (`TextView`, `TextArea`,
-`Window`, …) and bolt the behavior / business logic onto it — then
-compose those components into bigger ones. This is COP with the extra
-constraint that the unit of composition *is* the unit of the framework: a
-`Window` frames a `TextView` frames a `TextArea`, each a self-sufficient
-box. Make "can this be a single UI component?" the **primary target** for
-any new UI-facing piece.
-
-### The boundary: model vs. view
-
-The line that decides the shape is the **model/view split**, à la Swing
-`JTable`: the widget owns the *view*, and the data arrives through a
-general *model* API that is agnostic to the actual source (JDBC, a file, a
-computed result — `JTable` doesn't care). The UI component is always a
-component; the *data source* is the separate thing. So a background
-worker like `Code::GitWatcher` is **not** "an exception to being a
-component" — it's the **model half**, and the view half is still a UI
-component. Two shapes, chosen by whether the source is dedicated or shared:
-
-1. **Dedicated 1:1 source → self-sufficient subclass.** When a source
-   backs exactly one component, the component may subclass the widget
-   *and* wire its own model straight to that source — reaching the backend
-   directly. Swing: `PersonTable < JTable` whose model hits one JPA table.
-   This is the self-sufficiency the global CLAUDE.md COP note already
-   blesses (`BookingsGrid` populating itself). Ours: `ConversationTextView`
-   with its nested `Listener` (the model adapter for the agent event
-   stream) is this shape.
-2. **Shared 1:many source → inject it.** When one source feeds several
-   components (`GitWatcher` → summary pane + diff pane), don't force it
-   into one widget. Build a Tuile component that takes the source as a
-   **ctor arg** and configures itself to feed from it. Each view feeds
-   from the shared model; the model stays a plain service.
-
-Still genuinely *not* a component (the narrow exceptions):
-
-- **Pure presenter, no widget of its own** — drives someone else's chrome.
-  Ex: `Shared::StatusFooterUpdater` (drives `Window#footer_text`), which
-  AGENTS.md already argues is deliberately *not* a `*Label`.
-- **Pure listener / adapter** bridging into another component's surface.
-  Ex: `Code::PlanModeListener` (flips a footer badge).
-- **The alternative is plainly simpler.** Don't manufacture a subclass
-  where a two-line helper does.
-
-(A data-source service like `GitWatcher` is no longer in this list — it's
-the model half of case 2, paired with view components, not an exception.)
+> **The architectural principle now lives in
+> [`ui-component-cop-principle.md`](ui-component-cop-principle.md)** — the
+> default-target rule, the composition-over-inheritance carve-out, the
+> model/view boundary as a sizing aid, the render-verb seam, the threading
+> consequence, and the backport mapping. This file keeps only the concrete
+> pikuri-tui component shapes that apply that principle.
 
 ## It's already our house style (just not uniform)
 
