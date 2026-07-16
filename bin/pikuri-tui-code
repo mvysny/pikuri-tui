@@ -313,7 +313,7 @@ token_log = Pikuri::Agent::Listener::TokenLog.new
 # ToolCall renders as a before/after diff (the write side reads the
 # existing file through the same filesystem the Write tool uses) instead of
 # an argument dump, and the paired ToolResult is suppressed on success /
-# surfaced on error. See Shared::ConversationTextView#tool_formatters.
+# surfaced on error. See Shared::ConversationWindow#tool_formatters.
 tool_formatters = {
   'edit'  => Code::EditFormatter.new,
   'write' => Code::WriteFormatter.new(filesystem: filesystem)
@@ -344,7 +344,7 @@ app = Code::App.new(
   code_command_approver = confirm_enabled ? Pikuri::Code::Bash::ReadOnlyCommandApprover.new(allow_git: trusted_repo) : nil
 
   # Coalesce streaming delta chunks at 15 fps before they reach the
-  # Markdown-rendering Shared::ConversationTextView (see bin/pikuri-tui-chat for the
+  # Markdown-rendering Shared::ConversationWindow (see bin/pikuri-tui-chat for the
   # rationale). flush_pending_on_non_delta: false because the bookend
   # Assistant / Thinking events re-render the authoritative final content.
   rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(

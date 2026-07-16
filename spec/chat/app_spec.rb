@@ -71,7 +71,7 @@ RSpec.describe Chat::App do
 
   it 'hands the conversation listener to the build block (so the agent sees the conversation pane)' do
     app # force construction
-    assert_kind_of Shared::ConversationTextView::Listener, @listener
+    assert_kind_of Shared::ConversationWindow::Listener, @listener
   end
 
   it 'starts with no errors logged and a discoverable "^K menu" status-bar hint' do
@@ -311,17 +311,19 @@ RSpec.describe Chat::App do
     assert_includes rendered, 'pikuri-side message'
   end
 
-  it 'forwards markdown: true (the default) to the Shared::ConversationTextView' do
+  it 'forwards markdown: true (the default) to the Shared::ConversationWindow' do
     app
-    assert_equal true, app.conversation_view.instance_variable_get(:@markdown)
+    window = app.instance_variable_get(:@conversation_window)
+    assert_equal true, window.instance_variable_get(:@markdown)
   end
 
-  it 'forwards markdown: false to the Shared::ConversationTextView when wired off' do
+  it 'forwards markdown: false to the Shared::ConversationWindow when wired off' do
     explicit_app = described_class.new(markdown: false) do |listener|
       @listener = listener
       StubAgent.new(listener)
     end
-    assert_equal false, explicit_app.conversation_view.instance_variable_get(:@markdown)
+    window = explicit_app.instance_variable_get(:@conversation_window)
+    assert_equal false, window.instance_variable_get(:@markdown)
   end
 
   it 'installs an on_error handler that funnels uncaught exceptions to the pikuri log' do

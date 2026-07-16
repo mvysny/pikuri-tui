@@ -129,8 +129,8 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   touches Pikuri. The general shape (the composition-over-inheritance UI
   carve-out, the model/view sizing seam, the data-in-renders-itself rule) lives in the
   `cop` skill and the two posts it cites; the Tuile mechanics live in the
-  `tuile` skill. Live exemplars: `Shared::ConversationWindow` /
-  `ConversationTextView` (widget owns rendering, thin nested `Listener`) is
+  `tuile` skill. Live exemplars: `Shared::ConversationWindow` (a `Window`
+  that renders into its own content view, with a thin nested `Listener`) is
   the big-nested case; `Code::GitWatcher` feeding two panes is the
   shared-injected case.
 
@@ -192,16 +192,11 @@ Zeitwerk over `lib/` and eager-loads it.
   XDG-path TOML config all three shells load at boot (connections,
   sandbox/confirm switches, MCP servers), CLI overrides on top,
   hand-validated.
-- `lib/shared/conversation_text_view.rb` — `Shared::ConversationTextView`,
-  the `Tuile::Component::TextView` subclass that owns the vocabulary for
-  rendering an agent conversation (blocks, streaming buffers, Markdown /
-  grayscale, tool formatters) plus a nested
-  `Shared::ConversationTextView::Listener` (a `Pikuri::Agent::Listener::Base`)
-  that translates the event stream into those render calls. The COP
-  inversion of the old listener-owns-rendering shape: the widget owns "how
-  a conversation is drawn," the listener is a thin event→verb adapter that
-  holds the per-stream state and mints indented siblings for sub-agents.
-  Shared by all three shells.
+- `lib/shared/streamed_block.rb` — `Shared::StreamedBlock`, a
+  `Tuile::Component::TextView::Region` + its streaming buffer as one unit:
+  lazy-open on first `#append`, then `#finalize` (commit) / `#wipe` (drop
+  region + content) / `#preserve` (drop handle, keep content). The
+  `Shared::ConversationWindow::Listener` holds two (assistant + thinking).
 - `Shared::Markdown` — namespace (implicit — no `lib/shared/markdown.rb`,
   autovivified from `lib/shared/markdown/`) for the Markdown → ANSI
   rendering path (renderer over converter, the in-place streaming buffers,
@@ -286,13 +281,15 @@ Zeitwerk over `lib/` and eager-loads it.
   transport→display-name resolution the picker's name map feeds).
 - `lib/shared/conversation_window.rb` — `Shared::ConversationWindow`, the
   conversation transcript as one cohesive `Tuile::Component::Window`
-  subclass shared by all three shells: frames a `Shared::ConversationTextView`
-  (which owns its own transcript listener) and carries a
+  subclass shared by all three shells: renders the agent event stream into
+  its own content view (blocks, `Shared::StreamedBlock` streaming buffers,
+  Markdown / grayscale, tool formatters) via a thin nested `Listener` (a
+  `Pikuri::Agent::Listener::Base` that holds the per-stream state and mints
+  indented siblings for sub-agents), and carries a
   `Shared::StatusFooterUpdater` footer that itself doubles as the
   `ModelSwitched` listener. Exposes `#listener` (the transcript) /
   `#status_footer_updater` (the footer) for the host to compose into the
-  agent's `ListenerList`. The COP domain component that collapsed the
-  conversation-pane wiring each `App` used to hand-assemble.
+  agent's `ListenerList`.
 - `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
   `lib/chat/`) for the chat front-end (`Chat::App` + `Chat::Layout`); the
   baseline shell the `Code` / `Computer` siblings were copied from.
@@ -477,8 +474,8 @@ Zeitwerk over `lib/` and eager-loads it.
   wired) and is a single untagged logger, so it's reserved for one job:
   `Shared::Log::UI#wire!` still assigns `Tuile.logger = Logger.new(io)` to capture
   `Tuile`'s *own* internal noise into the same LogWindow. The
-  conversation pane (`Shared::ConversationTextView`, driven by its
-  `Shared::ConversationTextView::Listener`)
+  conversation pane (`Shared::ConversationWindow`, driven by its nested
+  `Shared::ConversationWindow::Listener`)
   is for the LLM stream — assistant Markdown, reasoning, tool calls,
   observations — and is not a log sink; never write log lines into it.
 - **Our bugs raise; library exceptions are logged.** Two buckets:

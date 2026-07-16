@@ -252,7 +252,7 @@ app = Computer::App.new(
   confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE
 
   # Coalesce streaming delta chunks at 15 fps before they reach the
-  # Markdown-rendering Shared::ConversationTextView (see bin/pikuri-tui-chat for the
+  # Markdown-rendering Shared::ConversationWindow (see bin/pikuri-tui-chat for the
   # rationale). flush_pending_on_non_delta: false because the bookend
   # Assistant / Thinking events re-render the authoritative final content.
   rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(

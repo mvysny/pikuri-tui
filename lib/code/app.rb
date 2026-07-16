@@ -22,7 +22,7 @@ module Code
   # the +Screen+ — neither exists until the screen is initialized.
   # Resolving that is why the constructor takes a block: App builds the
   # components (the {Shared::ConversationWindow} owns the
-  # {Shared::ConversationTextView::Listener} / {Shared::StatusFooterUpdater}) and the confirmer,
+  # {Shared::ConversationWindow::Listener} / {Shared::StatusFooterUpdater}) and the confirmer,
   # then yields +(listener, confirmer, …)+; the block returns a constructed
   # +Pikuri::Agent+ that App installs. The bin uses this seam to pick
   # model / tools / workspace / sandbox without App learning about any
@@ -68,7 +68,7 @@ module Code
 
     # @return [Tuile::Component::TextView] the conversation transcript
     #   pane. Exposed primarily for tests; production code should reach
-    #   it through the {Shared::ConversationTextView::Listener}.
+    #   it through the {Shared::ConversationWindow::Listener}.
     def conversation_view = @conversation_window.view
 
     # @return [TaskListWindow::Listener] the task-pane listener (owned by
@@ -113,10 +113,10 @@ module Code
     # @param project_root [Pathname, String] the workspace root shown
     #   as the conversation window title. Defaults to the current
     #   working directory.
-    # @param markdown [Boolean] forwarded to {Shared::ConversationTextView}'s
+    # @param markdown [Boolean] forwarded to {Shared::ConversationWindow}'s
     #   +markdown:+ flag (default +true+).
     # @param tool_formatters [Hash{String => Object}] forwarded to
-    #   {Shared::ConversationTextView}'s +tool_formatters:+ — the per-tool diff
+    #   {Shared::ConversationWindow}'s +tool_formatters:+ — the per-tool diff
     #   formatters ({EditFormatter} / {WriteFormatter}) the bin wires for
     #   the +edit+ / +write+ tools. Defaults to +{}+.
     # @param models [Array<Shared::Model::Choice>] the connections the leader menu's
@@ -134,7 +134,7 @@ module Code
     #   {PlanModeListener}.
     # @yield [listener, confirmer, task_listener, status_footer_updater, plan_mode_listener]
     #   one-shot factory invoked exactly once during construction.
-    #   Receives the {Shared::ConversationTextView::Listener} bound to this app's conversation
+    #   Receives the {Shared::ConversationWindow::Listener} bound to this app's conversation
     #   pane, the {ConfirmerPopup}, the {TaskListWindow::Listener} bound to the
     #   sidebar task pane, the {Shared::StatusFooterUpdater} that keeps the footer
     #   model name current, and the {PlanModeListener} that keeps the
@@ -142,7 +142,7 @@ module Code
     #   +Pikuri::Agent+ whose +ListenerList+ includes the listeners and
     #   the +token_log+ exposed at {#token_log}, with the confirmer wired
     #   into its write/bash tools.
-    # @yieldparam listener [Shared::ConversationTextView::Listener] the conversation-pane
+    # @yieldparam listener [Shared::ConversationWindow::Listener] the conversation-pane
     #   listener; include it in the agent's +ListenerList+.
     # @yieldparam confirmer [ConfirmerPopup] the modal confirmer; pass
     #   it to the +Write+ / +Pikuri::Code::Bash+ tools.
@@ -288,7 +288,7 @@ module Code
     # +Pikuri::Agent#clear_conversation+ (chat history, controls, and
     # each extension's conversation-scoped state — the task list clears,
     # the workspace read-record drops). That emits a single
-    # +Pikuri::Agent::Event::Reset+, off which the {Shared::ConversationTextView::Listener} wipes
+    # +Pikuri::Agent::Event::Reset+, off which the {Shared::ConversationWindow::Listener} wipes
     # the conversation pane and the +TokenLog+ zeroes the footer's context
     # snapshot — so this method only kicks the agent; the visible reset
     # falls out of the event stream. The leader menu's +c+ action.
@@ -368,7 +368,7 @@ module Code
     # logged (the long-running TUI takes the "exceptions logged, our
     # bugs raise" path from CLAUDE.md) and a short red one-liner is
     # echoed into the conversation pane; cancellation is silent because
-    # {Shared::ConversationTextView::Listener} already rendered the +Cancelled+ event.
+    # {Shared::ConversationWindow::Listener} already rendered the +Cancelled+ event.
     #
     # @param message [String]
     # @return [void]
@@ -381,7 +381,7 @@ module Code
       Thread.new do
         @agent.run_loop(user_message: message, transport: transport)
       rescue Pikuri::Agent::Control::Cancellable::Cancelled
-        # Notice already rendered by the Shared::ConversationTextView::Listener; nothing else to do.
+        # Notice already rendered by the Shared::ConversationWindow::Listener; nothing else to do.
       rescue StandardError => e
         LOG.error(
           "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"
@@ -420,7 +420,7 @@ module Code
     # does. Three states, in priority order:
     #
     # 1. A turn is running -> cancel it. The
-    #    {Shared::ConversationTextView::Listener} renders the +Cancelled+ event; the worker's
+    #    {Shared::ConversationWindow::Listener} renders the +Cancelled+ event; the worker's
     #    +ensure+ clears {@turn_in_progress}.
     # 2. Nothing running but something is focused (normally the {Shared::InputWindow})
     #    -> drop focus, the same visible effect as ESC on the input.

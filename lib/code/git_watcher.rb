@@ -20,7 +20,7 @@ module Code
   #
   # The working tree changes for reasons no agent announces (the user editing
   # files, an external build, a +git+ command in a shell tool), so there is no
-  # event to subscribe to — unlike {Shared::ConversationTextView::Listener} /
+  # event to subscribe to — unlike {Shared::ConversationWindow::Listener} /
   # {TaskListWindow::Listener}, which ride the agent's event stream. A
   # periodic poll is the honest model: every {POLL_INTERVAL} seconds capture the
   # current state and, only when it differs from the last capture, emit it.

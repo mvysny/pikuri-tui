@@ -109,13 +109,13 @@ token_log = Pikuri::Agent::Listener::TokenLog.new
 
 app = Chat::App.new(token_log: token_log, models: models) do |listener, status_footer_updater|
   # Coalesce streaming delta chunks at 15 fps before they reach the
-  # Markdown-rendering Shared::ConversationTextView: a fast llama.cpp can emit dozens
+  # Markdown-rendering Shared::ConversationWindow: a fast llama.cpp can emit dozens
   # of deltas per second and re-rendering Markdown on every one is
   # wasted work the user can't perceive. flush_pending_on_non_delta:
   # false because the Assistant / Thinking bookend events re-render
-  # the authoritative final content (see Shared::ConversationTextView::Listener#flush_assistant
-  # / #flush_thinking), so emitting the trailing 0–66 ms of buffered
-  # deltas right before the redraw is pure CPU waste.
+  # the authoritative final content (the listener finalizes the open
+  # streamed block, replacing the preview), so emitting the trailing
+  # 0–66 ms of buffered deltas right before the redraw is pure CPU waste.
   rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
     listener,
     fps: 15,

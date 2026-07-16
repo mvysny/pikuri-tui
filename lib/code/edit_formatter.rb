@@ -10,7 +10,7 @@ module Code
   #
   # The diff is self-contained — the +ToolCall+ event already carries both
   # strings, so no file read is needed (nothing blocks the UI thread on
-  # IO). Implements the {Shared::ConversationTextView} +tool_formatters+
+  # IO). Implements the {Shared::ConversationWindow} +tool_formatters+
   # protocol: {#render_call} on the +ToolCall+, {#render_result} on the
   # paired +ToolResult+.
   class EditFormatter

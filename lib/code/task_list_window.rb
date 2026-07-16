@@ -100,7 +100,7 @@ module Code
     # agent's worker thread and marshals the rewrite onto the event-loop thread
     # via +screen.event_queue.submit+ (the queue is FIFO, so a batch's events
     # still land in order and the last snapshot wins). The companion to
-    # {Shared::ConversationTextView::Listener} — same marshaling, a tiny slice of
+    # {Shared::ConversationWindow::Listener} — same marshaling, a tiny slice of
     # the stream, and NOT rate-limited (task mutations are rare and each snapshot
     # is authoritative).
     class Listener < Pikuri::Agent::Listener::Base

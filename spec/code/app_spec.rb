@@ -74,7 +74,7 @@ RSpec.describe Code::App do
 
   it 'hands the conversation listener to the build block as the first arg' do
     app # force construction
-    assert_kind_of Shared::ConversationTextView::Listener, @listener
+    assert_kind_of Shared::ConversationWindow::Listener, @listener
   end
 
   it 'hands a ConfirmerPopup to the build block as the second arg' do
