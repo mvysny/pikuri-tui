@@ -9,7 +9,7 @@ require 'tuile'
 #   picker = Shared::Model::Picker.new(models: choices)
 #   picker.multiple?                       # gate the leader-menu "m" entry
 #   picker.open(current: agent.transport)  # popup; a pick becomes pending
-#   picker.take_pending                    # App#start_turn drains it into run_loop
+#   picker.take_pending                    # the session drains it into run_loop
 #
 # == What it owns (and what it deliberately doesn't)
 #
@@ -18,8 +18,9 @@ require 'tuile'
 # *current* model — that authority stays with pikuri
 # (+Pikuri::Agent#transport+) and the footer (moved on-land by
 # {Shared::StatusFooterUpdater}), so a failed switch never advertises a model it never
-# reached. The picker only records the user's request; +App#start_turn+
-# drains it via {#take_pending} and hands it to the next +run_loop+, and the
+# reached. The picker only records the user's request; the
+# {Shared::AgentSession} that owns the turn drains it via {#take_pending} at
+# the top of each turn and hands it to the next +run_loop+, and the
 # footer moves only once the switch lands. This is why {#open} takes the
 # current transport as an argument rather than holding an +Pikuri::Agent+
 # reference: the picker is a catalog + a request slot, not a source of
@@ -80,7 +81,7 @@ class Shared::Model::Picker
   end
 
   # Return the pending switched-to transport and clear it, so a pick is
-  # applied at most once. Called by +App#start_turn+ on the UI thread
+  # applied at most once. Called by {Shared::AgentSession} on the UI thread
   # before spawning the agent worker.
   #
   # @return [Pikuri::Agent::ChatTransport, nil] the pending transport, or

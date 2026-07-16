@@ -68,10 +68,12 @@ The three shells keep their genuinely-divergent scaffolding (`App` /
 `lib/code.rb` and `lib/computer.rb`; the computer shell
 additionally reuses the `Code::*` confirmer / diff adapters directly).
 The pieces that carried no divergence are shared top-level components
-instead: the Enter-submits input (`Shared::InputWindow`) and the
+instead: the Enter-submits input (`Shared::InputWindow`), the
 conversation-window footer updater (`Shared::StatusFooterUpdater`) — the footer's
 only cross-shell difference, chat's lack of a plan-mode badge, collapses
-to chat simply never calling `Shared::StatusFooterUpdater#plan_active=`. Their dependencies are
+to chat simply never calling `Shared::StatusFooterUpdater#plan_active=` — and the
+turn-lifecycle engine (`Shared::AgentSession`, the worker thread + mid-turn
+injection + spinner + `Ctrl+C` escalation each `App` used to carry byte-identically). Their dependencies are
 split across Bundler groups: `bin/pikuri-tui-chat` runs
 `Bundler.setup(:default)`, `bin/pikuri-tui-code` runs
 `Bundler.setup(:default, :code)`, and `bin/pikuri-tui-computer` runs
@@ -279,6 +281,17 @@ Zeitwerk over `lib/` and eager-loads it.
   footer's model name — so the footer goes straight into the agent's
   `ListenerList` (no separate listener object; `#current_model=` owns the
   transport→display-name resolution the picker's name map feeds).
+- `lib/shared/agent_session.rb` — `Shared::AgentSession`, the turn-lifecycle
+  engine all three shells compose: owns one agent's worker thread, the
+  `@turn_in_progress` concurrency guard, mid-turn interloper injection +
+  leftover delivery, the conversation spinner, the pending model-switch drain,
+  and the `Ctrl+C` escalation. A coordinator/presenter (holds the `screen` +
+  conversation window, drives its spinner/error verbs) — sibling of
+  `Shared::StatusFooterUpdater`, *not* a UI-independent service like
+  `Code::GitWatcher`. Each `App` constructs one, sets `#agent=` after its build
+  block, and delegates Enter/`Ctrl+C`/leader-`c` into it; the `App` keeps its
+  own construction/layout/leader-menu/shortcuts/`run` loop plus `quit` /
+  `on_screen_error` (which touch neither the agent nor the turn flag).
 - `lib/shared/conversation_window.rb` — `Shared::ConversationWindow`, the
   conversation transcript as one cohesive `Tuile::Component::Window`
   subclass shared by all three shells: renders the agent event stream into
@@ -457,6 +470,11 @@ Zeitwerk over `lib/` and eager-loads it.
   `'computer'` for the three `App`s. The bins are plain scripts, not classes, so when one
   needs to log it keeps a local (`main_log = Pikuri.logger_for('main')` —
   the coding bin does, for project-root / skill / safety notices).
+  `Shared::AgentSession` is the one exception to the own-your-`LOG`-constant
+  rule: it takes an injected `logger:` instead, so its dropped-injection /
+  clear-during-turn warnings keep the *composing* shell's tag
+  (`'chat'` / `'code'` / `'computer'`) in the diagnostic pane — each `App`
+  passes its own `LOG`. It defines no `LOG` of its own and adds no new tag.
 
   Why pikuri and not `Tuile.logger`: pikuri's `Pikuri.log_io` defaults
   to `$stderr`, so a logger works from the first line of boot, *before*
@@ -586,7 +604,7 @@ Zeitwerk over `lib/` and eager-loads it.
   reuse it — that is how we kill duplication. The building blocks
   already living this way: `Shared::InputWindow`,
   `Shared::StatusFooterUpdater`,
-  `Shared::ConversationWindow`,
+  `Shared::ConversationWindow`, `Shared::AgentSession`,
   `Shared::LeaderMenu`, `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the computer shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this

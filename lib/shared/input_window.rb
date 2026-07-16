@@ -10,7 +10,7 @@ require 'tuile'
 # lands focus on the inner {Area}, so there is no focus plumbing to expose
 # here:
 #
-#   win = Shared::InputWindow.new(on_submit: method(:submit_message))
+#   win = Shared::InputWindow.new(on_submit: session.method(:submit))
 #   layout = Chat::Layout.new(conversation: conversation_window, input: win)
 #   screen.focused = win   # cascades onto the inner Area
 #

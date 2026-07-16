@@ -102,14 +102,14 @@ RSpec.describe Code::App do
   it 'cancels the in-flight turn when Ctrl+C arrives mid-turn' do
     agent = app.agent
     agent.block_turns!
-    app.send(:submit_message, 'work')
+    app.session.submit('work')
     wait_until { agent.messages.size == 1 }
 
     press_ctrl_c
     assert agent.cancellable.cancelled?
   ensure
     agent.finish_turn!
-    wait_until { !app.instance_variable_get(:@turn_in_progress) }
+    wait_until { !app.session.turn_in_progress? }
   end
 
   it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
@@ -179,47 +179,47 @@ RSpec.describe Code::App do
   it 'queues a mid-turn submission into the interloper instead of starting a second run_loop' do
     agent = app.agent
     agent.block_turns!
-    app.send(:submit_message, 'first')
+    app.session.submit('first')
     wait_until { agent.messages.size == 1 }
 
-    app.send(:submit_message, 'second')
+    app.session.submit('second')
     assert_equal ['second'], agent.interloper.peek
     assert_equal ['first'], agent.messages
   ensure
     2.times { agent.finish_turn! }
-    wait_until { agent.messages.size == 2 && !app.instance_variable_get(:@turn_in_progress) }
+    wait_until { agent.messages.size == 2 && !app.session.turn_in_progress? }
   end
 
   it 'delivers injections still queued when the turn ends as a fresh turn (in order)' do
     agent = app.agent
     agent.block_turns!
-    app.send(:submit_message, 'first')
+    app.session.submit('first')
     wait_until { agent.messages.size == 1 }
 
-    app.send(:submit_message, 'queued while busy')
+    app.session.submit('queued while busy')
     agent.finish_turn!
     wait_until { agent.messages.size == 2 }
     assert_equal ['first', 'queued while busy'], agent.messages
     assert_empty agent.interloper.peek
   ensure
     agent.finish_turn!
-    wait_until { !app.instance_variable_get(:@turn_in_progress) }
+    wait_until { !app.session.turn_in_progress? }
   end
 
   it 'joins multiple leftover injections into one delivery turn, in submission order' do
     agent = app.agent
     agent.block_turns!
-    app.send(:submit_message, 'first')
+    app.session.submit('first')
     wait_until { agent.messages.size == 1 }
 
-    app.send(:submit_message, 'also this')
-    app.send(:submit_message, 'and this')
+    app.session.submit('also this')
+    app.session.submit('and this')
     agent.finish_turn!
     wait_until { agent.messages.size == 2 }
     assert_equal ['first', "also this\n\nand this"], agent.messages
   ensure
     agent.finish_turn!
-    wait_until { !app.instance_variable_get(:@turn_in_progress) }
+    wait_until { !app.session.turn_in_progress? }
   end
 
   it 'drops a mid-turn submission with a warn when the agent has no interloper wired' do
@@ -228,12 +228,12 @@ RSpec.describe Code::App do
     end
     agent = no_interloper_app.agent
     agent.block_turns!
-    no_interloper_app.send(:submit_message, 'first')
+    no_interloper_app.session.submit('first')
     wait_until { agent.messages.size == 1 }
 
-    no_interloper_app.send(:submit_message, 'second')
+    no_interloper_app.session.submit('second')
     agent.finish_turn!
-    wait_until { !no_interloper_app.instance_variable_get(:@turn_in_progress) }
+    wait_until { !no_interloper_app.session.turn_in_progress? }
     assert_equal ['first'], agent.messages
     rendered = no_interloper_app.log_window.content.text.to_s
     assert_includes rendered, 'mid-turn message dropped'
@@ -279,11 +279,11 @@ RSpec.describe Code::App do
       _, block = capture_picker { picker.open(current: agent.transport) }
       block.call('2') # pick 'Cloud'
 
-      picker_app.send(:submit_message, 'go')
+      picker_app.session.submit('go')
       wait_until { agent.messages.size == 1 }
       assert_equal choices[1].transport, agent.transports[0]
 
-      picker_app.send(:submit_message, 'again')
+      picker_app.session.submit('again')
       wait_until { agent.messages.size == 2 }
       assert_nil agent.transports[1], 'a switch must apply at most once'
     end
@@ -399,7 +399,7 @@ RSpec.describe Code::App do
 
   # Dispatch Ctrl+C through the screen's real key handler (private in the
   # release gem) so the test exercises the full chain: global-shortcut
-  # lookup, the +over_popups: false+ gate, then {Code::App#on_interrupt}.
+  # lookup, the +over_popups: false+ gate, then {Shared::AgentSession#interrupt}.
   def press_ctrl_c
     app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
   end

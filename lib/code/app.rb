@@ -38,23 +38,17 @@ module Code
   # == Threading
   #
   # Per CLAUDE.md, Tuile is single-threaded and the agent loop must not
-  # run on the UI thread:
+  # run on the UI thread. App runs {Tuile::Screen#run_event_loop} on the
+  # caller's thread and delegates the off-thread turn lifecycle — worker
+  # thread, mid-turn injection, concurrency guard, spinner, Ctrl+C
+  # escalation — to a composed {Shared::AgentSession} (see its threading
+  # contract). Enter routes to +session.submit+, Ctrl+C to
+  # +session.interrupt+, leader +c+ to +session.clear_conversation+. The
+  # {ConfirmerPopup} bridges the other way: a tool on the worker thread
+  # calls +confirm?+, which submits the popup to the UI thread and blocks
+  # the worker until the user answers (see its docs).
   #
-  # - {Tuile::Screen#run_event_loop} runs on the caller's thread.
-  # - Each submitted user message spawns a fresh +Thread.new+ that calls
-  #   +agent.run_loop+. The listener's renderings, the worker's status
-  #   flag toggle, and any error logging marshal back via
-  #   +screen.event_queue.submit+.
-  # - The {ConfirmerPopup} bridges the other way: a tool on the worker
-  #   thread calls +confirm?+, which submits the popup to the UI thread
-  #   and blocks the worker until the user answers (see its docs).
-  # - Concurrent turns are prevented by +@turn_in_progress+: while a
-  #   turn is running, Enter routes the message into the agent's
-  #   +Pikuri::Agent::Control::Interloper+ instead of starting a second
-  #   +run_loop+. The flag is read and written only on the UI thread.
-  #
-  # UI-thread-confined (App's own methods; the worker it spawns runs the
-  # pikuri loop off-thread and marshals back).
+  # UI-thread-confined.
   class App
     LOG = Pikuri.logger_for('code')
     private_constant :LOG
@@ -65,6 +59,11 @@ module Code
 
     # @return [Pikuri::Agent] the agent the build block returned.
     attr_reader :agent
+
+    # @return [Shared::AgentSession] the turn-lifecycle engine this shell
+    #   composes; Enter / Ctrl+C / leader +c+ delegate into it. Exposed for
+    #   tests.
+    attr_reader :session
 
     # @return [Tuile::Component::TextView] the conversation transcript
     #   pane. Exposed primarily for tests; production code should reach
@@ -167,7 +166,6 @@ module Code
       @tool_formatters = tool_formatters
       @model_picker = Shared::Model::Picker.new(models: models)
       @plan_mode = plan_mode
-      @turn_in_progress = false
 
       build_components
       @log_ui.wire!
@@ -177,6 +175,7 @@ module Code
       )
       # Deferred from construction: the agent, hence its interloper,
       # doesn't exist until the build block has run.
+      @session.agent = @agent
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model (resolved from its transport);
       # Shared::StatusFooterUpdater#on_event takes over on every later switch.
@@ -218,7 +217,12 @@ module Code
         tool_formatters: @tool_formatters, model_names: @model_picker.names
       )
 
-      @input_window = Shared::InputWindow.new(on_submit: method(:submit_message))
+      @session = Shared::AgentSession.new(
+        screen: @screen, conversation_window: @conversation_window,
+        model_picker: @model_picker, logger: LOG
+      )
+
+      @input_window = Shared::InputWindow.new(on_submit: @session.method(:submit))
 
       # The tasks + git sidebar as one box: it owns its tasks-over-git split,
       # the GitWatcher poll (started/stopped in #run), and the diff popup the
@@ -249,7 +253,7 @@ module Code
     #   (the default), so it can't stack over an open popup. The {Shared::Log::UI} owns
     #   this binding because its hint also carries the unread-error tally —
     #   the only always-visible status-bar surface.
-    # - +Ctrl+C+ runs the {#on_interrupt} escalation (cancel turn ->
+    # - +Ctrl+C+ runs the {Shared::AgentSession#interrupt} escalation (cancel turn ->
     #   unfocus -> quit). The one direct accelerator kept: it is the urgent
     #   mid-turn interrupt, not a command we want behind a chord. Also
     #   +over_popups: false+: a popup means the user isn't interacting with
@@ -263,7 +267,7 @@ module Code
       @screen.register_global_shortcut(
         Tuile::Keys::CTRL_C,
         hint: "^C #{@screen.theme.error('cancel')}"
-      ) { on_interrupt }
+      ) { @session.interrupt }
       @log_ui.install_shortcut { @leader_menu.open }
     end
 
@@ -279,40 +283,15 @@ module Code
       menu.add('d', 'git diff') { @sidebar.open_diff }
       menu.add('p', 'plan mode') { toggle_plan_mode }
       menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
-      menu.add('c', 'clear conversation + context') { clear_conversation }
+      menu.add('c', 'clear conversation + context') { @session.clear_conversation }
       menu.add('q', 'quit') { quit }
       menu
     end
 
-    # Reset the agent to a fresh-conversation state via
-    # +Pikuri::Agent#clear_conversation+ (chat history, controls, and
-    # each extension's conversation-scoped state — the task list clears,
-    # the workspace read-record drops). That emits a single
-    # +Pikuri::Agent::Event::Reset+, off which the {Shared::ConversationWindow::Listener} wipes
-    # the conversation pane and the +TokenLog+ zeroes the footer's context
-    # snapshot — so this method only kicks the agent; the visible reset
-    # falls out of the event stream. The leader menu's +c+ action.
-    #
-    # Confined to between-turns: +clear_conversation+ is not designed to
-    # race an in-flight +run_loop+ (the chat is single-thread-confined,
-    # like a mid-conversation model switch), so while a turn is running
-    # this is a no-op, logged to the diagnostic pane. Runs on the
-    # event-loop thread (deferred by {Shared::LeaderMenu}), so the
-    # +@turn_in_progress+ read is safe.
-    #
-    # @return [void]
-    def clear_conversation
-      if @turn_in_progress
-        LOG.warn('clear conversation ignored: a turn is in progress')
-        return
-      end
-
-      @agent.clear_conversation
-    end
-
     # Stop the event loop, unwinding {#run} into +Screen#close+. The leader
-    # menu's +q+ action — a hard quit, distinct from {#on_interrupt}'s
-    # escalation (no turn-cancel / unfocus steps). Runs on the event-loop
+    # menu's +q+ action — a hard quit, distinct from
+    # {Shared::AgentSession#interrupt}'s escalation (no turn-cancel /
+    # unfocus steps). Runs on the event-loop
     # thread (deferred by {Shared::LeaderMenu}), so +stop+ is safe to call.
     #
     # @return [void]
@@ -332,121 +311,6 @@ module Code
     # @return [void]
     def toggle_plan_mode
       @plan_mode.active? ? @plan_mode.deactivate! : @plan_mode.activate!
-    end
-
-    # @param message [String] non-empty draft handed up by {Shared::InputWindow}
-    # @return [void]
-    def submit_message(message)
-      if @turn_in_progress
-        queue_mid_turn(message)
-        return
-      end
-
-      @turn_in_progress = true
-      start_turn(message)
-    end
-
-    # Route a message submitted while a turn is in flight into the
-    # agent's +Pikuri::Agent::Control::Interloper+. The agent drains the
-    # queue at its next +after_tool_result+ boundary. When the host
-    # wired no interloper, the message is dropped with a warn in the
-    # diagnostic log.
-    #
-    # @param message [String] non-empty draft handed up by {Shared::InputWindow}
-    # @return [void]
-    def queue_mid_turn(message)
-      interloper = @agent.interloper
-      if interloper.nil?
-        LOG.warn('mid-turn message dropped: the agent has no Interloper wired')
-        return
-      end
-
-      interloper.inject_user_message(message)
-    end
-
-    # Spawn a worker thread for one agent turn. Library exceptions are
-    # logged (the long-running TUI takes the "exceptions logged, our
-    # bugs raise" path from CLAUDE.md) and a short red one-liner is
-    # echoed into the conversation pane; cancellation is silent because
-    # {Shared::ConversationWindow::Listener} already rendered the +Cancelled+ event.
-    #
-    # @param message [String]
-    # @return [void]
-    def start_turn(message)
-      # Consume the picker's pending model switch (if any) on the UI
-      # thread, before the worker spawns: run_loop applies it at the top
-      # of the turn. take_pending clears it so it's applied at most once.
-      transport = @model_picker.take_pending
-      @conversation_window.start_animation
-      Thread.new do
-        @agent.run_loop(user_message: message, transport: transport)
-      rescue Pikuri::Agent::Control::Cancellable::Cancelled
-        # Notice already rendered by the Shared::ConversationWindow::Listener; nothing else to do.
-      rescue StandardError => e
-        LOG.error(
-          "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"
-        )
-        @conversation_window.render_turn_error(e)
-      ensure
-        @screen.event_queue.submit do
-          @conversation_window.stop_animation
-          @turn_in_progress = false
-          deliver_pending_injections
-        end
-      end
-    end
-
-    # A turn can end with messages still sitting in the interloper queue
-    # (the agent only drains it at +after_tool_result+ boundaries). Drain
-    # the leftovers here and start a fresh turn with them, in submission
-    # order, so every mid-turn message is delivered promptly. Fires after
-    # a cancelled turn too: a mid-turn message is usually a correction,
-    # and the cancel is what makes room for it.
-    #
-    # Runs on the UI thread (the caller marshals via +submit+), so the
-    # +@turn_in_progress+ read inside {#submit_message} is safe.
-    #
-    # @return [void]
-    def deliver_pending_injections
-      pending = @agent.interloper&.drain! || []
-      return if pending.empty?
-
-      submit_message(pending.join("\n\n"))
-    end
-
-    # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven
-    # explicitly because a global shortcut fires before the pane and so
-    # never "falls through" to the loop's unhandled-key quit the way ESC
-    # does. Three states, in priority order:
-    #
-    # 1. A turn is running -> cancel it. The
-    #    {Shared::ConversationWindow::Listener} renders the +Cancelled+ event; the worker's
-    #    +ensure+ clears {@turn_in_progress}.
-    # 2. Nothing running but something is focused (normally the {Shared::InputWindow})
-    #    -> drop focus, the same visible effect as ESC on the input.
-    # 3. Nothing running and nothing focused -> stop the event loop, which
-    #    unwinds {#run} into +Screen#close+. This is exactly what an
-    #    unhandled ESC does (+EventQueue#stop+).
-    #
-    # Registered +over_popups: false+, so this never runs while a popup is
-    # open — no need to guard the unfocus/quit steps against orphaning a
-    # modal popup's focus or quitting out from under it. In particular a
-    # {ConfirmerPopup} (always open mid-turn) is dismissed by declining
-    # (ESC/q), not by Ctrl+C.
-    #
-    # Runs on the UI thread (global-shortcut blocks dispatch from the event
-    # loop), so touching +focused=+ / +event_queue.stop+ and reading
-    # {@turn_in_progress} are all safe.
-    #
-    # @return [void]
-    def on_interrupt
-      if @turn_in_progress
-        @agent.cancellable&.cancel!
-      elsif @screen.focused
-        @screen.focused = nil
-      else
-        @screen.event_queue.stop
-      end
     end
 
     # @param exception [StandardError]
