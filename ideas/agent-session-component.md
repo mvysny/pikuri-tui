@@ -21,7 +21,14 @@ The single largest duplication in the tree. These methods are
   cancel turn → unfocus → stop event queue.
 - `clear_conversation` (chat:246, code:335, computer:289) —
   between-turns guard → `@agent.clear_conversation`.
-- `quit`, `on_screen_error` — identical.
+
+`quit` (`@screen.event_queue.stop`) and `on_screen_error` (log-only) are
+*also* byte-identical across the three, but they touch neither `@agent`
+nor `@turn_in_progress` — they're screen/app concerns, not turn-lifecycle.
+Pulling them in would smear the responsibility toward "everything `App`
+does minus layout," so they **stay in `App`** (the leader-menu `q` wiring
+and `@screen.on_error =` wiring already live there). See *Scope: what
+stays in App*.
 
 Plus the shared state: `@model_picker = Shared::Model::Picker.new(...)`
 and `@turn_in_progress = false`.
@@ -40,6 +47,40 @@ AGENTS.md keeps `App` / `Layout` as deliberate parallel copies — but it
 block is waiting to be pulled out"). `AgentSession` is such a block, not
 a generic-App base. Each `App` keeps its own construction/layout and
 *composes* an `AgentSession`.
+
+## What it is (COP): a coordinator/presenter, NOT a service
+
+`AgentSession` is a non-widget box — no addressable Tuile widget, so it's
+the COP "not a component" case, and (not being a Tuile subclass) it takes
+**no widget suffix**: a plain agent-noun name, same family as
+`Shared::StatusFooterUpdater` / `Code::GitWatcher`.
+
+But it is emphatically **not a UI-independent service** like `GitWatcher`
+(which touches no UI at all — `no views, no Tuile, no event loop`). It
+*must* hold `screen` (to marshal via `event_queue.submit`) and drive
+`conversation_window`'s spinner / error surface. Referencing UI is its
+job: coordinating the spinner with off-thread agent work is the whole
+point. So its true sibling is `Shared::StatusFooterUpdater` — a presenter
+that holds `screen` + a window and drives chrome — not `GitWatcher`.
+
+This still honors the COP arrow rule at the granularity that matters:
+`AgentSession` only calls `conversation_window`'s **public action verbs**
+(`start_animation` / `stop_animation` / `render_turn_error` — tell,
+don't ask); it never reaches into how the window draws, and the window
+keeps owning its rendering. Frame the rdoc as *coordinator/presenter*, not
+service — so a later reader doesn't "fix" it into a pure service and
+recreate the App-level coupling this extraction removes.
+
+## Scope: what stays in App
+
+The cohesive core is *turn lifecycle + the `@turn_in_progress` flag*:
+`submit_message`, `queue_mid_turn`, `start_turn`,
+`deliver_pending_injections`, `on_interrupt`, and `clear_conversation`
+(it reads the shared guard). `quit` and `on_screen_error` stay in `App` —
+they touch neither `@agent` nor the flag (see the Problem section). Each
+`App` keeps its construction / layout / leader-menu / shortcuts / `run`
+loop and *delegates* into the session (`menu.add('c') {
+@session.clear_conversation }`, `Ctrl+C` → `@session.interrupt`).
 
 ## Sketch
 
