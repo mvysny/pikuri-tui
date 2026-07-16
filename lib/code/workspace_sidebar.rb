@@ -80,7 +80,7 @@ module Code
     #   for tests.
     attr_reader :git_diff_window
 
-    # @return [TaskListTextView::Listener] the task-stream listener (owned by
+    # @return [TaskListWindow::Listener] the task-stream listener (owned by
     #   the task pane's view); fold it into the agent's +ListenerList+.
     def task_listener = @task_list_window.listener
 

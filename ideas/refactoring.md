@@ -18,11 +18,13 @@ nests its `Listener` where one exists, and keeps `attr_reader :view` for tests.
   needed — content is a plain `TextView`.
 - Specs renamed to `git_summary_window_spec` / `git_diff_window_spec`.
 
-## Stage 2 — TaskList (moderate, code-only)
+## Stage 2 — TaskList (moderate, code-only) — DONE
 
-- Merge `TaskListTextView` (rendering + nested `Listener`) into `TaskListWindow`;
-  delete the view class. Listener becomes `TaskListWindow::Listener` (constant
-  rename across code-shell files + specs; verify by eager-load + suite).
+- Merged `TaskListTextView` (rendering + nested `Listener`) into
+  `TaskListWindow` (now a `Window` rendering into its own content view);
+  deleted the view class. Listener is `TaskListWindow::Listener` (constant
+  renamed across code-shell files + specs). Specs merged into
+  `task_list_window_spec`.
 
 ## Stage 3 — Conversation (higher-risk; brainstorm before starting)
 

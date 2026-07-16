@@ -71,7 +71,7 @@ module Code
     #   it through the {Shared::ConversationTextView::Listener}.
     def conversation_view = @conversation_window.view
 
-    # @return [TaskListTextView::Listener] the task-pane listener (owned by
+    # @return [TaskListWindow::Listener] the task-pane listener (owned by
     #   the {WorkspaceSidebar}'s task pane) handed to the build block; the
     #   host wires it into the agent's +ListenerList+.
     def task_listener = @sidebar.task_listener
@@ -135,7 +135,7 @@ module Code
     # @yield [listener, confirmer, task_listener, status_footer_updater, plan_mode_listener]
     #   one-shot factory invoked exactly once during construction.
     #   Receives the {Shared::ConversationTextView::Listener} bound to this app's conversation
-    #   pane, the {ConfirmerPopup}, the {TaskListTextView::Listener} bound to the
+    #   pane, the {ConfirmerPopup}, the {TaskListWindow::Listener} bound to the
     #   sidebar task pane, the {Shared::StatusFooterUpdater} that keeps the footer
     #   model name current, and the {PlanModeListener} that keeps the
     #   footer plan-mode badge current; must return a constructed
@@ -146,7 +146,7 @@ module Code
     #   listener; include it in the agent's +ListenerList+.
     # @yieldparam confirmer [ConfirmerPopup] the modal confirmer; pass
     #   it to the +Write+ / +Pikuri::Code::Bash+ tools.
-    # @yieldparam task_listener [TaskListTextView::Listener] the task-pane listener;
+    # @yieldparam task_listener [TaskListWindow::Listener] the task-pane listener;
     #   include it in the agent's +ListenerList+ (alongside the
     #   +Pikuri::Tasks::Extension+ that emits the events it renders).
     # @yieldparam status_footer_updater [Shared::StatusFooterUpdater] the footer,

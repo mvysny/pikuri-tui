@@ -320,15 +320,12 @@ Zeitwerk over `lib/` and eager-loads it.
   (`#open_diff`), and exposes `#task_listener` for the agent's `ListenerList`.
   Coding-shell-only.
 - `lib/code/task_list_window.rb` —
-  `Code::TaskListWindow`, the sidebar task pane: a `Window` framing a
-  `Code::TaskListTextView`; exposes `#listener` (the view's) for the
-  agent's `ListenerList`. The frame-over-view sibling of
-  `Shared::ConversationWindow` ↔ `Shared::ConversationTextView`.
-- `lib/code/task_list_text_view.rb` —
-  `Code::TaskListTextView`, the `TextView` subclass that owns how a task
-  list is drawn (glyphs, placeholder, per-status tone) via the `#items=`
-  verb, plus a nested `Listener` (a `Pikuri::Agent::Listener::Base`)
-  translating the `Pikuri::Tasks::ListChanged` stream into `#items=` calls.
+  `Code::TaskListWindow`, the sidebar task pane: a `Window` domain component
+  that draws a task list into its own content view (glyphs, placeholder,
+  per-status tone) via the `#items=` verb, plus a nested `Listener` (a
+  `Pikuri::Agent::Listener::Base`) translating the `Pikuri::Tasks::ListChanged`
+  stream into `#items=` calls; exposes `#listener` for the agent's
+  `ListenerList`. Coding-shell-only.
 - `lib/code/plan_mode_listener.rb` —
   `Code::PlanModeListener`, a `Pikuri::Agent::Listener::Base`
   driving the footer plan-mode badge off `Pikuri::Code::PlanModeChanged`;

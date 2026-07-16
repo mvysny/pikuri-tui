@@ -7,7 +7,7 @@ RSpec.describe Code::WorkspaceSidebar do
   after  { Tuile::Screen.close }
 
   it 'exposes the task-pane listener for the agent ListenerList' do
-    assert_kind_of Code::TaskListTextView::Listener, sidebar.task_listener
+    assert_kind_of Code::TaskListWindow::Listener, sidebar.task_listener
   end
 
   describe 'layout' do
