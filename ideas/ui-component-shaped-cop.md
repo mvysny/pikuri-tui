@@ -1,11 +1,16 @@
 # Idea: UI-component-shaped COP — concrete pikuri-tui shapes
 
-> **The architectural principle now lives in
-> [`ui-component-cop-principle.md`](ui-component-cop-principle.md)** — the
-> default-target rule, the composition-over-inheritance carve-out, the
-> model/view boundary as a sizing aid, the render-verb seam, the threading
-> consequence, and the backport mapping. This file keeps only the concrete
-> pikuri-tui component shapes that apply that principle.
+> **The architectural principle has been backported and enshrined** — it now
+> lives in the `cop` skill (general shape: default-target rule,
+> composition-over-inheritance carve-out, model/view sizing aid, render-verb
+> seam) and the `tuile-components` skill (Tuile mechanics + threading), plus
+> the two posts they cite
+> (https://mvysny.github.io/component-oriented-programming/,
+> https://mvysny.github.io/composition-over-inheritance/) and the global
+> CLAUDE.md COP block. The `ideas/ui-component-cop-principle.md` brainstorm
+> was deleted once that landed. This file keeps only the concrete pikuri-tui
+> component shapes that apply the principle — and its one still-open piece,
+> Actionable 2 (the git-pane model/view reframing).
 
 ## It's already our house style (just not uniform)
 
@@ -90,9 +95,10 @@ see the note below.)*
   model/view (JTable) framing and the dedicated-vs-shared source cases.
 - **Actionable 1 (task-pane symmetry) DONE** — see above; it's the
   precedent to measure the git reframing against.
-- **PENDING — enshrine the principle in AGENTS.md** (see durable nuggets);
-  deferred until the git session so the convention captures both cases
-  with a real case-2 example.
+- **DONE — principle enshrined** in the `cop` / `tuile-components` skills, the
+  global CLAUDE.md COP block, and an AGENTS.md pointer (*Design with
+  components* names the live exemplars; *Working on this codebase* tells the
+  agent to read both skills before UI work).
 - **The git reframing (Actionable 2) gets its own brainstorming session.**
 
 ## Durable nuggets to propagate on completion
