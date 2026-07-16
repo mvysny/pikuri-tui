@@ -7,21 +7,23 @@ module Code
   # The sidebar "Changes" pane: a {Tuile::Component::TextView} subclass that
   # owns *how a git change summary is drawn* — one +"XY path  +A -D"+ line per
   # changed file, the label toned by change kind (new green, deleted red,
-  # modified yellow) and the +/- markers green/red, or a placeholder when the
-  # tree is clean. Data arrives through {#changes=} as {GitWatcher::Change}
-  # value objects, produced by the {GitWatcher} service; the view owns
-  # rendering, the service owns polling and data — the data-in split (see the
-  # `cop` skill).
+  # modified yellow) and the +/- markers green/red, a degraded notice when git
+  # failed, or a placeholder when the tree is clean. A {GitWatcher::Snapshot}
+  # arrives through {#snapshot=}, produced by the {GitWatcher} service; the view
+  # owns rendering, the service owns polling and data — the data-in split (see
+  # the `cop` skill).
   #
   #   view = Code::GitSummaryTextView.new
-  #   view.changes = [Code::GitWatcher::Change.new(code: 'M', path: 'a.rb', added: 2, deleted: 1)]
+  #   view.snapshot = Code::GitWatcher::Snapshot.new(
+  #     changes: [Code::GitWatcher::Change.new(code: 'M', path: 'a.rb', added: 2, deleted: 1)],
+  #     diff_text: '…', error: nil)
   #   # => "M a.rb  +2 -1"  (themed)
   #
   # Width-independent (one line per file, no reflow), so unlike
   # {GitDiffTextView} it needs no resize hook.
   #
-  # UI-thread-confined (the {Code::App} listener marshals {#changes=} /
-  # {#notice=} onto the UI thread before calling them).
+  # UI-thread-confined (the {Code::App} listener marshals {#snapshot=} onto the
+  # UI thread before calling it).
   class GitSummaryTextView < Tuile::Component::TextView
     # Shown when the working tree matches HEAD. Toned +:detail+ as placeholder chrome.
     #
@@ -33,29 +35,22 @@ module Code
     # @return [String]
     UNTRACKED_CODE = '??'
 
-    # Rewrite the pane from a change snapshot: the {PLACEHOLDER} when empty,
-    # else one styled line per file. Must run on the UI thread.
+    # Rewrite the pane from a git snapshot: the degraded notice when git failed,
+    # the {PLACEHOLDER} when the tree is clean, else one styled line per changed
+    # file. Ignores the snapshot's diff (that's the {GitDiffTextView}'s half).
+    # Must run on the UI thread.
     #
-    # @param changes [Array<GitWatcher::Change>] one per changed file, in git's
-    #   order.
+    # @param snapshot [GitWatcher::Snapshot]
     # @return [void]
-    def changes=(changes)
+    def snapshot=(snapshot)
       self.text =
-        if changes.empty?
+        if snapshot.error
+          screen.theme.detail(snapshot.error)
+        elsif snapshot.changes.empty?
           screen.theme.detail(PLACEHOLDER)
         else
-          changes.map { |change| summary_line(change) }.join("\n")
+          snapshot.changes.map { |change| summary_line(change) }.join("\n")
         end
-    end
-
-    # Show a one-line degraded notice instead of a summary (e.g. git could not
-    # be launched). The message is data from {GitWatcher}; the +:detail+ tone is
-    # ours.
-    #
-    # @param message [String]
-    # @return [void]
-    def notice=(message)
-      self.text = screen.theme.detail(message)
     end
 
     private

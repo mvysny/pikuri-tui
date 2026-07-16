@@ -8,6 +8,10 @@ RSpec.describe Code::GitDiffTextView do
 
   def rendered = view.text.to_s
 
+  def snapshot(diff: '', error: nil)
+    Code::GitWatcher::Snapshot.new(changes: [], diff_text: diff, error: error)
+  end
+
   # A real (small) plain unified diff, as `git diff` would emit it.
   MODIFIED_DIFF = <<~DIFF
     diff --git a/tracked.txt b/tracked.txt
@@ -22,12 +26,12 @@ RSpec.describe Code::GitDiffTextView do
   DIFF
 
   it 'shows a placeholder for an empty diff' do
-    view.diff = ''
+    view.snapshot = snapshot(diff: '')
     assert_includes rendered, described_class::PLACEHOLDER
   end
 
   it 'renders the two-tier inline form via GitDiffRenderer' do
-    view.diff = MODIFIED_DIFF
+    view.snapshot = snapshot(diff: MODIFIED_DIFF)
     assert_includes rendered, '✎ tracked.txt'
     assert_includes rendered, '@@ line 1 @@'
     assert_includes rendered, '- l2'
@@ -35,19 +39,19 @@ RSpec.describe Code::GitDiffTextView do
   end
 
   it 'colors the diff through our theme, not git' do
-    view.diff = MODIFIED_DIFF
+    view.snapshot = snapshot(diff: MODIFIED_DIFF)
     plain = Tuile::StyledString::Style.new
     assert view.text.spans.any? { |span| span.style != plain },
            'expected at least one themed span (the header tone)'
   end
 
   it 'stays alive (does not raise) on text GitDiffRenderer cannot parse' do
-    view.diff = 'this is not a diff at all'
+    view.snapshot = snapshot(diff: 'this is not a diff at all')
     assert_kind_of String, rendered # rendered to *something*, no teardown
   end
 
-  it 'shows a one-line notice for a degraded state, surviving a resize' do
-    view.notice = 'git unavailable: boom'
+  it 'shows a one-line notice for a degraded (error) snapshot, surviving a resize' do
+    view.snapshot = snapshot(error: 'git unavailable: boom')
     assert_includes rendered, 'git unavailable: boom'
     view.rect = Tuile::Rect.new(0, 0, 40, 10)
     assert_includes rendered, 'git unavailable: boom'
@@ -64,7 +68,7 @@ RSpec.describe Code::GitDiffTextView do
     end
 
     it 're-renders the retained diff when the pane width changes (on_width_changed)' do
-      view.diff = MODIFIED_DIFF
+      view.snapshot = snapshot(diff: MODIFIED_DIFF)
       writes = 0
       original = view.method(:text=)
       view.define_singleton_method(:text=) do |value|

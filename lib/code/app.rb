@@ -249,9 +249,15 @@ module Code
       @plan_mode_listener = PlanModeListener.new(footer: @conversation_window.status_footer_updater, screen: @screen)
       # GitWatcher is a UI-independent service: it emits Snapshots on its poll
       # thread and knows nothing of these views. We subscribe, marshal onto the
-      # event loop, and project the snapshot onto the panes' domain verbs.
+      # event loop, and hand each pane the snapshot (it renders the half it
+      # cares about) — the one place the service's data becomes UI.
       @git_watcher = GitWatcher.new
-      @git_watcher.on_change { |snapshot| @screen.event_queue.submit { apply_git_snapshot(snapshot) } }
+      @git_watcher.on_change do |snapshot|
+        @screen.event_queue.submit do
+          @git_summary_view.snapshot = snapshot
+          @git_diff_view.snapshot = snapshot
+        end
+      end
 
       @layout = Layout.new(
         conversation: @conversation_window,
@@ -449,24 +455,6 @@ module Code
       return if @git_diff_popup.open?
 
       @git_diff_popup.open
-    end
-
-    # Project a {GitWatcher::Snapshot} onto the two git panes' domain verbs.
-    # This is the git service's listener body, run on the event-loop thread
-    # (the +on_change+ block marshals it there) — the one place the
-    # UI-independent service's data becomes UI: the error notice when git
-    # failed, else the summary changes and the raw diff.
-    #
-    # @param snapshot [GitWatcher::Snapshot]
-    # @return [void]
-    def apply_git_snapshot(snapshot)
-      if snapshot.error
-        @git_summary_view.notice = snapshot.error
-        @git_diff_view.notice = snapshot.error
-      else
-        @git_summary_view.changes = snapshot.changes
-        @git_diff_view.diff = snapshot.diff_text
-      end
     end
 
     # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven
