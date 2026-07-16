@@ -70,14 +70,18 @@ Landed (full inversion): `Code::GitSummaryTextView < TextView` (owns
 `Change = Data.define(:code, :path, :added, :deleted)`) and
 `Code::GitDiffTextView < TextView` (owns `#diff=` / `#notice=`, `render_diff`,
 `max_width`, and re-renders on resize via `#on_width_changed`). `GitWatcher`
-shrank to the pure shared-model half: poll git, produce data (a `Change` list
-+ raw diff text + optional error), and `push` it to the two panes on the UI
-thread. Change-detection now compares **data** (`Snapshot(changes, diff_text,
-error)`), not rendered strings; rendering moved onto the UI thread (accepting
-that cost per the anti-speculative-perf steer), and the diff view owns its own
-width-responsiveness. Specs split cleanly: `git_watcher_spec` asserts the
-captured *data*, the two view specs drive the render verbs with canned data
-(the payoff). Original sketch below for the record.
+became a **UI-independent service** (its own follow-up refinement): it polls,
+produces a `Snapshot(changes, diff_text, error)`, and emits it to `#on_change`
+listeners *on its poll thread* — no screen, no views, no event loop. `Code::App`
+subscribes, marshals onto the event loop (`event_queue.submit`), and projects
+the snapshot onto the panes' domain verbs (`apply_git_snapshot`). This fixed
+the real smell — a service knowing concrete UI — and gave the crisp rule
+*"services are UI-independent; the UI subscribes; the listener marshals"* (the
+thread question then falls out for free, no exception needed). Change-detection
+compares **data**; the diff view owns its width-responsiveness. Specs split:
+`git_watcher_spec` asserts captured data + the emit contract (no fake UI at
+all now), the view specs drive the render verbs, `app_spec` covers the
+subscription→projection wire. Original sketch below for the record.
 
 ---
 

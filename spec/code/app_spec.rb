@@ -257,6 +257,32 @@ RSpec.describe Code::App do
     assert_includes log, 'oops'
   end
 
+  describe 'git watcher subscription' do
+    # Drive the service's emit directly (on this thread); the App's on_change
+    # listener marshals through the FakeEventQueue (synchronous) and projects
+    # the snapshot onto the two panes — so this exercises the full wire.
+    def emit(snapshot) = app.git_watcher.send(:emit, snapshot)
+
+    def summary_text = app.instance_variable_get(:@git_summary_view).text.to_s
+    def diff_text = app.instance_variable_get(:@git_diff_view).text.to_s
+
+    it 'projects an emitted snapshot onto the two git panes' do
+      emit(Code::GitWatcher::Snapshot.new(
+             changes: [Code::GitWatcher::Change.new(code: 'M', path: 'wired.rb', added: 1, deleted: 0)],
+             diff_text: "diff --git a/wired.rb b/wired.rb\n@@ -1 +1 @@\n-x\n+y\n",
+             error: nil
+           ))
+      assert_includes summary_text, 'wired.rb'
+      assert_includes diff_text, 'wired.rb'
+    end
+
+    it 'projects an error snapshot as a notice in both panes' do
+      emit(Code::GitWatcher::Snapshot.new(changes: [], diff_text: '', error: 'git unavailable: boom'))
+      assert_includes summary_text, 'git unavailable'
+      assert_includes diff_text, 'git unavailable'
+    end
+  end
+
   describe 'model picker' do
     let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
     let(:picker_app) do

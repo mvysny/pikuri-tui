@@ -327,9 +327,11 @@ Zeitwerk over `lib/` and eager-loads it.
   driving the footer plan-mode badge off `Pikuri::Code::PlanModeChanged`;
   coding/OS-shell-only.
 - `lib/code/git_watcher.rb` —
-  `Code::GitWatcher`, the background git poller — the shared (1:many) model
-  half: it produces *data* (a `GitSummaryTextView::Change` list + raw diff)
-  and pushes it to the two panes, which own rendering.
+  `Code::GitWatcher`, the background git poller as a **UI-independent
+  service**: it emits a `Snapshot` (a `Change` list + raw diff) to
+  `#on_change` listeners on its poll thread and knows nothing of the UI;
+  `Code::App` subscribes, marshals onto the event loop, and projects onto the
+  panes. Owns `Snapshot` / `Change`.
 - `lib/code/git_summary_text_view.rb` —
   `Code::GitSummaryTextView`, the sidebar "Changes" `TextView` that owns how
   a git change summary is drawn (per-file `+A -D` line, kind-toned label) via

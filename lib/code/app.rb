@@ -76,9 +76,10 @@ module Code
     #   wires it into the agent's +ListenerList+.
     def task_listener = @task_list_window.listener
 
-    # @return [GitWatcher] the background poller that keeps the sidebar
-    #   change summary and the {GitDiffPopup} diff current; started/stopped
-    #   by {#run}. Exposed for tests.
+    # @return [GitWatcher] the background git service; we subscribe (in
+    #   {#build_components}) to keep the sidebar change summary and the
+    #   {GitDiffPopup} diff current, and start/stop it in {#run}. Exposed for
+    #   tests.
     attr_reader :git_watcher
 
     # @return [Tuile::Component::LogWindow] the eager-constructed
@@ -225,9 +226,9 @@ module Code
       @task_list_window = TaskListWindow.new
 
       # Sidebar bottom: the change summary (one "XY path +N -N" line per
-      # changed file), kept current by a {GitWatcher} polling git off the
-      # UI thread (started in {#run}). The window exists from the start so
-      # the layout is real before the first poll lands.
+      # changed file), kept current by our subscription to the {GitWatcher}
+      # service (below; the poll is started in {#run}). The window exists from
+      # the start so the layout is real before the first snapshot lands.
       @git_summary_view = GitSummaryTextView.new
       @git_window = Tuile::Component::Window.new('Changes')
       @git_window.content = @git_summary_view
@@ -246,9 +247,11 @@ module Code
 
       @confirmer = ConfirmerPopup.new(screen: @screen)
       @plan_mode_listener = PlanModeListener.new(footer: @conversation_window.status_footer_updater, screen: @screen)
-      @git_watcher = GitWatcher.new(
-        summary_view: @git_summary_view, diff_view: @git_diff_view, screen: @screen
-      )
+      # GitWatcher is a UI-independent service: it emits Snapshots on its poll
+      # thread and knows nothing of these views. We subscribe, marshal onto the
+      # event loop, and project the snapshot onto the panes' domain verbs.
+      @git_watcher = GitWatcher.new
+      @git_watcher.on_change { |snapshot| @screen.event_queue.submit { apply_git_snapshot(snapshot) } }
 
       @layout = Layout.new(
         conversation: @conversation_window,
@@ -438,14 +441,32 @@ module Code
     end
 
     # Opens the {GitDiffPopup} with the latest full diff (already kept
-    # current by {GitWatcher}). A no-op if it is already open. Runs on the
-    # event-loop thread (global-shortcut dispatch).
+    # current by the {GitWatcher} subscription). A no-op if it is already open.
+    # Runs on the event-loop thread (global-shortcut dispatch).
     #
     # @return [void]
     def open_git_diff_popup
       return if @git_diff_popup.open?
 
       @git_diff_popup.open
+    end
+
+    # Project a {GitWatcher::Snapshot} onto the two git panes' domain verbs.
+    # This is the git service's listener body, run on the event-loop thread
+    # (the +on_change+ block marshals it there) — the one place the
+    # UI-independent service's data becomes UI: the error notice when git
+    # failed, else the summary changes and the raw diff.
+    #
+    # @param snapshot [GitWatcher::Snapshot]
+    # @return [void]
+    def apply_git_snapshot(snapshot)
+      if snapshot.error
+        @git_summary_view.notice = snapshot.error
+        @git_diff_view.notice = snapshot.error
+      else
+        @git_summary_view.changes = snapshot.changes
+        @git_diff_view.diff = snapshot.diff_text
+      end
     end
 
     # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven

@@ -8,40 +8,36 @@ module Code
   # owns *how a git change summary is drawn* — one +"XY path  +A -D"+ line per
   # changed file, the label toned by change kind (new green, deleted red,
   # modified yellow) and the +/- markers green/red, or a placeholder when the
-  # tree is clean. Data arrives through {#changes=} as {Change} value objects;
-  # {GitWatcher} (the shared poll-thread model feeding this pane and the
-  # {GitDiffTextView}) produces them. The view owns rendering, the watcher owns
-  # polling and data — the data-in split (see the `cop` skill).
+  # tree is clean. Data arrives through {#changes=} as {GitWatcher::Change}
+  # value objects, produced by the {GitWatcher} service; the view owns
+  # rendering, the service owns polling and data — the data-in split (see the
+  # `cop` skill).
   #
   #   view = Code::GitSummaryTextView.new
-  #   view.changes = [Code::GitSummaryTextView::Change.new(code: 'M', path: 'a.rb', added: 2, deleted: 1)]
+  #   view.changes = [Code::GitWatcher::Change.new(code: 'M', path: 'a.rb', added: 2, deleted: 1)]
   #   # => "M a.rb  +2 -1"  (themed)
   #
   # Width-independent (one line per file, no reflow), so unlike
   # {GitDiffTextView} it needs no resize hook.
   #
-  # UI-thread-confined ({GitWatcher} marshals {#changes=} / {#notice=} onto the
-  # UI thread before calling them).
+  # UI-thread-confined (the {Code::App} listener marshals {#changes=} /
+  # {#notice=} onto the UI thread before calling them).
   class GitSummaryTextView < Tuile::Component::TextView
     # Shown when the working tree matches HEAD. Toned +:detail+ as placeholder chrome.
     #
     # @return [String]
     PLACEHOLDER = '(no changes)'
 
-    # The two-letter porcelain code for an untracked file.
+    # The two-letter porcelain code for an untracked file (its coloring cue).
     #
     # @return [String]
     UNTRACKED_CODE = '??'
 
-    # One changed file's summary data: its two-letter +git status+ porcelain
-    # +code+, its +path+, and the +added+ / +deleted+ line counts. The data
-    # contract {#changes=} accepts; {GitWatcher} produces these.
-    Change = Data.define(:code, :path, :added, :deleted)
-
     # Rewrite the pane from a change snapshot: the {PLACEHOLDER} when empty,
     # else one styled line per file. Must run on the UI thread.
     #
-    # @param changes [Array<Change>] one per changed file, in git's order.
+    # @param changes [Array<GitWatcher::Change>] one per changed file, in git's
+    #   order.
     # @return [void]
     def changes=(changes)
       self.text =

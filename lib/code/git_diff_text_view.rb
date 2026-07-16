@@ -9,8 +9,8 @@ module Code
   # drawn* — the two-tier inline form {GitDiffRenderer} produces (a themed file
   # header over +@@ line N @@+ separators over inline-colored hunk bodies, the
   # same family as the edit / write tool diffs), or a placeholder when clean.
-  # The raw plain +git diff+ text arrives through {#diff=}; {GitWatcher} (the
-  # shared poll-thread model) produces it.
+  # The raw plain +git diff+ text arrives through {#diff=}; the {GitWatcher}
+  # service produces it.
   #
   #   view = Code::GitDiffTextView.new
   #   view.diff = "diff --git a/x b/x\n@@ -1 +1 @@\n-old\n+new\n"
@@ -21,8 +21,8 @@ module Code
   # diff (logged) if {GitDiffRenderer} chokes on an unexpected diff shape, per
   # CLAUDE.md's "external breakage is logged, we degrade".
   #
-  # UI-thread-confined ({GitWatcher} marshals {#diff=} / {#notice=} onto the UI
-  # thread; {#on_width_changed} already fires on it).
+  # UI-thread-confined (the {Code::App} listener marshals {#diff=} / {#notice=}
+  # onto the UI thread; {#on_width_changed} already fires on it).
   class GitDiffTextView < Tuile::Component::TextView
     # Shown when there is no diff. Toned +:detail+ as placeholder chrome.
     #

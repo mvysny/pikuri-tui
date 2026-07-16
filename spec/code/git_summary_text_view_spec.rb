@@ -10,7 +10,7 @@ RSpec.describe Code::GitSummaryTextView do
   def rendered = view.text.to_s
 
   def change(code, path, added, deleted)
-    described_class::Change.new(code: code, path: path, added: added, deleted: deleted)
+    Code::GitWatcher::Change.new(code: code, path: path, added: added, deleted: deleted)
   end
 
   # The label "XY path" is one styled span (uniform color); the +/- markers are
