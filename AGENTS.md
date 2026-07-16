@@ -308,12 +308,14 @@ Zeitwerk over `lib/` and eager-loads it.
   column beside a task + git sidebar (collapsed when too narrow).
 - `lib/code/task_list_window.rb` —
   `Code::TaskListWindow`, the sidebar task pane: a `Window` framing a
-  `TextView` and owning the `Code::TaskListener` that renders into it;
-  exposes `#listener` for the agent's `ListenerList`.
-- `lib/code/task_listener.rb` —
-  `Code::TaskListener`, a `Pikuri::Agent::Listener::Base`
-  rendering the agent's task-list changes into the `Code::TaskListWindow`
-  pane it's owned by.
+  `Code::TaskListTextView`; exposes `#listener` (the view's) for the
+  agent's `ListenerList`. The frame-over-view sibling of
+  `Shared::ConversationWindow` ↔ `Shared::ConversationTextView`.
+- `lib/code/task_list_text_view.rb` —
+  `Code::TaskListTextView`, the `TextView` subclass that owns how a task
+  list is drawn (glyphs, placeholder, per-status tone) via the `#items=`
+  verb, plus a nested `Listener` (a `Pikuri::Agent::Listener::Base`)
+  translating the `Pikuri::Tasks::ListChanged` stream into `#items=` calls.
 - `lib/code/plan_mode_listener.rb` —
   `Code::PlanModeListener`, a `Pikuri::Agent::Listener::Base`
   driving the footer plan-mode badge off `Pikuri::Code::PlanModeChanged`;

@@ -59,9 +59,9 @@ RSpec.describe Code::App do
     assert_kind_of Tuile::Component::Window, layout.git
   end
 
-  it 'hands the TaskListener to the build block as the third arg' do
+  it 'hands the task-pane listener to the build block as the third arg' do
     app # force construction
-    assert_kind_of Code::TaskListener, @task_listener
+    assert_kind_of Code::TaskListTextView::Listener, @task_listener
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do

@@ -71,9 +71,9 @@ module Code
     #   it through the {Shared::ConversationTextView::Listener}.
     def conversation_view = @conversation_window.view
 
-    # @return [TaskListener] the task-pane listener (owned by the
-    #   {TaskListWindow}) handed to the build block; the host wires it into
-    #   the agent's +ListenerList+.
+    # @return [TaskListTextView::Listener] the task-pane listener (owned by
+    #   the {TaskListWindow}'s view) handed to the build block; the host
+    #   wires it into the agent's +ListenerList+.
     def task_listener = @task_list_window.listener
 
     # @return [GitWatcher] the background poller that keeps the sidebar
@@ -135,7 +135,7 @@ module Code
     # @yield [listener, confirmer, task_listener, status_footer_updater, plan_mode_listener]
     #   one-shot factory invoked exactly once during construction.
     #   Receives the {Shared::ConversationTextView::Listener} bound to this app's conversation
-    #   pane, the {ConfirmerPopup}, the {TaskListener} bound to the
+    #   pane, the {ConfirmerPopup}, the {TaskListTextView::Listener} bound to the
     #   sidebar task pane, the {Shared::StatusFooterUpdater} that keeps the footer
     #   model name current, and the {PlanModeListener} that keeps the
     #   footer plan-mode badge current; must return a constructed
@@ -146,7 +146,7 @@ module Code
     #   listener; include it in the agent's +ListenerList+.
     # @yieldparam confirmer [ConfirmerPopup] the modal confirmer; pass
     #   it to the +Write+ / +Pikuri::Code::Bash+ tools.
-    # @yieldparam task_listener [TaskListener] the task-pane listener;
+    # @yieldparam task_listener [TaskListTextView::Listener] the task-pane listener;
     #   include it in the agent's +ListenerList+ (alongside the
     #   +Pikuri::Tasks::Extension+ that emits the events it renders).
     # @yieldparam status_footer_updater [Shared::StatusFooterUpdater] the footer,
@@ -220,8 +220,8 @@ module Code
 
       @input_window = Shared::InputWindow.new(on_submit: method(:submit_message))
 
-      # Sidebar top: the agent's task list, a self-contained pane that owns
-      # its TaskListener off the Pikuri::Tasks::ListChanged stream.
+      # Sidebar top: the agent's task list, a self-contained pane whose view
+      # owns both the rendering and its task-stream listener.
       @task_list_window = TaskListWindow.new
 
       # Sidebar bottom: the change summary (one "XY path +N -N" line per

@@ -5,10 +5,11 @@ require 'tuile'
 module Code
   # The sidebar's task pane as one cohesive component: a
   # {Tuile::Component::Window} captioned "Tasks" framing a scrollable
-  # {Tuile::Component::TextView} and owning the {TaskListener} that renders
-  # the agent's task-list stream into it. The host folds {#listener} into
-  # the agent's +ListenerList+ and drops the window into the layout — the
-  # same widget-owns-its-listener shape as {Shared::ConversationWindow}:
+  # {TaskListTextView} (which owns the rendering *and* the task-stream
+  # {TaskListTextView::Listener}). The host folds {#listener} into the
+  # agent's +ListenerList+ and drops the window into the layout — the same
+  # frame-over-view shape as {Shared::ConversationWindow} ↔
+  # {Shared::ConversationTextView}:
   #
   #   tasks = Code::TaskListWindow.new
   #   config.add_listener(tasks.listener)          # into the ListenerList
@@ -18,24 +19,21 @@ module Code
   #
   # UI-thread-confined.
   class TaskListWindow < Tuile::Component::Window
-    # Claims no observer slot and takes no arguments; builds its own
-    # {TextView} content and the {TaskListener} bound to it. Reaches for the
-    # installed +Tuile::Screen+ singleton (fake-able via +Tuile::Screen.fake+
-    # in tests) to give the listener its +event_queue+ / +theme+.
+    # Frames a fresh {TaskListTextView} (which builds its own listener); the
+    # window itself adds only the caption and scrollbar chrome.
     def initialize
       super('Tasks')
-      @view = Tuile::Component::TextView.new
+      @view = TaskListTextView.new
       self.content = @view
       self.scrollbar = true
-      @listener = TaskListener.new(text_view: @view, screen: screen)
     end
 
-    # @return [Tuile::Component::TextView] the task pane; exposed for tests,
+    # @return [TaskListTextView] the task pane; exposed for tests,
     #   production reaches it through {#listener}.
     attr_reader :view
 
-    # @return [TaskListener] the task-list listener; fold it into the
-    #   agent's +ListenerList+.
-    attr_reader :listener
+    # @return [TaskListTextView::Listener] the task-stream listener (owned
+    #   by the view); fold it into the agent's +ListenerList+.
+    def listener = @view.listener
   end
 end

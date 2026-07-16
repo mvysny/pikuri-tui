@@ -2,11 +2,14 @@
 
 ## Progress
 
-- **DONE — `Code::TaskListWindow` extracted first** (the certain, decided
-  slice). A `Window` framing a `TextView` and owning its `TaskListener`,
-  exposing `#listener`; `Code::App` composes it and the `Layout` still
+- **DONE — `Code::TaskListWindow` extracted** (the certain, decided
+  slice), then refactored to the model/view shape: it frames a
+  `Code::TaskListTextView` (which owns rendering + a nested `Listener`),
+  exposing `#listener`. `Code::App` composes it and the `Layout` still
   takes it via `tasks:`. It's the first building block the eventual
   sidebar will compose. The git pieces below stay hand-assembled for now.
+  (See `ideas/ui-component-shaped-cop.md` for the model/view principle
+  this now follows — and its Actionable 2, the matching git reframing.)
 - **PENDING — the git half + the container.** Revisit whether to wrap the
   git-changes pane + `GitWatcher` + `GitDiffPopup` + `open_git_diff_popup`
   + the `start`/`stop` lifecycle into a `WorkspaceSidebar` (likely a

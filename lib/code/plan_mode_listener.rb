@@ -12,7 +12,7 @@ module Code
   # the footer ({Shared::StatusFooterUpdater#plan_active=}).
   #
   # The companion to {Shared::StatusFooterUpdater} /
-  # {TaskListener}: same worker-thread-to-UI-thread marshaling, one event
+  # {TaskListTextView::Listener}: same worker-thread-to-UI-thread marshaling, one event
   # class. It lives in +Code+ rather than {Shared} because plan mode is a
   # +:code+-group concern — the event is a +:code+-group constant the chat
   # shell never loads (which is also why the chat shell's badge stays

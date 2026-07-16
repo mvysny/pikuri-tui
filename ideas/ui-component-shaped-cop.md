@@ -64,7 +64,16 @@ Scorecard of the recent extractions:
 | `Shared::ConversationWindow` / `ConversationTextView` | ✅ the exemplar: `TextView` owns rendering, nested thin `Listener` |
 | `Code::TaskListWindow` | ⚠️ half — frame is a component, but rendering still lives in the standalone `TaskListener` driving a *plain* `TextView` |
 
-## Actionable 1 — fix the task pane to match the conversation pane
+## Actionable 1 — fix the task pane to match the conversation pane — DONE
+
+Landed: `Code::TaskListTextView < TextView` (owns `GLYPHS` / `PLACEHOLDER`
+/ per-status tone via `#items=`) with a nested `Listener`; `Code::TaskListener`
+absorbed and deleted; `Code::TaskListWindow` now frames the view. The task
+pane and the conversation pane are now the same shape. Naming resolved as
+`TaskListTextView` (strict parity with `ConversationTextView`, no new
+convention). Original sketch below for the record.
+
+
 
 `Code::TaskListener` currently owns the rendering (`GLYPHS`,
 `PLACEHOLDER`, `render_item`, `@text_view.text = …`) and drives a vanilla
@@ -121,8 +130,12 @@ see the note below.)*
 
 - Principle + boundary captured (this file), sharpened with the
   model/view (JTable) framing and the dedicated-vs-shared source cases.
+- **Actionable 1 (task-pane symmetry) DONE** — see above; it's the
+  precedent to measure the git reframing against.
+- **PENDING — enshrine the principle in AGENTS.md** (see durable nuggets);
+  deferred until the git session so the convention captures both cases
+  with a real case-2 example.
 - **The git reframing (Actionable 2) gets its own brainstorming session.**
-  The task-pane fix (Actionable 1) is the clean precedent to land first.
 
 ## Durable nuggets to propagate on completion
 
