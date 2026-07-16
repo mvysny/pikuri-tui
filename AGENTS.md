@@ -68,8 +68,7 @@ The three shells keep their genuinely-divergent scaffolding (`App` /
 `lib/code.rb` and `lib/computer.rb`; the computer shell
 additionally reuses the `Code::*` confirmer / diff adapters directly).
 The pieces that carried no divergence are shared top-level components
-instead: the Enter-submits input (`Shared::InputArea`, framed by
-`Shared::InputWindow`) and the
+instead: the Enter-submits input (`Shared::InputWindow`) and the
 conversation-window footer updater (`Shared::StatusFooterUpdater`) — the footer's
 only cross-shell difference, chat's lack of a plan-mode badge, collapses
 to chat simply never calling `Shared::StatusFooterUpdater#plan_active=`. Their dependencies are
@@ -265,14 +264,11 @@ Zeitwerk over `lib/` and eager-loads it.
   lazyvim-style which-key command menu: `Ctrl+K` opens a modal
   `PickerWindow` of app actions, each on one follow-up key. Shared by
   all three shells; each `App` registers its own action set.
-- `lib/shared/input_area.rb` — `Shared::InputArea`, the bottom-pane
-  `TextArea` subclass that rebinds Enter to submit-and-clear (blank
-  buffers are a no-op); framed by `Shared::InputWindow`. Shared by all
-  three shells.
 - `lib/shared/input_window.rb` — `Shared::InputWindow`, the `Window`
-  captioned "Prompt" framing a `Shared::InputArea`; the host focuses the
-  window and Tuile's content-focus cascade lands the caret on the area.
-  Shared by all three shells.
+  captioned "Prompt" framing a private nested `TextArea` subclass that
+  rebinds Enter to submit-and-clear (blank buffers are a no-op); the host
+  focuses the window and Tuile's content-focus cascade lands the caret on
+  the area. Shared by all three shells.
 - `lib/shared/status_footer_updater.rb` — `Shared::StatusFooterUpdater`, the
   presenter that keeps the conversation window's footer chrome current
   (it drives `Window#footer_text`; it is not itself a widget), shared by
@@ -492,11 +488,11 @@ Zeitwerk over `lib/` and eager-loads it.
 - **Widget-class suffix on Tuile subclasses/wrappers only.** A class
   that extends or wraps a Tuile component carries that component's
   class as its name suffix, so the primitive it's built on is
-  legible at the reference site: `Shared::InputArea` (a `TextArea`),
+  legible at the reference site: `Shared::InputWindow` (a `Window`),
   `Shared::Log::Popup` / `GitDiffPopup` (both `Popup`s), `LogWindow` /
   `PickerWindow` (both `Window`s). Name the prefix for what the
-  component *does*, never for the slot it sits in — `Shared::InputArea`
-  (what it does), not `BottomArea` (where it sits). A class that is
+  component *does*, never for the slot it sits in — `Shared::InputWindow`
+  (what it does), not `BottomWindow` (where it sits). A class that is
   *not* a Tuile subclass or wrapper takes no widget suffix at all:
   `Shared::StatusFooterUpdater` is a presenter — it drives a
   `Window`'s `footer_text` but owns no widget of its own — so it gets a
@@ -554,7 +550,7 @@ Zeitwerk over `lib/` and eager-loads it.
   appears in more than one shell, extract it once into the
   `Shared::` namespace (or `Code::*` when it's coding-family) and
   reuse it — that is how we kill duplication. The building blocks
-  already living this way: `Shared::InputArea`, `Shared::InputWindow`,
+  already living this way: `Shared::InputWindow`,
   `Shared::StatusFooterUpdater`,
   `Shared::ConversationWindow`,
   `Shared::LeaderMenu`, `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and

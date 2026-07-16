@@ -179,7 +179,7 @@ module Computer
       @screen.on_error = method(:on_screen_error)
       @screen.content = @layout
       # Focus the window, not the inner area: Tuile's Window→content focus
-      # cascade re-points onto the InputArea so the caret lands there.
+      # cascade re-points onto the input area so the caret lands there.
       @screen.focused = @input_window
       register_shortcuts
     end
@@ -221,7 +221,7 @@ module Computer
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
     # cursor-owner suppression that would otherwise let the focused
-    # {Shared::InputArea} swallow them, and both surface a hint in the status bar
+    # {Shared::InputWindow} swallow them, and both surface a hint in the status bar
     # (which is why Ctrl+K is registered via {Shared::Log::UI#install_shortcut} —
     # its hint mutates as errors accrue).
     #
@@ -319,7 +319,7 @@ module Computer
       @plan_mode.active? ? @plan_mode.deactivate! : @plan_mode.activate!
     end
 
-    # @param message [String] non-empty draft handed up by {Shared::InputArea}
+    # @param message [String] non-empty draft handed up by {Shared::InputWindow}
     # @return [void]
     def submit_message(message)
       if @turn_in_progress
@@ -337,7 +337,7 @@ module Computer
     # wired no interloper, the message is dropped with a warn in the
     # diagnostic log.
     #
-    # @param message [String] non-empty draft handed up by {Shared::InputArea}
+    # @param message [String] non-empty draft handed up by {Shared::InputWindow}
     # @return [void]
     def queue_mid_turn(message)
       interloper = @agent.interloper
@@ -407,7 +407,7 @@ module Computer
     # 1. A turn is running -> cancel it. The
     #    {Shared::ConversationTextView::Listener} renders the +Cancelled+ event; the worker's
     #    +ensure+ clears {@turn_in_progress}.
-    # 2. Nothing running but something is focused (normally the {Shared::InputArea})
+    # 2. Nothing running but something is focused (normally the {Shared::InputWindow})
     #    -> drop focus, the same visible effect as ESC on the input.
     # 3. Nothing running and nothing focused -> stop the event loop, which
     #    unwinds {#run} into +Screen#close+. This is exactly what an

@@ -17,7 +17,7 @@
 # the same call (reusing this namespace's {ConfirmerPopup} / diff adapters,
 # which are cross-cutting tool wiring, not shell scaffolding). Only pieces
 # that carry *no* shell-specific divergence are extracted into {Shared}
-# instead of copied ({Shared::InputArea}, {Shared::StatusFooterUpdater}, …);
+# instead of copied ({Shared::InputWindow}, {Shared::StatusFooterUpdater}, …);
 # duplicate only where the copies genuinely drift.
 #
 # == Code-only dependencies

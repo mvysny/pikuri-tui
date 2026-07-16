@@ -61,7 +61,7 @@ RSpec.describe Computer::App do
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
-    assert_kind_of Shared::InputArea, app.screen.focused
+    assert_kind_of Tuile::Component::TextArea, app.screen.focused
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
@@ -115,7 +115,7 @@ RSpec.describe Computer::App do
 
   it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
     app
-    assert_kind_of Shared::InputArea, app.screen.focused
+    assert_kind_of Tuile::Component::TextArea, app.screen.focused
     press_ctrl_c
     assert_nil app.screen.focused
   end
