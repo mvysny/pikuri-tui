@@ -3,7 +3,7 @@
 > **The architectural principle has been backported and enshrined** — it now
 > lives in the `cop` skill (general shape: default-target rule,
 > composition-over-inheritance carve-out, model/view sizing aid, render-verb
-> seam) and the `tuile-components` skill (Tuile mechanics + threading), plus
+> seam) and the `tuile` skill (Tuile event loop + component mechanics), plus
 > the two posts they cite
 > (https://mvysny.github.io/component-oriented-programming/,
 > https://mvysny.github.io/composition-over-inheritance/) and the global
@@ -95,7 +95,7 @@ see the note below.)*
   model/view (JTable) framing and the dedicated-vs-shared source cases.
 - **Actionable 1 (task-pane symmetry) DONE** — see above; it's the
   precedent to measure the git reframing against.
-- **DONE — principle enshrined** in the `cop` / `tuile-components` skills, the
+- **DONE — principle enshrined** in the `cop` / `tuile` skills, the
   global CLAUDE.md COP block, and an AGENTS.md pointer (*Design with
   components* names the live exemplars; *Working on this codebase* tells the
   agent to read both skills before UI work).

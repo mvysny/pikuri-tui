@@ -129,7 +129,7 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   touches Pikuri. The general shape (the composition-over-inheritance UI
   carve-out, the model/view sizing seam, the render-verb seam) lives in the
   `cop` skill and the two posts it cites; the Tuile mechanics live in the
-  `tuile-components` skill. Live exemplars: `Shared::ConversationWindow` /
+  `tuile` skill. Live exemplars: `Shared::ConversationWindow` /
   `ConversationTextView` (widget owns rendering, thin nested `Listener`) is
   the big-nested case; `Code::GitWatcher` feeding two panes is the
   shared-injected case.
@@ -530,11 +530,11 @@ Zeitwerk over `lib/` and eager-loads it.
 
 ## Working on this codebase
 
-- **Read the `cop` and `tuile-components` skills before writing or
+- **Read the `cop` and `tuile` skills before writing or
   refactoring any UI component here.** This is a component-oriented Tuile
   app; those two skills carry the architecture (`cop` = the general
   component/model-view/render-verb rules and the composition-over-inheritance
-  UI carve-out; `tuile-components` = the Tuile extension points, naming, and
+  UI carve-out; `tuile` = the single-threaded event loop, extension points, naming, and
   the mandatory UI-thread rendering rule). Not conditional — nearly every
   task here is UI work.
 
