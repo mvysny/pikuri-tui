@@ -6,14 +6,13 @@ module Code
   # The sidebar's task pane as one cohesive component: a
   # {Tuile::Component::Window} captioned "Tasks" framing a scrollable
   # {TaskListTextView} (which owns the rendering *and* the task-stream
-  # {TaskListTextView::Listener}). The host folds {#listener} into the
-  # agent's +ListenerList+ and drops the window into the layout — the same
+  # {TaskListTextView::Listener}). {WorkspaceSidebar} composes it as its
+  # top pane and folds {#listener} into the agent's +ListenerList+ — the same
   # frame-over-view shape as {Shared::ConversationWindow} ↔
   # {Shared::ConversationTextView}:
   #
   #   tasks = Code::TaskListWindow.new
-  #   config.add_listener(tasks.listener)          # into the ListenerList
-  #   layout = Code::Layout.new(tasks: tasks, ...)  # into the sidebar
+  #   config.add_listener(tasks.listener)   # into the ListenerList
   #
   # Coding-shell-only — the chat / computer shells carry no sidebar.
   #

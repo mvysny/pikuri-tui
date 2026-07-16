@@ -72,15 +72,14 @@ module Code
     def conversation_view = @conversation_window.view
 
     # @return [TaskListTextView::Listener] the task-pane listener (owned by
-    #   the {TaskListWindow}'s view) handed to the build block; the host
-    #   wires it into the agent's +ListenerList+.
-    def task_listener = @task_list_window.listener
+    #   the {WorkspaceSidebar}'s task pane) handed to the build block; the
+    #   host wires it into the agent's +ListenerList+.
+    def task_listener = @sidebar.task_listener
 
-    # @return [GitWatcher] the background git service; we subscribe (in
-    #   {#build_components}) to keep the sidebar change summary and the
-    #   {GitDiffPopup} diff current, and start/stop it in {#run}. Exposed for
-    #   tests.
-    attr_reader :git_watcher
+    # @return [WorkspaceSidebar] the tasks + git sidebar; owns the
+    #   {GitWatcher} (started/stopped in {#run}) and the {GitDiffPopup} the
+    #   leader menu's +d+ entry opens. Exposed for tests.
+    attr_reader :sidebar
 
     # @return [Tuile::Component::LogWindow] the eager-constructed
     #   diagnostic window (owned by the {Shared::Log::UI}).
@@ -173,7 +172,7 @@ module Code
       build_components
       @log_ui.wire!
       @agent = build_agent.call(
-        @conversation_window.listener, @confirmer, @task_list_window.listener,
+        @conversation_window.listener, @confirmer, @sidebar.task_listener,
         @conversation_window.status_footer_updater, @plan_mode_listener
       )
       # Deferred from construction: the agent, hence its interloper,
@@ -194,17 +193,17 @@ module Code
 
     # Runs the Tuile event loop, blocking the calling thread until the
     # user quits or the loop is otherwise stopped. Starts the
-    # {GitWatcher}'s background poll before the loop and stops it in the
+    # {WorkspaceSidebar}'s git poll before the loop and stops it in the
     # +ensure+, which also pairs +run_event_loop+ with
     # +Tuile::Screen#close+ so the terminal is cleared and the screen
     # singleton is unset regardless of how the loop exits.
     #
     # @return [void]
     def run
-      @git_watcher.start
+      @sidebar.start_git_watching
       @screen.run_event_loop
     ensure
-      @git_watcher.stop
+      @sidebar.stop_git_watching
       @screen.close
     end
 
@@ -221,49 +220,18 @@ module Code
 
       @input_window = Shared::InputWindow.new(on_submit: method(:submit_message))
 
-      # Sidebar top: the agent's task list, a self-contained pane whose view
-      # owns both the rendering and its task-stream listener.
-      @task_list_window = TaskListWindow.new
-
-      # Sidebar bottom: the change summary (one "XY path +N -N" line per
-      # changed file), kept current by our subscription to the {GitWatcher}
-      # service (below; the poll is started in {#run}). The window exists from
-      # the start so the layout is real before the first snapshot lands.
-      @git_summary_view = GitSummaryTextView.new
-      @git_window = Tuile::Component::Window.new('Changes')
-      @git_window.content = @git_summary_view
-      @git_window.scrollbar = true
-
-      # The full colored diff is too wide for the sidebar, so it lives in a
-      # near-fullscreen popup opened from the leader menu's 'd' entry. Built
-      # eagerly (like the
-      # diagnostic LogWindow) so the watcher can feed the latest diff into
-      # it every poll whether or not the popup is currently shown.
-      @git_diff_view = GitDiffTextView.new
-      @git_diff_window = Tuile::Component::Window.new('Git diff')
-      @git_diff_window.content = @git_diff_view
-      @git_diff_window.scrollbar = true
-      @git_diff_popup = GitDiffPopup.new(diff_window: @git_diff_window)
+      # The tasks + git sidebar as one box: it owns its tasks-over-git split,
+      # the GitWatcher poll (started/stopped in #run), and the diff popup the
+      # leader menu's 'd' entry opens.
+      @sidebar = WorkspaceSidebar.new
 
       @confirmer = ConfirmerPopup.new(screen: @screen)
       @plan_mode_listener = PlanModeListener.new(footer: @conversation_window.status_footer_updater, screen: @screen)
-      # GitWatcher is a UI-independent service: it emits Snapshots on its poll
-      # thread and knows nothing of these views. We subscribe, marshal onto the
-      # event loop, and hand each pane the snapshot (it renders the half it
-      # cares about) — the one place the service's data becomes UI.
-      @git_watcher = GitWatcher.new
-      @git_watcher.on_change do |snapshot|
-        @screen.event_queue.submit do
-          @git_summary_view.snapshot = snapshot
-          @git_diff_view.snapshot = snapshot
-        end
-      end
 
       @layout = Layout.new(
         conversation: @conversation_window,
         input: @input_window,
-        tasks: @task_list_window,
-        git: @git_window
+        sidebar: @sidebar
       )
     end
 
@@ -308,7 +276,7 @@ module Code
     def build_leader_menu
       menu = Shared::LeaderMenu.new(screen: @screen)
       menu.add('l', 'logs') { @log_ui.open }
-      menu.add('d', 'git diff') { open_git_diff_popup }
+      menu.add('d', 'git diff') { @sidebar.open_diff }
       menu.add('p', 'plan mode') { toggle_plan_mode }
       menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
       menu.add('c', 'clear conversation + context') { clear_conversation }
@@ -444,17 +412,6 @@ module Code
       return if pending.empty?
 
       submit_message(pending.join("\n\n"))
-    end
-
-    # Opens the {GitDiffPopup} with the latest full diff (already kept
-    # current by the {GitWatcher} subscription). A no-op if it is already open.
-    # Runs on the event-loop thread (global-shortcut dispatch).
-    #
-    # @return [void]
-    def open_git_diff_popup
-      return if @git_diff_popup.open?
-
-      @git_diff_popup.open
     end
 
     # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven

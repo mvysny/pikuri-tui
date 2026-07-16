@@ -307,11 +307,18 @@ Zeitwerk over `lib/` and eager-loads it.
   parallel `Code::*` copies.
 - `lib/code/app.rb` — `Code::App`, the Tuile
   shell for `bin/pikuri-tui-code`; like `Chat::App` but adds the
-  `Code::ConfirmerPopup`, task + git sidebar, `Code::GitDiffPopup`, and
-  plan-mode toggle.
+  `Code::ConfirmerPopup`, the `Code::WorkspaceSidebar` (tasks + git changes +
+  diff popup), and plan-mode toggle.
 - `lib/code/layout.rb` — `Code::Layout`, the
-  coding shell's dual-pane root: a 60/40 conversation-over-input left
-  column beside a task + git sidebar (collapsed when too narrow).
+  coding shell's dual-column root: a 60/40 conversation-over-input left
+  column beside a full-height `Code::WorkspaceSidebar` (collapsed when too
+  narrow).
+- `lib/code/workspace_sidebar.rb` — `Code::WorkspaceSidebar`, the tasks + git
+  sidebar as one `Tuile::Component::Layout`: frames `Code::TaskListWindow`
+  over the git "Changes" pane, owns the `Code::GitWatcher` lifecycle
+  (`#start_git_watching` / `#stop_git_watching`) + the `Code::GitDiffPopup`
+  (`#open_diff`), and exposes `#task_listener` for the agent's `ListenerList`.
+  Coding-shell-only.
 - `lib/code/task_list_window.rb` —
   `Code::TaskListWindow`, the sidebar task pane: a `Window` framing a
   `Code::TaskListTextView`; exposes `#listener` (the view's) for the
@@ -330,8 +337,8 @@ Zeitwerk over `lib/` and eager-loads it.
   `Code::GitWatcher`, the background git poller as a **UI-independent
   service**: it emits a `Snapshot` (a `Change` list + raw diff) to
   `#on_change` listeners on its poll thread and knows nothing of the UI;
-  `Code::App` subscribes, marshals onto the event loop, and projects onto the
-  panes. Owns `Snapshot` / `Change`.
+  `Code::WorkspaceSidebar` subscribes, marshals onto the event loop, and
+  projects onto the panes. Owns `Snapshot` / `Change`.
 - `lib/code/git_summary_text_view.rb` —
   `Code::GitSummaryTextView`, the sidebar "Changes" `TextView` that owns how
   a git change summary is drawn (per-file `+A -D` line, kind-toned label) via
