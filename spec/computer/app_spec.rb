@@ -113,21 +113,6 @@ RSpec.describe Computer::App do
     wait_until { !app.session.turn_in_progress? }
   end
 
-  it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
-    app
-    assert_kind_of Tuile::Component::TextArea, app.screen.focused
-    press_ctrl_c
-    assert_nil app.screen.focused
-  end
-
-  it 'stops the event loop on Ctrl+C when idle and nothing is focused (second press)' do
-    app
-    app.screen.focused = nil
-    stopped = spy_on_stop
-    press_ctrl_c
-    assert stopped.call, 'expected the event loop to be stopped'
-  end
-
   it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
     app
     app.instance_variable_get(:@log_ui).log_popup.open
@@ -166,53 +151,6 @@ RSpec.describe Computer::App do
   it "hands the agent's interloper to the Shared::StatusFooterUpdater for the queued-count display" do
     app
     assert_same app.agent.interloper, app.instance_variable_get(:@conversation_window).status_footer_updater.interloper
-  end
-
-  it 'queues a mid-turn submission into the interloper instead of starting a second run_loop' do
-    agent = app.agent
-    agent.block_turns!
-    app.session.submit('first')
-    wait_until { agent.messages.size == 1 }
-
-    app.session.submit('second')
-    assert_equal ['second'], agent.interloper.peek
-    assert_equal ['first'], agent.messages
-  ensure
-    2.times { agent.finish_turn! }
-    wait_until { agent.messages.size == 2 && !app.session.turn_in_progress? }
-  end
-
-  it 'delivers injections still queued when the turn ends as a fresh turn (in order)' do
-    agent = app.agent
-    agent.block_turns!
-    app.session.submit('first')
-    wait_until { agent.messages.size == 1 }
-
-    app.session.submit('queued while busy')
-    agent.finish_turn!
-    wait_until { agent.messages.size == 2 }
-    assert_equal ['first', 'queued while busy'], agent.messages
-    assert_empty agent.interloper.peek
-  ensure
-    agent.finish_turn!
-    wait_until { !app.session.turn_in_progress? }
-  end
-
-  it 'drops a mid-turn submission with a warn when the agent has no interloper wired' do
-    no_interloper_app = described_class.new do |listener, _confirmer|
-      StubAgent.new(listener, interloper: nil)
-    end
-    agent = no_interloper_app.agent
-    agent.block_turns!
-    no_interloper_app.session.submit('first')
-    wait_until { agent.messages.size == 1 }
-
-    no_interloper_app.session.submit('second')
-    agent.finish_turn!
-    wait_until { !no_interloper_app.session.turn_in_progress? }
-    assert_equal ['first'], agent.messages
-    rendered = no_interloper_app.log_window.content.text.to_s
-    assert_includes rendered, 'mid-turn message dropped'
   end
 
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do

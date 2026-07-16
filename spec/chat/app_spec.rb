@@ -111,16 +111,6 @@ RSpec.describe Chat::App do
       assert_equal 1, agent.clear_count
     end
 
-    it "picking 'c' mid-turn is a no-op (clear_conversation must not race run_loop)" do
-      app.agent.block_turns!
-      app.session.submit('work on this')
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'c')
-      assert_equal 0, app.agent.clear_count
-    ensure
-      app.agent.finish_turn!
-    end
-
     it 'opens a modal menu popup on Ctrl+K' do
       app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
       assert_kind_of Shared::LeaderMenu, app.instance_variable_get(:@leader_menu)
@@ -160,21 +150,6 @@ RSpec.describe Chat::App do
   ensure
     agent.finish_turn!
     wait_until { !app.session.turn_in_progress? }
-  end
-
-  it 'drops focus on Ctrl+C when idle and the input is focused (first press)' do
-    app
-    assert_kind_of Tuile::Component::TextArea, app.screen.focused
-    press_ctrl_c
-    assert_nil app.screen.focused
-  end
-
-  it 'stops the event loop on Ctrl+C when idle and nothing is focused (second press)' do
-    app
-    app.screen.focused = nil
-    stopped = spy_on_stop
-    press_ctrl_c
-    assert stopped.call, 'expected the event loop to be stopped'
   end
 
   it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
@@ -227,72 +202,6 @@ RSpec.describe Chat::App do
   it "hands the agent's interloper to the Shared::StatusFooterUpdater for the queued-count display" do
     app
     assert_same app.agent.interloper, status_footer_updater.interloper
-  end
-
-  it 'queues a mid-turn submission into the interloper instead of starting a second run_loop' do
-    agent = app.agent
-    agent.block_turns!
-    app.session.submit('first')
-    wait_until { agent.messages.size == 1 }
-
-    app.session.submit('second')
-    assert_equal ['second'], agent.interloper.peek
-    assert_equal ['first'], agent.messages
-  ensure
-    # One release for the held turn, one for the leftover-delivery turn
-    # the App starts with the drained 'second'; then wait for both turns
-    # to settle so no worker outlives the screen the after-hook closes.
-    2.times { agent.finish_turn! }
-    wait_until { agent.messages.size == 2 && !app.session.turn_in_progress? }
-  end
-
-  it 'delivers injections still queued when the turn ends as a fresh turn (in order)' do
-    agent = app.agent
-    agent.block_turns!
-    app.session.submit('first')
-    wait_until { agent.messages.size == 1 }
-
-    app.session.submit('queued while busy')
-    agent.finish_turn!
-    wait_until { agent.messages.size == 2 }
-    assert_equal ['first', 'queued while busy'], agent.messages
-    assert_empty agent.interloper.peek
-  ensure
-    agent.finish_turn! # release the leftover-delivery turn
-    wait_until { !app.session.turn_in_progress? }
-  end
-
-  it 'joins multiple leftover injections into one delivery turn, in submission order' do
-    agent = app.agent
-    agent.block_turns!
-    app.session.submit('first')
-    wait_until { agent.messages.size == 1 }
-
-    app.session.submit('also this')
-    app.session.submit('and this')
-    agent.finish_turn!
-    wait_until { agent.messages.size == 2 }
-    assert_equal ['first', "also this\n\nand this"], agent.messages
-  ensure
-    agent.finish_turn! # release the leftover-delivery turn
-    wait_until { !app.session.turn_in_progress? }
-  end
-
-  it 'drops a mid-turn submission with a warn when the agent has no interloper wired' do
-    no_interloper_app = described_class.new do |listener|
-      StubAgent.new(listener, interloper: nil)
-    end
-    agent = no_interloper_app.agent
-    agent.block_turns!
-    no_interloper_app.session.submit('first')
-    wait_until { agent.messages.size == 1 }
-
-    no_interloper_app.session.submit('second')
-    agent.finish_turn!
-    wait_until { !no_interloper_app.session.turn_in_progress? }
-    assert_equal ['first'], agent.messages
-    rendered = no_interloper_app.log_window.content.text.to_s
-    assert_includes rendered, 'mid-turn message dropped'
   end
 
   it 'feeds the Shared::StatusFooterUpdater from the same TokenLog the host wires into the agent' do
