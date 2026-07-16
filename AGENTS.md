@@ -127,7 +127,7 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   only "is this component well-designed?" Extract a component into
   `Shared::` (or `Code::*`) when reuse earns it, whether or not it
   touches Pikuri. The general shape (the composition-over-inheritance UI
-  carve-out, the model/view sizing seam, the render-verb seam) lives in the
+  carve-out, the model/view sizing seam, the data-in-renders-itself rule) lives in the
   `cop` skill and the two posts it cites; the Tuile mechanics live in the
   `tuile` skill. Live exemplars: `Shared::ConversationWindow` /
   `ConversationTextView` (widget owns rendering, thin nested `Listener`) is
@@ -533,7 +533,7 @@ Zeitwerk over `lib/` and eager-loads it.
 - **Read the `cop` and `tuile` skills before writing or
   refactoring any UI component here.** This is a component-oriented Tuile
   app; those two skills carry the architecture (`cop` = the general
-  component/model-view/render-verb rules and the composition-over-inheritance
+  component/model-view/data-in rules and the composition-over-inheritance
   UI carve-out; `tuile` = the single-threaded event loop, extension points, naming, and
   the mandatory UI-thread rendering rule). Not conditional — nearly every
   task here is UI work.

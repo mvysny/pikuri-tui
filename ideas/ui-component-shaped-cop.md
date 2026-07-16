@@ -2,8 +2,9 @@
 
 > **The architectural principle has been backported and enshrined** — it now
 > lives in the `cop` skill (general shape: default-target rule,
-> composition-over-inheritance carve-out, model/view sizing aid, render-verb
-> seam) and the `tuile` skill (Tuile event loop + component mechanics), plus
+> composition-over-inheritance carve-out, model/view sizing aid,
+> data-in-renders-itself rule) and the `tuile` skill (Tuile event loop +
+> component mechanics), plus
 > the two posts they cite
 > (https://mvysny.github.io/component-oriented-programming/,
 > https://mvysny.github.io/composition-over-inheritance/) and the global
