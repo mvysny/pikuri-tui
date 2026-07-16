@@ -8,9 +8,12 @@
   exposing `#listener`. `Code::App` composes it and the `Layout` still
   takes it via `tasks:`. It's the first building block the eventual
   sidebar will compose.
-- **DONE — the git panes reframed to model/view** (was Actionable 2 in
-  `ideas/ui-component-shaped-cop.md`): `GitSummaryTextView` / `GitDiffTextView`
-  now own rendering; `GitWatcher` is the shared model that feeds them data.
+- **DONE — the git panes reframed to model/view**: `GitSummaryTextView` /
+  `GitDiffTextView` now own rendering (each takes a `GitWatcher::Snapshot`);
+  `GitWatcher` is a UI-independent service that emits snapshots to `#on_change`
+  subscribers. (This was the old `ui-component-shaped-cop.md` Actionable 2,
+  since implemented and evaporated — see the `cop` / `tuile` skills for the
+  principle.)
   So the container work below now composes *reframed* panes, not the old
   plain-`TextView` + rendering-in-`GitWatcher` shape the sketch below shows.
 - **PENDING — the container.** Revisit whether to wrap the git-changes pane +
