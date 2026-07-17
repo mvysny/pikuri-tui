@@ -12,17 +12,25 @@ module Chat
   # in the screen-wide status bar, and wires the agent's loop onto a worker
   # thread so the UI thread stays free for repaints.
   #
-  # == Construction order
+  # == Construction: App owns the agent
   #
-  # The agent needs the conversation-pane listeners in its +ListenerList+,
-  # and those listeners need the conversation +TextView+ — which can't
-  # exist until the screen is initialized. Resolving that cycle is why the
-  # constructor takes a block: App builds the components (the
-  # {Shared::ConversationWindow} builds and owns the {Shared::ConversationWindow::Listener}
-  # and {Shared::StatusFooterUpdater}), then yields them to the block; the block
-  # returns a constructed +Pikuri::Agent+ that App installs. The bin
-  # script uses this seam to pick model/tools/transport without App
-  # learning about any of them.
+  # App builds its own +Pikuri::Agent+ from the {Shared::Config} handed to
+  # it — the chat system prompt, the boot connection ({#config}'s first
+  # +llm+), and the web/calc tool set (see {#default_build_agent}). The bin
+  # only parses CLI + config and mounts the screen; the agent, its tools,
+  # and its listeners are the shell's identity and live here.
+  #
+  # Construction is linear, not cyclic: App builds the components (the
+  # {Shared::ConversationWindow} owns the {Shared::ConversationWindow::Listener}
+  # and {Shared::StatusFooterUpdater}), *then* builds the agent against those
+  # listeners.
+  #
+  # The optional block is a **test/override seam**, not production ceremony:
+  # a spec passes one returning a lightweight stand-in (a +StubAgent+) so a
+  # unit test skips the network / RubyLLM cost of a real agent. Given a
+  # block, App calls it in place of {#default_build_agent}; the block
+  # receives the same +(listener, status_footer_updater)+ pair and must
+  # return a wired +Pikuri::Agent+ (or a duck-type of one).
   #
   # == Screen ownership
   #
@@ -53,9 +61,14 @@ module Chat
     #   runs on.
     attr_reader :screen
 
-    # @return [Pikuri::Agent] the agent the build block returned. Exposed
-    #   so callers (and tests) can inspect tools/listeners/transport
-    #   after wiring.
+    # @return [Shared::Config] the resolved configuration the bin loaded;
+    #   drives the model list, the boot connection, and the web-search
+    #   provider keys {#default_build_agent} reads.
+    attr_reader :config
+
+    # @return [Pikuri::Agent] the agent App built ({#default_build_agent},
+    #   or a test override block's stand-in). Exposed so callers (and tests)
+    #   can inspect tools/listeners/transport after wiring.
     attr_reader :agent
 
     # @return [Shared::AgentSession] the turn-lifecycle engine this shell
@@ -73,62 +86,52 @@ module Chat
     #   callers that want to install additional logger sinks.
     def log_window = @log_ui.log_window
 
-    # @return [Pikuri::Agent::Listener::TokenLog] the main agent's
-    #   token log, fed into the conversation-window {Shared::StatusFooterUpdater}.
-    #   The host's build block must include this instance (or one
-    #   the host supplied via the +token_log:+ ctor arg) in the
-    #   agent's +ListenerList+ so it actually receives +Tokens+
-    #   events; the App doesn't register listeners itself.
+    # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
+    #   log, App-owned and fed into the conversation-window
+    #   {Shared::StatusFooterUpdater}. {#default_build_agent} registers this
+    #   same instance in the agent's +ListenerList+ so it receives +Tokens+
+    #   events; a test override block that wants token stats must do the same.
     attr_reader :token_log
 
     # @return [Shared::StatusFooterUpdater] the footer, which doubles as the
-    #   model-name listener, yielded to the build block. The host must include
-    #   it in the agent's +ListenerList+ so +ModelSwitched+ events reach it.
+    #   model-name listener. {#default_build_agent} registers it in the
+    #   agent's +ListenerList+ so +ModelSwitched+ events reach it.
     def status_footer_updater = @conversation_window.status_footer_updater
 
-    # @param token_log [Pikuri::Agent::Listener::TokenLog] the
-    #   per-conversation token log whose +status_line+ feeds the
-    #   conversation-window footer. The host is responsible for
-    #   wiring the same instance into the agent's +ListenerList+
-    #   (so it actually receives +Tokens+ events). Defaults to a
-    #   fresh instance — tests that don't exercise the footer can
-    #   ignore this knob.
+    # @param config [Shared::Config] the resolved configuration; App derives
+    #   the model list (one {Shared::Model::Choice} per +config.llms+ entry,
+    #   the first the boot connection) and reads the web-search provider keys
+    #   from it when building the agent.
     # @param markdown [Boolean] forwarded to {Shared::ConversationWindow}'s
     #   +markdown:+ flag (default +true+). When +false+, the
     #   conversation pane skips +TTY::Markdown+ and the streaming path
     #   uses {Shared::Markdown::PassthroughBuffer} — appropriate for back-ends whose
     #   content is already in display form.
-    # @param models [Array<Shared::Model::Choice>] the connections the leader menu's
-    #   +m+ model picker offers, in display order. The +m+ menu entry is
-    #   registered only when more than one is given (nothing to switch
-    #   between otherwise); the map of model id → name still drives the
-    #   footer's model segment regardless. Defaults to empty — tests and
-    #   single-connection hosts can ignore it.
-    # @yield [listener, status_footer_updater] one-shot factory invoked exactly
-    #   once during construction. The block receives the {Shared::ConversationWindow::Listener}
-    #   bound to this app's conversation pane and the {Shared::StatusFooterUpdater}
-    #   that keeps the footer's model name current, and must return a
-    #   constructed +Pikuri::Agent+ whose +ListenerList+ includes both
-    #   (plus the +token_log+ exposed at {#token_log}).
+    # @yield [listener, status_footer_updater] optional test/override seam. When
+    #   given, App calls it in place of {#default_build_agent} — a spec returns
+    #   a lightweight stand-in to skip the network / RubyLLM cost of a real
+    #   agent. It receives the {Shared::ConversationWindow::Listener} bound to
+    #   this app's conversation pane and the {Shared::StatusFooterUpdater} that
+    #   keeps the footer's model name current, and must return a
+    #   +Pikuri::Agent+ (or duck-type) whose +ListenerList+ includes both
+    #   (plus {#token_log}). Omitted in production.
     # @yieldparam listener [Shared::ConversationWindow::Listener] the conversation-pane
     #   listener; include it in the agent's +ListenerList+.
     # @yieldparam status_footer_updater [Shared::StatusFooterUpdater] the footer,
     #   which doubles as the model-name listener; include it in the agent's +ListenerList+.
     # @yieldreturn [Pikuri::Agent] the wired agent.
-    # @raise [LocalJumpError] if no block is given (no agent → no app).
-    def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, markdown: true, models: [], &build_agent)
-      raise LocalJumpError, 'Chat::App requires a block that builds the Pikuri::Agent' unless block_given?
-
+    def initialize(config:, markdown: true, &build_agent)
       @screen = Tuile::Screen.instance
-      @token_log = token_log
+      @config = config
       @markdown = markdown
-      @model_picker = Shared::Model::Picker.new(models: models)
+      @token_log = Pikuri::Agent::Listener::TokenLog.new
+      @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
+      @model_picker = Shared::Model::Picker.new(models: @models)
 
       build_components
       @log_ui.wire!
-      @agent = build_agent.call(@conversation_window.listener, @conversation_window.status_footer_updater)
-      # Deferred from construction: the agent, hence its interloper,
-      # doesn't exist until the build block has run.
+      builder = build_agent || method(:default_build_agent)
+      @agent = builder.call(@conversation_window.listener, @conversation_window.status_footer_updater)
       @session.agent = @agent
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model (resolved from its transport);
@@ -182,6 +185,53 @@ module Chat
         conversation: @conversation_window,
         input: @input_window
       )
+    end
+
+    # Build the chat shell's +Pikuri::Agent+: a streaming agent on the boot
+    # connection (+@models.first+), the +pikuri-chat+ system prompt (dated),
+    # and the web-search / calculator / scrape / fetch tool set. The
+    # production factory, called unless the constructor was handed an
+    # override block. Registers the conversation listener (rate-limited to
+    # 15 fps), {#token_log}, and the {#status_footer_updater} into the
+    # agent's +ListenerList+.
+    #
+    # @param listener [Shared::ConversationWindow::Listener] the conversation pane.
+    # @param status_footer_updater [Shared::StatusFooterUpdater] the footer / model listener.
+    # @return [Pikuri::Agent] the wired agent.
+    def default_build_agent(listener, status_footer_updater)
+      Pikuri::Extractors::PDF.register
+
+      system_prompt = Pikuri.prompt(:'pikuri-chat')
+      system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
+
+      # Coalesce streaming delta chunks at 15 fps before they reach the
+      # Markdown-rendering Shared::ConversationWindow: a fast llama.cpp can
+      # emit dozens of deltas per second and re-rendering Markdown on every
+      # one is wasted work the user can't perceive. flush_pending_on_non_delta:
+      # false because the Assistant / Thinking bookend events re-render the
+      # authoritative final content (the listener finalizes the open streamed
+      # block, replacing the preview), so emitting the trailing 0–66 ms of
+      # buffered deltas right before the redraw is pure CPU waste.
+      rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
+        listener, fps: 15, flush_pending_on_non_delta: false
+      )
+
+      Pikuri::Agent.new(
+        transport: @models.first.transport,
+        system_prompt: system_prompt,
+        step_limit: Pikuri::Agent::Control::StepLimit.new(max: 20),
+        cancellable: Pikuri::Agent::Control::Cancellable.new,
+        interloper: Pikuri::Agent::Control::Interloper.new,
+        streaming: true
+      ) do |c|
+        c.add_listener rate_limited_listener
+        c.add_listener @token_log
+        c.add_listener status_footer_updater
+        c.add_tool Pikuri::Tool::WebSearch.build(brave_key: @config.search.brave_key, exa_key: @config.search.exa_key)
+        c.add_tool Pikuri::Tool::CALCULATOR
+        c.add_tool Pikuri::Tool::WEB_SCRAPE
+        c.add_tool Pikuri::Tool::FETCH
+      end
     end
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the

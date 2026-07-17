@@ -308,8 +308,10 @@ Zeitwerk over `lib/` and eager-loads it.
   baseline shell the `Code` / `Computer` siblings were copied from.
 - `lib/chat/app.rb` — `Chat::App`, the Tuile
   shell for `bin/pikuri-tui-chat` (conversation `TextView` + diagnostic
-  `LogWindow` + input + status bar); takes a `models:` list and wires
-  the `Shared::LeaderMenu` and shortcuts.
+  `LogWindow` + input + status bar); takes the loaded `config:` and builds
+  its own streaming `Pikuri::Agent` (web/calc tools) from it, plus the
+  `Shared::LeaderMenu` and shortcuts. An optional block overrides the
+  agent build for tests.
 - `lib/chat/layout.rb` — `Chat::Layout`,
   the vertical-split root layout (conversation top, input bottom).
 - `lib/code.rb` — `Code`, namespace for the
@@ -400,8 +402,9 @@ Zeitwerk over `lib/` and eager-loads it.
   of `Chat::Layout` (vertical split: conversation top, fixed-height input
   strip bottom, no sidebar).
 - `bin/pikuri-tui-chat` — boot script for the chat agent
-  (`Bundler.setup(:default)`): wires a streaming `Pikuri::Agent`
-  (web/calc tools) onto `Chat::App`. Ports pikuri's chat demo.
+  (`Bundler.setup(:default)`): parses CLI + loads `Shared::Config`, mounts
+  the `Tuile::Screen`, and hands the config to `Chat::App` (which builds the
+  agent). Ports pikuri's chat demo.
 - `bin/pikuri-tui-code` — boot script for the coding agent
   (`Bundler.setup(:default, :code)`): discovers the project root, builds
   the workspace + sandbox + six file/shell tools (with the confirmer /

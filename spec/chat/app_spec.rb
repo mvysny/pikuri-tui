@@ -44,8 +44,9 @@ RSpec.describe Chat::App do
     end
   end
 
+  let(:config) { chat_config }
   let(:app) do
-    described_class.new do |listener|
+    described_class.new(config: config) do |listener|
       @listener = listener
       StubAgent.new(listener)
     end
@@ -97,7 +98,7 @@ RSpec.describe Chat::App do
     end
 
     it 'includes a switch-model action only when more than one model is configured' do
-      picker_app = described_class.new(models: [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')]) do |listener, _ml|
+      picker_app = described_class.new(config: chat_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')])) do |listener, _ml|
         StubAgent.new(listener, model: 'm1')
       end
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
@@ -204,13 +205,9 @@ RSpec.describe Chat::App do
     assert_same app.agent.interloper, status_footer_updater.interloper
   end
 
-  it 'feeds the Shared::StatusFooterUpdater from the same TokenLog the host wires into the agent' do
-    explicit_token_log = Pikuri::Agent::Listener::TokenLog.new
-    explicit_app = described_class.new(token_log: explicit_token_log) do |listener|
-      StubAgent.new(listener)
-    end
-    footer = status_footer_updater(explicit_app)
-    assert_same explicit_token_log, footer.instance_variable_get(:@token_log)
+  it 'feeds the Shared::StatusFooterUpdater from the App-owned TokenLog' do
+    footer = status_footer_updater
+    assert_same app.token_log, footer.instance_variable_get(:@token_log)
   end
 
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do
@@ -227,7 +224,7 @@ RSpec.describe Chat::App do
   end
 
   it 'forwards markdown: false to the Shared::ConversationWindow when wired off' do
-    explicit_app = described_class.new(markdown: false) do |listener|
+    explicit_app = described_class.new(config: chat_config, markdown: false) do |listener|
       @listener = listener
       StubAgent.new(listener)
     end
@@ -243,9 +240,11 @@ RSpec.describe Chat::App do
   end
 
   describe 'model picker' do
-    let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
+    let(:llms) { [llm('Local', 'm1'), llm('Cloud', 'm2')] }
     let(:picker_app) do
-      described_class.new(models: choices) { |listener, _status_footer_updater| StubAgent.new(listener, model: 'm1') }
+      described_class.new(config: chat_config(llms: llms)) do |listener, _status_footer_updater|
+        StubAgent.new(listener, model: 'm1')
+      end
     end
 
     it 'seeds the footer with the boot model display name' do
@@ -258,13 +257,14 @@ RSpec.describe Chat::App do
     # behavior is unit-tested in model_picker_spec.
     it 'applies the picked transport to the next run_loop, then clears it' do
       agent = picker_app.agent
+      cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
       picker = picker_app.instance_variable_get(:@model_picker)
       _, block = capture_picker { picker.open(current: agent.transport) }
       block.call('2') # pick 'Cloud'
 
       picker_app.session.submit('go')
       wait_until { agent.messages.size == 1 }
-      assert_equal choices[1].transport, agent.transports[0]
+      assert_equal cloud_transport, agent.transports[0]
 
       picker_app.session.submit('again')
       wait_until { agent.messages.size == 2 }
@@ -275,9 +275,9 @@ RSpec.describe Chat::App do
     # different servers must not collide in the footer's id → name map — the
     # footer must name the connection the agent actually booted on.
     it 'seeds the footer with the active connection, not a same-model sibling' do
-      pair = [model_choice('Local Qwen', 'qwen3', api_base: 'http://localhost:8080/v1'),
-              model_choice('Remote Qwen', 'qwen3', api_base: 'http://mavi-fw:8080/v1')]
-      app = described_class.new(models: pair) do |listener, _ml|
+      pair = [llm('Local Qwen', 'qwen3', server: 'http://localhost:8080'),
+              llm('Remote Qwen', 'qwen3', server: 'http://mavi-fw:8080')]
+      app = described_class.new(config: chat_config(llms: pair)) do |listener, _ml|
         StubAgent.new(listener, model: 'qwen3', api_base: 'http://mavi-fw:8080/v1')
       end
       assert_equal 'Remote Qwen', status_footer_updater(app).current_model
@@ -292,14 +292,22 @@ RSpec.describe Chat::App do
     some_app.instance_variable_get(:@conversation_window).status_footer_updater
   end
 
-  def model_choice(name, model, api_base: 'http://x/v1')
-    Shared::Model::Choice.new(
-      name: name,
-      transport: Pikuri::Agent::ChatTransport.new(
-        model: model, provider: :openai, assume_model_exists: true,
-        api_base: api_base, api_key: 'k'
-      )
+  # A Shared::Config carrying the given connections (defaults to one
+  # matching StubAgent's default transport, so the footer resolves it). App
+  # derives its @models from config.llms via Shared::Model::Choice.from_llm.
+  def chat_config(llms: [llm('Local', 'stub-model')])
+    Shared::Config.new(
+      llms: llms,
+      search: Shared::Config::Search.new(brave_key: nil, exa_key: nil),
+      sandbox: true, confirm: true, mcp: []
     )
+  end
+
+  # One [[llm]] connection. +server+ is the base URL (no /v1); from_llm
+  # appends /v1, so server 'http://x' yields transport api_base 'http://x/v1'
+  # — matching StubAgent's default api_base.
+  def llm(name, model, server: 'http://x')
+    Shared::Config::Llm.new(name: name, server: server, model: model, api_key: nil, context_window: nil)
   end
 
   # Swap +PickerWindow.open+ for a recorder (restored after), run the

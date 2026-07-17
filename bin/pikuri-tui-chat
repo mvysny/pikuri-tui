@@ -76,67 +76,17 @@ rescue Shared::Config::Error => e
   exit 2
 end
 
-# All configured connections become picker entries (Shared::Model::Choice); the
-# first is the boot model. Shared::Model::Choice.from_llm builds each one's
-# connection-bearing transport (the Pikuri seam lives there, not in the
-# Pikuri-light Config), so the context-window probe and a model switch
-# both target the right server.
-models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
-
-Pikuri::Extractors::PDF.register
-
-cancel_flag = Pikuri::Agent::Control::Cancellable.new
-
-# Mid-loop input channel: Chat::App injects messages submitted
-# while a turn is in flight; the agent drains the queue at every
-# after_tool_result boundary, and App delivers any leftovers as a fresh
-# turn when the loop ends.
-interloper = Pikuri::Agent::Control::Interloper.new
-
-system_prompt = Pikuri.prompt(:'pikuri-chat')
-system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
-
+# Mount the screen and install the app's theme pair (built-in accents +
+# pikuri-tui's own tool/notice/error/thinking/detail tokens) durably, so OS
+# light/dark flips re-pick the legible variant instead of falling back to the
+# stock Tuile theme. App assumes the screen singleton is already installed
+# (tests inject Tuile::Screen.fake), so the bin mounts it here.
 Tuile::Screen.new
-# Install the app's theme pair (built-in accents + pikuri-tui's own
-# tool/notice/error/thinking/detail tokens) durably, so OS light/dark
-# flips re-pick the legible variant instead of falling back to the
-# stock Tuile theme.
 Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 
-# Constructed up front so both the App (for the footer's status line) and the
-# Agent's ListenerList see the same TokenLog instance.
-token_log = Pikuri::Agent::Listener::TokenLog.new
-
-app = Chat::App.new(token_log: token_log, models: models) do |listener, status_footer_updater|
-  # Coalesce streaming delta chunks at 15 fps before they reach the
-  # Markdown-rendering Shared::ConversationWindow: a fast llama.cpp can emit dozens
-  # of deltas per second and re-rendering Markdown on every one is
-  # wasted work the user can't perceive. flush_pending_on_non_delta:
-  # false because the Assistant / Thinking bookend events re-render
-  # the authoritative final content (the listener finalizes the open
-  # streamed block, replacing the preview), so emitting the trailing
-  # 0–66 ms of buffered deltas right before the redraw is pure CPU waste.
-  rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
-    listener,
-    fps: 15,
-    flush_pending_on_non_delta: false
-  )
-  Pikuri::Agent.new(
-    transport: models.first.transport,
-    system_prompt: system_prompt,
-    step_limit: Pikuri::Agent::Control::StepLimit.new(max: 20),
-    cancellable: cancel_flag,
-    interloper: interloper,
-    streaming: true
-  ) do |c|
-    c.add_listener rate_limited_listener
-    c.add_listener token_log
-    c.add_listener status_footer_updater
-    c.add_tool Pikuri::Tool::WebSearch.build(brave_key: config.search.brave_key, exa_key: config.search.exa_key)
-    c.add_tool Pikuri::Tool::CALCULATOR
-    c.add_tool Pikuri::Tool::WEB_SCRAPE
-    c.add_tool Pikuri::Tool::FETCH
-  end
-end
-
-app.run
+# Hand off: App owns the agent. From the config it derives the model list
+# (one Shared::Model::Choice per [[llm]], the first the boot connection),
+# builds the streaming Pikuri::Agent with the chat system prompt and the
+# web/calc tool set, and wires the conversation listeners. The bin's job
+# ends at CLI + config + screen.
+Chat::App.new(config: config).run
