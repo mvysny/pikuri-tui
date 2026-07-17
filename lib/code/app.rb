@@ -25,11 +25,12 @@ module Code
   # + config + workspace/sandbox/trust + screen; the agent, its tools, and its
   # listeners are the shell's identity and live here.
   #
-  # The optional block is a **test/override seam**, not production ceremony: a
-  # spec passes one returning a lightweight stand-in so a unit test skips the
-  # network / RubyLLM / MCP-verify cost of a real agent. Given a block, App
-  # calls it (with no arguments) in place of {#default_build_agent}. The block
-  # takes no arguments because the agent's collaborators (the conversation
+  # The optional +transport:+ is a **test seam**, not production ceremony: a
+  # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
+  # agent — the real {#default_build_agent} listener/tool/extension wiring — on
+  # a scripted-HTTP backend, skipping the network / RubyLLM / MCP-verify cost.
+  # Production omits it and boots on the config's first connection. Only the
+  # transport is injectable because the agent's collaborators (the conversation
   # listener, the confirmer, the task listener, the footer, the plan-mode
   # listener) are App's own objects, reached through the
   # {Shared::ConversationWindow} / {WorkspaceSidebar} and App ivars directly.
@@ -160,12 +161,14 @@ module Code
     #   +ReadOnlyCommandApprover+'s +allow_git:+. Default +false+.
     # @param markdown [Boolean] forwarded to {Shared::ConversationWindow}'s
     #   +markdown:+ flag (default +true+).
-    # @yield optional test/override seam, called with no arguments. When
-    #   given, App calls it in place of {#default_build_agent} — a spec returns
-    #   a lightweight stand-in to skip the network / RubyLLM / MCP-verify cost
-    #   of a real agent. Omitted in production.
-    # @yieldreturn [Pikuri::Agent] the agent (or a duck-type) to install.
-    def initialize(config:, filesystem:, sandbox:, skill_catalog:, system_prompt:, trusted_repo: false, markdown: true, &build_agent)
+    # @param transport [Pikuri::Agent::ChatTransport, nil] test seam: the
+    #   backend to build the real agent on. Omit in production (boots on the
+    #   config's first connection); a spec passes a
+    #   +Pikuri::Testing.fake_transport+ to run real turns against scripted
+    #   HTTP — skipping the network / RubyLLM / MCP-verify cost. See the class
+    #   header.
+    def initialize(config:, filesystem:, sandbox:, skill_catalog:, system_prompt:,
+                   trusted_repo: false, markdown: true, transport: nil)
       @screen = Tuile::Screen.instance
       @config = config
       @filesystem = filesystem
@@ -185,11 +188,13 @@ module Code
       )
       @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
       @model_picker = Shared::Model::Picker.new(models: @models)
+      # Test seam: the backend the agent boots on. Production uses the config's
+      # first connection; a spec injects a fake_transport (see class header).
+      @boot_transport = transport || @models.first.transport
 
       build_components
       @log_ui.wire!
-      builder = build_agent || method(:default_build_agent)
-      @agent = builder.call
+      @agent = default_build_agent
       @session.agent = @agent
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model (resolved from its transport);
@@ -331,7 +336,7 @@ module Code
       )
 
       Pikuri::Agent.new(
-        transport: @models.first.transport,
+        transport: @boot_transport,
         system_prompt: @system_prompt,
         # Default :raise policy, deliberately NOT :synthesize — a coding turn
         # ends in a changed working tree, not an answer. On exhaustion the turn

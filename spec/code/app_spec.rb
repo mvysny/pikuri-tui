@@ -1,48 +1,14 @@
 # frozen_string_literal: true
 
 RSpec.describe Code::App do
-  # Minimal +Pikuri::Agent+ stand-in — same shape as the chat / computer
-  # specs'. App only reaches for +run_loop+ (from the worker thread),
-  # +cancellable+ (from {Shared::AgentSession#interrupt}), +interloper+
-  # (mid-turn queueing + the Shared::StatusFooterUpdater handoff), +transport+ /
-  # +clear_conversation+. Anything else stays untouched, so we don't pay the
-  # network / RubyLLM / MCP-verify cost in a unit spec. Named +CodeStubAgent+,
-  # not +StubAgent+: three spec files declaring +class StubAgent+ define one
-  # shared top-level constant, reopened across files — a landmine the moment
-  # their signatures diverge.
-  class CodeStubAgent
-    attr_reader :cancellable, :interloper, :messages, :transport, :transports, :clear_count
+  # App builds its *real* Pikuri::Agent (real default_build_agent listener /
+  # tool / extension wiring — workspace, sandbox, MCP, sub-agents, tasks,
+  # skills) on a fake_transport, so these specs exercise the actual wiring
+  # without a server. The old whole-agent CodeStubAgent is gone; see
+  # spec_helper's `require 'pikuri/testing'`. Code's agent is streaming: true,
+  # so scripted turns use `llm.stream(...)` (SSE).
 
-    def initialize(interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
-                   api_base: 'http://x/v1')
-      @cancellable = Pikuri::Agent::Control::Cancellable.new
-      @interloper = interloper
-      @transport = Pikuri::Agent::ChatTransport.new(
-        model: model, provider: :openai, assume_model_exists: true, api_base: api_base, api_key: 'k'
-      )
-      @messages = []
-      @transports = []
-      @clear_count = 0
-      @gate = Queue.new
-      @blocking = false
-    end
-
-    def model = @transport.model
-
-    def block_turns! = @blocking = true
-
-    def finish_turn! = @gate << :done
-
-    def clear_conversation = @clear_count += 1
-
-    def run_loop(user_message:, transport: nil)
-      @messages << user_message
-      @transports << transport
-      @gate.pop if @blocking
-    end
-  end
-
-  let(:app) { code_app { CodeStubAgent.new } }
+  let(:app) { code_app }
 
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
@@ -88,17 +54,39 @@ RSpec.describe Code::App do
     assert_includes status_bar_text, '^C cancel'
   end
 
-  it 'cancels the in-flight turn when Ctrl+C arrives mid-turn' do
-    agent = app.agent
-    agent.block_turns!
-    app.session.submit('work')
-    wait_until { agent.messages.size == 1 }
+  it 'builds a real Pikuri::Agent (not a stub) with the coding tool set wired' do
+    assert_kind_of Pikuri::Agent, app.agent
+    tool_names = app.agent.tools.map(&:name)
+    assert_includes tool_names, 'bash'  # Code::Extension
+    assert_includes tool_names, 'read'  # Workspace::Extension
+    assert_includes tool_names, 'calculator'
+  end
 
-    press_ctrl_c
-    assert agent.cancellable.cancelled?
+  # The headline capability the fake backend unlocks: a real turn runs through
+  # the real agent + real ruby_llm streaming loop + real listener wiring
+  # (including the full coding extension stack), and the streamed answer lands
+  # in the conversation pane. The whole-agent stub could never assert this.
+  it 'renders a real streamed turn in the conversation pane' do
+    turn_app = code_app { |llm| llm.stream('Patch ', 'applied.') }
+    turn_app.session.submit('do it')
+    wait_until { !turn_app.session.turn_in_progress? }
+    wait_until { turn_app.conversation_view.text.to_s.include?('Patch applied.') }
+
+    assert_includes turn_app.conversation_view.text.to_s, 'Patch applied.'
+  end
+
+  it 'cancels the in-flight turn when Ctrl+C arrives mid-turn' do
+    gate = Pikuri::Testing::Gate.new
+    turn_app = code_app(gate: gate) { |llm| llm.stream('done') }
+    gate.block!
+    turn_app.session.submit('work')
+    wait_until { turn_app.session.turn_in_progress? }
+
+    press_ctrl_c(turn_app)
+    assert turn_app.agent.cancellable.cancelled?
   ensure
-    agent.finish_turn!
-    wait_until { !app.session.turn_in_progress? }
+    gate.release!
+    wait_until { !turn_app.session.turn_in_progress? }
   end
 
   it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
@@ -166,9 +154,7 @@ RSpec.describe Code::App do
 
   describe 'model picker' do
     let(:llms) { [llm('Local', 'm1'), llm('Cloud', 'm2')] }
-    let(:picker_app) do
-      code_app(config: code_config(llms: llms)) { CodeStubAgent.new(model: 'm1') }
-    end
+    let(:picker_app) { code_app(config: code_config(llms: llms), model: 'm1') }
 
     it 'seeds the footer with the boot model display name' do
       footer = picker_app.instance_variable_get(:@conversation_window).status_footer_updater
@@ -180,18 +166,20 @@ RSpec.describe Code::App do
     # behavior is unit-tested in model_picker_spec.
     it 'applies the picked transport to the next run_loop, then clears it' do
       agent = picker_app.agent
+      seen = []
+      agent.define_singleton_method(:run_loop) { |user_message:, transport: nil| seen << transport }
       cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
       picker = picker_app.instance_variable_get(:@model_picker)
       _, block = capture_picker { picker.open(current: agent.transport) }
       block.call('2') # pick 'Cloud'
 
       picker_app.session.submit('go')
-      wait_until { agent.messages.size == 1 }
-      assert_equal cloud_transport, agent.transports[0]
+      wait_until { seen.size == 1 }
+      assert_equal cloud_transport, seen[0]
 
       picker_app.session.submit('again')
-      wait_until { agent.messages.size == 2 }
-      assert_nil agent.transports[1], 'a switch must apply at most once'
+      wait_until { seen.size == 2 }
+      assert_nil seen[1], 'a switch must apply at most once'
     end
   end
 
@@ -220,18 +208,17 @@ RSpec.describe Code::App do
     end
 
     it 'adds a switch-model action when more than one model is configured' do
-      picker_app = code_app(config: code_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')])) do
-        CodeStubAgent.new(model: 'm1')
-      end
+      picker_app = code_app(config: code_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')]), model: 'm1')
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
       assert_equal %w[l d p m c q], keys
     end
 
     it "picking 'c' clears the agent's conversation" do
-      agent = app.agent
+      cleared = 0
+      app.agent.define_singleton_method(:clear_conversation) { cleared += 1 }
       app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
       app.screen.send(:handle_key, 'c')
-      assert_equal 1, agent.clear_count
+      assert_equal 1, cleared
     end
 
     it "picking 'd' opens the git diff popup" do
@@ -269,19 +256,26 @@ RSpec.describe Code::App do
   # rooted at the repo, no sandbox, an empty skill catalog, a placeholder
   # prompt. Overridable via kwargs (the model-picker specs pass a multi-llm
   # config). The block is the no-arg agent seam.
-  def code_app(config: code_config, &blk)
+  # Build a Code::App on a fake_transport impersonating a config connection
+  # (default model / api_base match the default one-connection config so the
+  # footer resolves its name). A +gate+ holds turns open; the block scripts the
+  # conversation (default: a single streamed reply, enough for construction-only
+  # specs that never run a turn).
+  def code_app(config: code_config, model: 'stub-model', api_base: 'http://x/v1', gate: nil, &script)
+    script ||= ->(llm) { llm.stream('ok') }
+    transport = Pikuri::Testing.fake_transport(model: model, api_base: api_base, gate: gate, &script)
     described_class.new(
       config: config,
       filesystem: Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd),
       sandbox: Pikuri::Code::Bash::Sandbox::NONE,
       skill_catalog: Pikuri::Skill::Catalog::Bundled.new(search_bases: []),
       system_prompt: 'test system prompt',
-      &blk
+      transport: transport
     )
   end
 
   # A Shared::Config carrying the given connections (defaults to one matching
-  # CodeStubAgent's default transport, so the footer resolves it). App derives
+  # code_app's default fake transport, so the footer resolves it). App derives
   # its @models from config.llms via Shared::Model::Choice.from_llm.
   def code_config(llms: [llm('Local', 'stub-model')])
     Shared::Config.new(
@@ -293,7 +287,7 @@ RSpec.describe Code::App do
 
   # One [[llm]] connection. +server+ is the base URL (no /v1); from_llm
   # appends /v1, so server 'http://x' yields transport api_base 'http://x/v1'
-  # — matching CodeStubAgent's default api_base.
+  # — matching code_app's default fake api_base.
   def llm(name, model, server: 'http://x')
     Shared::Config::Llm.new(name: name, server: server, model: model, api_key: nil, context_window: nil)
   end
@@ -317,23 +311,23 @@ RSpec.describe Code::App do
     Tuile::Component::PickerWindow.define_singleton_method(:open, original)
   end
 
-  def status_bar_text
-    app.screen.pane.status_bar.text.to_s
+  def status_bar_text(some_app = app)
+    some_app.screen.pane.status_bar.text.to_s
   end
 
   # Dispatch Ctrl+C through the screen's real key handler (private in the
   # release gem) so the test exercises the full chain: global-shortcut
   # lookup, the +over_popups: false+ gate, then {Shared::AgentSession#interrupt}.
-  def press_ctrl_c
-    app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+  def press_ctrl_c(some_app = app)
+    some_app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
   end
 
   # Replaces the (no-op) FakeEventQueue#stop with a recorder and returns a
   # callable that reports whether it has fired — the only observable effect
   # of the quit branch, since the fake queue runs no loop to actually stop.
-  def spy_on_stop
+  def spy_on_stop(some_app = app)
     stopped = false
-    app.screen.event_queue.define_singleton_method(:stop) { stopped = true }
+    some_app.screen.event_queue.define_singleton_method(:stop) { stopped = true }
     -> { stopped }
   end
 
