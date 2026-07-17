@@ -5,48 +5,65 @@ require 'pikuri-core'
 require 'tuile'
 
 module Code
-  # The Tuile shell behind +bin/pikuri-tui-code+: the framed
-  # conversation pane, the framed input pane, the eager diagnostic
-  # +LogWindow+ (popup-visible via the {Shared::LeaderMenu}'s +l+ entry), the
-  # +Ctrl+K+ menu / +Ctrl+C+ cancel
-  # status-bar hints, and the agent loop on a worker thread. A parallel
-  # copy of {Chat::App} (see {Code} for the duplicate-don't-share
-  # rationale) with one addition: it owns a {ConfirmerPopup} and hands
-  # it to the build block so the boot script can wire it into the
-  # +Write+ / +Pikuri::Code::Bash+ tools.
+  # The Tuile shell behind +bin/pikuri-tui-code+: the framed conversation
+  # pane, the framed input pane, the tasks + git sidebar
+  # ({WorkspaceSidebar}), the eager diagnostic +LogWindow+ (popup-visible via
+  # the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+ menu / +Ctrl+C+ cancel
+  # status-bar hints, and the agent loop on a worker thread.
   #
-  # == Construction order
+  # A parallel copy of {Chat::App} (see {Code} for the duplicate-don't-share
+  # rationale), plus the coding-shell surface: a {ConfirmerPopup} gating
+  # +write+ / +bash+, the {WorkspaceSidebar} (tasks + git changes + diff
+  # popup), plan mode (a footer badge via {PlanModeListener} + a leader-menu
+  # +p+ toggle), and +edit+ / +write+ diffs.
   #
-  # The agent needs the conversation listeners and a {ConfirmerPopup}; the
-  # listeners need the conversation +TextView+ and the confirmer needs
-  # the +Screen+ — neither exists until the screen is initialized.
-  # Resolving that is why the constructor takes a block: App builds the
-  # components (the {Shared::ConversationWindow} owns the
-  # {Shared::ConversationWindow::Listener} / {Shared::StatusFooterUpdater}) and the confirmer,
-  # then yields +(listener, confirmer, …)+; the block returns a constructed
-  # +Pikuri::Agent+ that App installs. The bin uses this seam to pick
-  # model / tools / workspace / sandbox without App learning about any
-  # of them.
+  # == Construction: App owns the agent
+  #
+  # App builds its own +Pikuri::Agent+ (see {#default_build_agent}) from the
+  # {Shared::Config} handed to it plus the pre-built workspace objects the bin
+  # assembles — see "What the bin still owns" below. The bin's job ends at CLI
+  # + config + workspace/sandbox/trust + screen; the agent, its tools, and its
+  # listeners are the shell's identity and live here.
+  #
+  # The optional block is a **test/override seam**, not production ceremony: a
+  # spec passes one returning a lightweight stand-in so a unit test skips the
+  # network / RubyLLM / MCP-verify cost of a real agent. Given a block, App
+  # calls it (with no arguments) in place of {#default_build_agent}. The block
+  # takes no arguments because the agent's collaborators (the conversation
+  # listener, the confirmer, the task listener, the footer, the plan-mode
+  # listener) are App's own objects, reached through the
+  # {Shared::ConversationWindow} / {WorkspaceSidebar} and App ivars directly.
+  #
+  # == What the bin still owns (why this isn't just +config:+)
+  #
+  # Unlike {Chat::App} / {Computer::App}, this constructor takes several
+  # already-built objects because they can't be a pure post-screen object
+  # graph: the interactive git-trust prompt needs +filesystem.project_root+
+  # and a live pre-screen terminal (→ +trusted_repo+), so +filesystem+ is
+  # pre-screen; +filesystem.readable+ folds in +skill_catalog.roots+, so
+  # +skill_catalog+ is pre-screen; +filesystem+ / +sandbox+ / +system_prompt+
+  # all depend on CLI flags absent from config (+--yolo+ / +--readable+ /
+  # +--writable+). The bin builds those and passes them; App owns everything
+  # derivable from +config+ (models, plan-mode flag, tool formatters, the MCP
+  # registry) plus the agent graph.
   #
   # == Screen ownership
   #
   # App assumes a {Tuile::Screen} (or {Tuile::FakeScreen}) is already
-  # installed as the singleton — production code calls
-  # +Tuile::Screen.new+ in the bin before constructing App; tests call
-  # +Tuile::Screen.fake+.
+  # installed as the singleton — the bin calls +Tuile::Screen.new+ before
+  # constructing App; tests call +Tuile::Screen.fake+.
   #
   # == Threading
   #
-  # Per CLAUDE.md, Tuile is single-threaded and the agent loop must not
-  # run on the UI thread. App runs {Tuile::Screen#run_event_loop} on the
-  # caller's thread and delegates the off-thread turn lifecycle — worker
-  # thread, mid-turn injection, concurrency guard, spinner, Ctrl+C
-  # escalation — to a composed {Shared::AgentSession} (see its threading
-  # contract). Enter routes to +session.submit+, Ctrl+C to
-  # +session.interrupt+, leader +c+ to +session.clear_conversation+. The
-  # {ConfirmerPopup} bridges the other way: a tool on the worker thread
-  # calls +confirm?+, which submits the popup to the UI thread and blocks
-  # the worker until the user answers (see its docs).
+  # Per CLAUDE.md, Tuile is single-threaded and the agent loop must not run on
+  # the UI thread. App runs {Tuile::Screen#run_event_loop} on the caller's
+  # thread and delegates the off-thread turn lifecycle — worker thread,
+  # mid-turn injection, concurrency guard, spinner, Ctrl+C escalation — to a
+  # composed {Shared::AgentSession} (see its threading contract). Enter routes
+  # to +session.submit+, Ctrl+C to +session.interrupt+, leader +c+ to
+  # +session.clear_conversation+. The {ConfirmerPopup} bridges the other way:
+  # a tool on the worker thread calls +confirm?+, which submits the popup to
+  # the UI thread and blocks the worker until the user answers (see its docs).
   #
   # UI-thread-confined.
   class App
@@ -57,7 +74,14 @@ module Code
     #   runs on.
     attr_reader :screen
 
-    # @return [Pikuri::Agent] the agent the build block returned.
+    # @return [Shared::Config] the resolved configuration the bin loaded;
+    #   drives the model list, the sandbox/confirm posture, the web-search
+    #   provider keys, and the MCP registry {#default_build_agent} builds.
+    attr_reader :config
+
+    # @return [Pikuri::Agent] the agent App built ({#default_build_agent}, or a
+    #   test override block's stand-in). Exposed so callers (and tests) can
+    #   inspect tools/listeners/transport after wiring.
     attr_reader :agent
 
     # @return [Shared::AgentSession] the turn-lifecycle engine this shell
@@ -70,9 +94,15 @@ module Code
     #   it through the {Shared::ConversationWindow::Listener}.
     def conversation_view = @conversation_window.view
 
+    # @return [Pathname] the workspace root — the passed filesystem's
+    #   normalized project root (writable ceiling + bash chdir target + the
+    #   conversation window title). The single source of truth for where this
+    #   shell is rooted.
+    def project_root = @filesystem.project_root
+
     # @return [TaskListWindow::Listener] the task-pane listener (owned by
-    #   the {WorkspaceSidebar}'s task pane) handed to the build block; the
-    #   host wires it into the agent's +ListenerList+.
+    #   the {WorkspaceSidebar}'s task pane); {#default_build_agent} wires it
+    #   into the agent's +ListenerList+.
     def task_listener = @sidebar.task_listener
 
     # @return [WorkspaceSidebar] the tasks + git sidebar; owns the
@@ -85,96 +115,81 @@ module Code
     def log_window = @log_ui.log_window
 
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
-    #   log, fed into the conversation-window {Shared::StatusFooterUpdater}.
+    #   log, App-owned and fed into the conversation-window
+    #   {Shared::StatusFooterUpdater}. {#default_build_agent} registers this
+    #   same instance in the agent's +ListenerList+.
     attr_reader :token_log
 
     # @return [Shared::StatusFooterUpdater] the footer, which doubles as the
-    #   model-name listener, yielded to the build block. The host must include
-    #   it in the agent's +ListenerList+ so +ModelSwitched+ events reach it.
+    #   model-name listener. {#default_build_agent} registers it in the
+    #   agent's +ListenerList+ so +ModelSwitched+ events reach it.
     def status_footer_updater = @conversation_window.status_footer_updater
 
-    # @return [PlanModeListener] the footer plan-mode-badge listener
-    #   yielded to the build block. The host must include it in the
-    #   agent's +ListenerList+ so +Pikuri::Code::PlanModeChanged+ events
-    #   reach the footer. Dormant until a plan-mode transition fires
+    # @return [PlanModeListener] the footer plan-mode-badge listener,
+    #   registered by {#default_build_agent} so +Pikuri::Code::PlanModeChanged+
+    #   events reach the footer. Dormant until a plan-mode transition fires
     #   (via {#toggle_plan_mode} or the model's enter/exit tools).
     attr_reader :plan_mode_listener
 
-    # @return [ConfirmerPopup] the modal confirmer handed to the build
-    #   block; exposed for tests and for callers that want to inspect
-    #   how the write/bash tools were wired.
+    # @return [ConfirmerPopup] the modal confirmer wired into the +write+ /
+    #   +bash+ tools; exposed for tests and for callers that want to inspect
+    #   how those tools were gated.
     attr_reader :confirmer
 
-    # @param token_log [Pikuri::Agent::Listener::TokenLog] the
-    #   per-conversation token log whose +status_line+ feeds the footer.
-    #   The host is responsible for wiring the same instance into the
-    #   agent's +ListenerList+. Defaults to a fresh instance.
-    # @param project_root [Pathname, String] the workspace root shown
-    #   as the conversation window title. Defaults to the current
-    #   working directory.
+    # @param config [Shared::Config] the resolved configuration; App derives
+    #   the model list (one {Shared::Model::Choice} per +config.llms+ entry,
+    #   the first the boot connection), reads the sandbox/confirm posture, the
+    #   web-search provider keys, and the +config.mcp+ server list.
+    # @param filesystem [Pikuri::Workspace::Filesystem] the pre-built
+    #   workspace (writable ceiling, bind root, relative-path base) — built in
+    #   the bin because the git-trust prompt needs it pre-screen and it folds
+    #   in +--readable+/+--writable+ and the skill-catalog roots. Threaded into
+    #   the +Workspace+ / +Code+ extensions and the +write+ diff formatter.
+    # @param sandbox [Pikuri::Code::Bash::Sandbox] the pre-built bash sandbox
+    #   (Bubblewrap, or +NONE+ under +--no-sandbox+/+--yolo+) — built in the
+    #   bin so its bwrap probe raises to a normal terminal pre-screen, next to
+    #   the filesystem it wraps.
+    # @param skill_catalog [Pikuri::Skill::Catalog] the skill catalog whose
+    #   roots the bin already folded into +filesystem.readable+; wired into the
+    #   +Skill+ extension.
+    # @param system_prompt [String] the fully-assembled coding system prompt —
+    #   built in the bin because it reads AGENTS.md/CLAUDE.md and reflects the
+    #   sandbox / writable-paths / yolo posture (all bin-local decisions).
+    # @param trusted_repo [Boolean] whether read-only git auto-approves — the
+    #   result of the bin's interactive, persisted git-trust prompt. Flips the
+    #   +ReadOnlyCommandApprover+'s +allow_git:+. Default +false+.
     # @param markdown [Boolean] forwarded to {Shared::ConversationWindow}'s
     #   +markdown:+ flag (default +true+).
-    # @param tool_formatters [Hash{String => Object}] forwarded to
-    #   {Shared::ConversationWindow}'s +tool_formatters:+ — the per-tool diff
-    #   formatters ({EditFormatter} / {WriteFormatter}) the bin wires for
-    #   the +edit+ / +write+ tools. Defaults to +{}+.
-    # @param models [Array<Shared::Model::Choice>] the connections the leader menu's
-    #   +m+ model picker offers, in display order. The +m+ menu entry is
-    #   registered only when more than one is given; the model id → name
-    #   map drives the footer's model segment regardless. Defaults to
-    #   empty.
-    # @param plan_mode [Pikuri::Workspace::ReadOnly] the shared
-    #   plan-mode (read-only) flag — pass the *same* instance the host
-    #   threaded into the +read_only:+ of +Pikuri::Workspace::Extension+
-    #   and +Pikuri::Code::Extension+, so the leader menu's +p+ toggle and
-    #   the model's +enter_plan_mode+/+exit_plan_mode+ tools flip one flag.
-    #   The +p+ toggle is always registered; the default is a fresh flag
-    #   starting *not* in plan mode. The footer badge tracks it via
-    #   {PlanModeListener}.
-    # @yield [listener, confirmer, task_listener, status_footer_updater, plan_mode_listener]
-    #   one-shot factory invoked exactly once during construction.
-    #   Receives the {Shared::ConversationWindow::Listener} bound to this app's conversation
-    #   pane, the {ConfirmerPopup}, the {TaskListWindow::Listener} bound to the
-    #   sidebar task pane, the {Shared::StatusFooterUpdater} that keeps the footer
-    #   model name current, and the {PlanModeListener} that keeps the
-    #   footer plan-mode badge current; must return a constructed
-    #   +Pikuri::Agent+ whose +ListenerList+ includes the listeners and
-    #   the +token_log+ exposed at {#token_log}, with the confirmer wired
-    #   into its write/bash tools.
-    # @yieldparam listener [Shared::ConversationWindow::Listener] the conversation-pane
-    #   listener; include it in the agent's +ListenerList+.
-    # @yieldparam confirmer [ConfirmerPopup] the modal confirmer; pass
-    #   it to the +Write+ / +Pikuri::Code::Bash+ tools.
-    # @yieldparam task_listener [TaskListWindow::Listener] the task-pane listener;
-    #   include it in the agent's +ListenerList+ (alongside the
-    #   +Pikuri::Tasks::Extension+ that emits the events it renders).
-    # @yieldparam status_footer_updater [Shared::StatusFooterUpdater] the footer,
-    #   which doubles as the model-name listener; include it in the agent's +ListenerList+.
-    # @yieldparam plan_mode_listener [PlanModeListener] the footer
-    #   plan-mode-badge listener; include it in the agent's
-    #   +ListenerList+ (alongside the +Pikuri::Code::Extension+ that emits
-    #   the events it renders).
-    # @yieldreturn [Pikuri::Agent] the wired agent.
-    # @raise [LocalJumpError] if no block is given.
-    def initialize(token_log: Pikuri::Agent::Listener::TokenLog.new, project_root: Dir.pwd, markdown: true, tool_formatters: {}, models: [], plan_mode: Pikuri::Workspace::ReadOnly.new, &build_agent)
-      raise LocalJumpError, 'Code::App requires a block that builds the Pikuri::Agent' unless block_given?
-
+    # @yield optional test/override seam, called with no arguments. When
+    #   given, App calls it in place of {#default_build_agent} — a spec returns
+    #   a lightweight stand-in to skip the network / RubyLLM / MCP-verify cost
+    #   of a real agent. Omitted in production.
+    # @yieldreturn [Pikuri::Agent] the agent (or a duck-type) to install.
+    def initialize(config:, filesystem:, sandbox:, skill_catalog:, system_prompt:, trusted_repo: false, markdown: true, &build_agent)
       @screen = Tuile::Screen.instance
-      @token_log = token_log
-      @project_root = project_root
+      @config = config
+      @filesystem = filesystem
+      @sandbox = sandbox
+      @skill_catalog = skill_catalog
+      @system_prompt = system_prompt
+      @trusted_repo = trusted_repo
       @markdown = markdown
-      @tool_formatters = tool_formatters
-      @model_picker = Shared::Model::Picker.new(models: models)
-      @plan_mode = plan_mode
+      @token_log = Pikuri::Agent::Listener::TokenLog.new
+      # The shared plan-mode (read-only) flag: the leader menu's +p+ toggle and
+      # the model's enter/exit tools flip this one instance (threaded into the
+      # Workspace + Code extensions' read_only: by default_build_agent). The
+      # message: is the plan-mode-specific refusal wording Edit/Write splice
+      # into their "cannot write …" observation.
+      @plan_mode = Pikuri::Workspace::ReadOnly.new(
+        message: Pikuri::Code::Extension::PLAN_MODE_READONLY_MESSAGE
+      )
+      @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
+      @model_picker = Shared::Model::Picker.new(models: @models)
 
       build_components
       @log_ui.wire!
-      @agent = build_agent.call(
-        @conversation_window.listener, @confirmer, @sidebar.task_listener,
-        @conversation_window.status_footer_updater, @plan_mode_listener
-      )
-      # Deferred from construction: the agent, hence its interloper,
-      # doesn't exist until the build block has run.
+      builder = build_agent || method(:default_build_agent)
+      @agent = builder.call
       @session.agent = @agent
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model (resolved from its transport);
@@ -190,12 +205,13 @@ module Code
       register_shortcuts
     end
 
-    # Runs the Tuile event loop, blocking the calling thread until the
-    # user quits or the loop is otherwise stopped. Starts the
-    # {WorkspaceSidebar}'s git poll before the loop and stops it in the
-    # +ensure+, which also pairs +run_event_loop+ with
-    # +Tuile::Screen#close+ so the terminal is cleared and the screen
-    # singleton is unset regardless of how the loop exits.
+    # Runs the Tuile event loop, blocking the calling thread until the user
+    # quits or the loop is otherwise stopped. Starts the {WorkspaceSidebar}'s
+    # git poll before the loop and stops it in the +ensure+. Does NOT close the
+    # screen: the bin owns teardown via +begin/ensure Tuile::Screen.close+
+    # around both +App.new+ and this call, so the screen is torn down whether
+    # the failure is in construction (an MCP verify / transport probe) or in
+    # the loop.
     #
     # @return [void]
     def run
@@ -203,7 +219,6 @@ module Code
       @screen.run_event_loop
     ensure
       @sidebar.stop_git_watching
-      @screen.close
     end
 
     private
@@ -212,8 +227,18 @@ module Code
     def build_components
       @log_ui = Shared::Log::UI.new(screen: @screen)
 
+      # Per-tool diff formatters for the conversation pane: the edit / write
+      # ToolCall renders as a before/after diff (the write side reads the
+      # existing file through the same filesystem the Write tool uses) instead
+      # of an argument dump, and the paired ToolResult is suppressed on success
+      # / surfaced on error.
+      @tool_formatters = {
+        'edit'  => EditFormatter.new,
+        'write' => WriteFormatter.new(filesystem: @filesystem)
+      }
+
       @conversation_window = Shared::ConversationWindow.new(
-        token_log: @token_log, title: @project_root.to_s, markdown: @markdown,
+        token_log: @token_log, title: @filesystem.project_root.to_s, markdown: @markdown,
         tool_formatters: @tool_formatters, model_names: @model_picker.names
       )
 
@@ -237,6 +262,127 @@ module Code
         input: @input_window,
         sidebar: @sidebar
       )
+    end
+
+    # Build the coding shell's +Pikuri::Agent+: a streaming agent on the boot
+    # connection (+@models.first+), the bin-assembled +system_prompt+, and the
+    # full coding tool surface. The production factory, called unless the
+    # constructor was handed an override block. Wires the conversation listener
+    # (rate-limited to 15 fps), {#token_log}, the sidebar {#task_listener},
+    # {#status_footer_updater}, and {#plan_mode_listener} into the agent's
+    # +ListenerList+ — all reached through App's own objects, so nothing has to
+    # be passed in.
+    #
+    # File/shell tools first (declaration order biases some models toward
+    # earlier tools); calculator as auxiliary. Network tools go on the
+    # sub-agent-only pool so untrusted web content lands in a child context
+    # with no file read/write/bash to hijack (pikuri's SECURITY.md "capability
+    # boundaries via sub-agents"). The five file tools come from one
+    # +Workspace::Extension+ (a single +Workspace+ composite shared across
+    # them, so the read-before-edit gate works); +Bash+ / +git_clone+ come from
+    # +Code::Extension+. Both take the shared plan-mode flag so Edit/Write
+    # refuse while it's active.
+    #
+    # == The MCP registry + verify
+    #
+    # Translates +config.mcp+'s Pikuri-free +McpServer+ value objects into
+    # +Registry+ entries here (a wiring layer where +Pikuri::*+ is allowed).
+    # Empty by default — an empty registry makes +Mcp::Extension+'s boot-time
+    # synthesize/verify LLM calls no-ops, so a no-MCP agent stays offline.
+    #
+    # @return [Pikuri::Agent] the wired agent.
+    def default_build_agent
+      listener = @conversation_window.listener
+      status_footer_updater = @conversation_window.status_footer_updater
+      task_listener = @sidebar.task_listener
+
+      Pikuri::Extractors::PDF.register
+
+      # The Tuile modal confirmer for writes + bash, unless confirmations are
+      # disabled (--no-confirm / --yolo), in which case approve everything.
+      confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
+
+      # Bash auto-gates provably read-only commands on top of the human
+      # confirmer: the frequent harmless inspections (ls, cat, grep, `cd x &&
+      # ls`) stop popping the modal, while every mutation still reaches the y/n
+      # popup. The gate is asymmetric — only Code::Extension (Bash) gets a
+      # command_approver; Write/Edit keep the bare confirmer. allow_git tracks
+      # the persisted trust grant. Under --no-confirm/--yolo there is nothing
+      # to skip, so no approver is built.
+      code_command_approver = @config.confirm ? Pikuri::Code::Bash::ReadOnlyCommandApprover.new(allow_git: @trusted_repo) : nil
+
+      # MCP servers declared in [[code.mcp]]. Empty by default (see the "MCP
+      # registry" note above).
+      mcp_entries = @config.mcp.map do |m|
+        if m.stdio?
+          Pikuri::Mcp::Registry::StdioEntry.new(id: m.id, command: m.command, env: m.env)
+        else
+          Pikuri::Mcp::Registry::HttpEntry.new(id: m.id, url: m.url, headers: m.headers)
+        end
+      end
+      mcp_registry = Pikuri::Mcp::Registry.new(entries: mcp_entries)
+
+      # Coalesce streaming delta chunks at 15 fps before they reach the
+      # Markdown-rendering Shared::ConversationWindow (see Chat::App for the
+      # rationale). flush_pending_on_non_delta: false because the bookend
+      # Assistant / Thinking events re-render the authoritative final content.
+      rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
+        listener, fps: 15, flush_pending_on_non_delta: false
+      )
+
+      Pikuri::Agent.new(
+        transport: @models.first.transport,
+        system_prompt: @system_prompt,
+        # Default :raise policy, deliberately NOT :synthesize — a coding turn
+        # ends in a changed working tree, not an answer. On exhaustion the turn
+        # stops; the chat history survives and "continue" just works.
+        step_limit: Pikuri::Agent::Control::StepLimit.new(max: 100),
+        cancellable: Pikuri::Agent::Control::Cancellable.new,
+        interloper: Pikuri::Agent::Control::Interloper.new,
+        streaming: true
+      ) do |c|
+        c.add_listener rate_limited_listener
+        c.add_listener @token_log
+        # Renders the Pikuri::Tasks::Extension list into the sidebar task pane.
+        # Not rate-limited — task mutations are rare and each snapshot is
+        # authoritative.
+        c.add_listener task_listener
+        # Keeps the footer's model name in step with leader-menu model switches.
+        c.add_listener status_footer_updater
+        # Keeps the footer's plan-mode badge in step with the shared flag
+        # (the leader menu's 'p' toggle or the model's enter/exit tools).
+        c.add_listener @plan_mode_listener
+        c.add_extension Pikuri::Workspace::Extension.new(filesystem: @filesystem, confirmer: confirmer, read_only: @plan_mode)
+        c.add_tool Pikuri::Tool::CALCULATOR
+        c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(brave_key: @config.search.brave_key,
+                                                           exa_key: @config.search.exa_key)
+        c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
+        c.add_sub_agent_tool Pikuri::Tool::FETCH
+        c.add_extension Pikuri::Code::Extension.new(
+          filesystem: @filesystem,
+          confirmer: confirmer,
+          command_approver: code_command_approver,
+          sandbox: @sandbox,
+          read_only: @plan_mode
+        )
+        c.add_extension Pikuri::Skill::Extension.new(catalog: @skill_catalog)
+        c.add_extension Pikuri::Tasks::Extension.new
+        c.add_extension Pikuri::Mcp::Extension.new(
+          registry: mcp_registry,
+          synthesize_descriptions: true,
+          verify_mcp_servers: true
+        )
+        # Privilege-separated read-only sub-agents: FILE_MINER (read/grep/glob)
+        # for code/fs lookups, RESEARCHER (web_search/scrape/fetch) for
+        # external docs, GIT_REPO_RESEARCHER for cloning + mining other repos.
+        c.add_extension Pikuri::SubAgent::Extension.new(
+          personas: [
+            Pikuri::SubAgent::FILE_MINER,
+            Pikuri::SubAgent::RESEARCHER,
+            Pikuri::Code::GIT_REPO_RESEARCHER
+          ]
+        )
+      end
     end
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
@@ -288,11 +434,11 @@ module Code
       menu
     end
 
-    # Stop the event loop, unwinding {#run} into +Screen#close+. The leader
-    # menu's +q+ action — a hard quit, distinct from
-    # {Shared::AgentSession#interrupt}'s escalation (no turn-cancel /
-    # unfocus steps). Runs on the event-loop
-    # thread (deferred by {Shared::LeaderMenu}), so +stop+ is safe to call.
+    # Stop the event loop, unwinding {#run} back to the bin's +ensure+ (which
+    # calls +Screen#close+). The leader menu's +q+ action — a hard quit,
+    # distinct from {Shared::AgentSession#interrupt}'s escalation (no
+    # turn-cancel / unfocus steps). Runs on the event-loop thread (deferred by
+    # {Shared::LeaderMenu}), so +stop+ is safe to call.
     #
     # @return [void]
     def quit

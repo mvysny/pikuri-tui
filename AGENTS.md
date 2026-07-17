@@ -320,7 +320,14 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/code/app.rb` — `Code::App`, the Tuile
   shell for `bin/pikuri-tui-code`; like `Chat::App` but adds the
   `Code::ConfirmerPopup`, the `Code::WorkspaceSidebar` (tasks + git changes +
-  diff popup), and plan-mode toggle.
+  diff popup), and plan-mode toggle. Like the other two shells it builds its
+  own agent (models, MCP registry, the six file/shell tools + task/skill/
+  sub-agent extensions) with an optional no-arg block overriding the build for
+  tests — but because the git-trust prompt / skill-catalog / CLI-flag-driven
+  workspace can't be a pure post-screen graph, it takes the bin-built
+  `filesystem:` / `sandbox:` / `skill_catalog:` / `system_prompt:` /
+  `trusted_repo:` as constructor args (see the class header for the split).
+  `#run` no longer closes the screen — the bin's `begin/ensure` owns teardown.
 - `lib/code/layout.rb` — `Code::Layout`, the
   coding shell's dual-column root: a 60/40 conversation-over-input left
   column beside a full-height `Code::WorkspaceSidebar` (collapsed when too
@@ -411,10 +418,13 @@ Zeitwerk over `lib/` and eager-loads it.
   the `Tuile::Screen`, and hands the config to `Chat::App` (which builds the
   agent). Ports pikuri's chat demo.
 - `bin/pikuri-tui-code` — boot script for the coding agent
-  (`Bundler.setup(:default, :code)`): discovers the project root, builds
-  the workspace + sandbox + six file/shell tools (with the confirmer /
-  trust / plan-mode wiring), and hands them to `Code::App`. Ports
-  pikuri's `bin/pikuri-code` demo.
+  (`Bundler.setup(:default, :code)`): does the pre-screen boot sequencing App
+  can't — CLI + `--readable`/`--writable` validation, project-root discovery +
+  `Dir.chdir`, config, the skill catalog + workspace + sandbox, the
+  interactive git-trust prompt (→ `trusted_repo`), and the posture-reflecting
+  system prompt — then hands those to `Code::App` (which builds the agent) and
+  wraps `App.new`/`run` in `begin/ensure Tuile::Screen.close`. Ports pikuri's
+  `bin/pikuri-code` demo.
 - `bin/pikuri-tui-computer` — boot script for the desktop assistant
   (`Bundler.setup(:default, :computer)`): parses CLI + loads `Shared::Config`,
   probes the Thunderbird profile (a friendly warn+exit pre-screen), mounts the

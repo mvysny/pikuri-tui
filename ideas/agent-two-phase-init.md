@@ -1,9 +1,9 @@
 # Two-phase `Pikuri::Agent` init (upstream, parked)
 
-Parked while we do the bin→App agent-ownership refactor. This is an
+Parked. The bin→App agent-ownership refactor (all three shells) is now
+done; this is the follow-up for the "testing-with-agent" goal. It's an
 *upstream pikuri* idea, not a pikuri-tui change, and it's only worth doing
-in service of the "testing-with-agent" goal — not for the App refactor,
-which doesn't need it.
+in service of that goal — the App refactor itself didn't need it.
 
 ## Why it does NOT help the App refactor
 

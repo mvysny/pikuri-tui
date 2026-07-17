@@ -1,16 +1,20 @@
 # frozen_string_literal: true
 
 RSpec.describe Code::App do
-  # Minimal +Pikuri::Agent+ stand-in — same shape as the chat spec's, but
-  # the Code::App build block yields THREE args (listener, confirmer,
-  # task_listener), so StubAgent ignores the confirmer and task listener
-  # (the real agent's tools / ListenerList would take them).
-  class StubAgent
-    attr_reader :cancellable, :interloper, :listener, :messages, :transport, :transports, :clear_count
+  # Minimal +Pikuri::Agent+ stand-in — same shape as the chat / computer
+  # specs'. App only reaches for +run_loop+ (from the worker thread),
+  # +cancellable+ (from {Shared::AgentSession#interrupt}), +interloper+
+  # (mid-turn queueing + the Shared::StatusFooterUpdater handoff), +transport+ /
+  # +clear_conversation+. Anything else stays untouched, so we don't pay the
+  # network / RubyLLM / MCP-verify cost in a unit spec. Named +CodeStubAgent+,
+  # not +StubAgent+: three spec files declaring +class StubAgent+ define one
+  # shared top-level constant, reopened across files — a landmine the moment
+  # their signatures diverge.
+  class CodeStubAgent
+    attr_reader :cancellable, :interloper, :messages, :transport, :transports, :clear_count
 
-    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
+    def initialize(interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
                    api_base: 'http://x/v1')
-      @listener = listener
       @cancellable = Pikuri::Agent::Control::Cancellable.new
       @interloper = interloper
       @transport = Pikuri::Agent::ChatTransport.new(
@@ -38,14 +42,7 @@ RSpec.describe Code::App do
     end
   end
 
-  let(:app) do
-    described_class.new do |listener, confirmer, task_listener|
-      @listener = listener
-      @confirmer = confirmer
-      @task_listener = task_listener
-      StubAgent.new(listener)
-    end
-  end
+  let(:app) { code_app { CodeStubAgent.new } }
 
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
@@ -59,9 +56,8 @@ RSpec.describe Code::App do
     assert_same layout.sidebar, app.sidebar
   end
 
-  it 'hands the task-pane listener to the build block as the third arg' do
-    app # force construction
-    assert_kind_of Code::TaskListWindow::Listener, @task_listener
+  it 'exposes the task-pane listener at #task_listener' do
+    assert_kind_of Code::TaskListWindow::Listener, app.task_listener
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
@@ -72,19 +68,12 @@ RSpec.describe Code::App do
     assert_kind_of Tuile::Component::LogWindow, app.log_window
   end
 
-  it 'hands the conversation listener to the build block as the first arg' do
-    app # force construction
-    assert_kind_of Shared::ConversationWindow::Listener, @listener
-  end
-
-  it 'hands a ConfirmerPopup to the build block as the second arg' do
-    app # force construction
-    assert_kind_of Code::ConfirmerPopup, @confirmer
+  it 'exposes #project_root (the filesystem root the bin logs)' do
+    assert_equal Pathname.new(Dir.pwd).realpath, Pathname.new(app.project_root.to_s).realpath
   end
 
   it 'exposes the ConfirmerPopup at #confirmer, bound to this app screen' do
     assert_kind_of Code::ConfirmerPopup, app.confirmer
-    assert_same app.confirmer, @confirmer
     assert_same app.screen, app.confirmer.instance_variable_get(:@screen)
   end
 
@@ -168,10 +157,6 @@ RSpec.describe Code::App do
     assert_includes rendered, 'pikuri-side message'
   end
 
-  it 'raises without a build block (no agent → no app)' do
-    assert_raises(LocalJumpError) { described_class.new }
-  end
-
   it 'installs an on_error handler that funnels uncaught exceptions to the pikuri log' do
     app
     log = capture_log { app.screen.on_error.call(RuntimeError.new('oops')) }
@@ -180,11 +165,9 @@ RSpec.describe Code::App do
   end
 
   describe 'model picker' do
-    let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
+    let(:llms) { [llm('Local', 'm1'), llm('Cloud', 'm2')] }
     let(:picker_app) do
-      described_class.new(models: choices) do |listener, _confirmer, _task_listener, _status_footer_updater|
-        StubAgent.new(listener, model: 'm1')
-      end
+      code_app(config: code_config(llms: llms)) { CodeStubAgent.new(model: 'm1') }
     end
 
     it 'seeds the footer with the boot model display name' do
@@ -197,13 +180,14 @@ RSpec.describe Code::App do
     # behavior is unit-tested in model_picker_spec.
     it 'applies the picked transport to the next run_loop, then clears it' do
       agent = picker_app.agent
+      cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
       picker = picker_app.instance_variable_get(:@model_picker)
       _, block = capture_picker { picker.open(current: agent.transport) }
       block.call('2') # pick 'Cloud'
 
       picker_app.session.submit('go')
       wait_until { agent.messages.size == 1 }
-      assert_equal choices[1].transport, agent.transports[0]
+      assert_equal cloud_transport, agent.transports[0]
 
       picker_app.session.submit('again')
       wait_until { agent.messages.size == 2 }
@@ -212,21 +196,15 @@ RSpec.describe Code::App do
   end
 
   describe 'plan mode' do
-    let(:plan_mode) { Pikuri::Workspace::ReadOnly.new }
-    let(:plan_app) do
-      described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _task_listener, _status_footer_updater, _plan_listener|
-        StubAgent.new(listener)
-      end
-    end
-
     it 'defaults to a control that is not in plan mode' do
       refute app.instance_variable_get(:@plan_mode).active?
     end
 
     it 'toggle_plan_mode flips the shared control on, then off' do
-      plan_app.send(:toggle_plan_mode)
+      plan_mode = app.instance_variable_get(:@plan_mode)
+      app.send(:toggle_plan_mode)
       assert plan_mode.active?
-      plan_app.send(:toggle_plan_mode)
+      app.send(:toggle_plan_mode)
       refute plan_mode.active?
     end
   end
@@ -242,8 +220,8 @@ RSpec.describe Code::App do
     end
 
     it 'adds a switch-model action when more than one model is configured' do
-      picker_app = described_class.new(models: [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')]) do |listener, _c, _t, _ml, _pl|
-        StubAgent.new(listener, model: 'm1')
+      picker_app = code_app(config: code_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')])) do
+        CodeStubAgent.new(model: 'm1')
       end
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
       assert_equal %w[l d p m c q], keys
@@ -286,14 +264,38 @@ RSpec.describe Code::App do
 
   private
 
-  def model_choice(name, model)
-    Shared::Model::Choice.new(
-      name: name,
-      transport: Pikuri::Agent::ChatTransport.new(
-        model: model, provider: :openai, assume_model_exists: true,
-        api_base: 'http://x/v1', api_key: 'k'
-      )
+  # Construct a Code::App with the pre-built workspace objects the bin
+  # normally assembles pre-screen. Cheap stand-ins: an AllowAll filesystem
+  # rooted at the repo, no sandbox, an empty skill catalog, a placeholder
+  # prompt. Overridable via kwargs (the model-picker specs pass a multi-llm
+  # config). The block is the no-arg agent seam.
+  def code_app(config: code_config, &blk)
+    described_class.new(
+      config: config,
+      filesystem: Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd),
+      sandbox: Pikuri::Code::Bash::Sandbox::NONE,
+      skill_catalog: Pikuri::Skill::Catalog::Bundled.new(search_bases: []),
+      system_prompt: 'test system prompt',
+      &blk
     )
+  end
+
+  # A Shared::Config carrying the given connections (defaults to one matching
+  # CodeStubAgent's default transport, so the footer resolves it). App derives
+  # its @models from config.llms via Shared::Model::Choice.from_llm.
+  def code_config(llms: [llm('Local', 'stub-model')])
+    Shared::Config.new(
+      llms: llms,
+      search: Shared::Config::Search.new(brave_key: nil, exa_key: nil),
+      sandbox: true, confirm: true, mcp: []
+    )
+  end
+
+  # One [[llm]] connection. +server+ is the base URL (no /v1); from_llm
+  # appends /v1, so server 'http://x' yields transport api_base 'http://x/v1'
+  # — matching CodeStubAgent's default api_base.
+  def llm(name, model, server: 'http://x')
+    Shared::Config::Llm.new(name: name, server: server, model: model, api_key: nil, context_window: nil)
   end
 
   # Swap +PickerWindow.open+ for a recorder (restored after), run the

@@ -6,7 +6,11 @@
 # the six file/shell tools, a project-rooted workspace, the bubblewrap
 # sandbox, and a Tuile modal confirmer instead of the stdin one. The
 # pikuri-side wiring is ported from pikuri's own bin/pikuri-code demo;
-# everything Tuile is Code::App's job.
+# everything Tuile — and, since the bin→App refactor, the whole agent object
+# graph — is Code::App's job. The bin does the genuinely pre-screen boot
+# sequencing that App can't: CLI parsing, project-root discovery + chdir, the
+# workspace/sandbox, the interactive git-trust prompt, and the
+# posture-reflecting system prompt.
 #
 # Pin Bundler to this project's Gemfile so locked dependency versions win
 # and the script works when invoked via a symlink (e.g.
@@ -43,7 +47,7 @@ require 'pikuri_tui'
 
 # Boot-time logging goes to stderr until the screen is up. A Shared::Log::BufferingIO
 # tees every pre-screen log line to stderr (so a crash before the screen still
-# prints) AND retains it, so App#wire_logging can replay those lines — config
+# prints) AND retains it, so Shared::Log::UI#wire! can replay those lines — config
 # file reads, chmod 600 advisories, model wiring — into the diagnostic
 # LogWindow once it rewires Pikuri.log_io there. pikuri's loggers
 # (Pikuri.logger_for) default to $stderr; we override that with the buffer.
@@ -174,8 +178,10 @@ filesystem = if yolo
 # Bubblewrap sandbox wraps every Bash subprocess. Probes `bwrap` at
 # construction and raises if it isn't installed / the kernel lacks
 # user-namespace support — fail-loud. Boot-time, before the screen is up,
-# so the raise prints a backtrace to a normal terminal. Disable with
-# --no-sandbox / --yolo.
+# so the raise prints a backtrace to a normal terminal. Built here (not in
+# Code::App) so this security-critical layer sits next to the filesystem it
+# wraps, in the boot script the auditor reads. Disable with --no-sandbox /
+# --yolo.
 sandbox = if sandbox_enabled
             Pikuri::Code::Bash::Sandbox::Bubblewrap.new(
               filesystem: filesystem
@@ -185,12 +191,12 @@ sandbox = if sandbox_enabled
           end
 
 # Git-config trust gate. trusted_repo flips ReadOnlyCommandApprover's allow_git:
-# (wired in the App block below) so a trusted repo also auto-approves read-only
-# git (status/diff/log/show/…). Sound ONLY with the user's affirmation: even a
-# bare `git diff` executes whatever the repo's .git/config / .gitattributes
-# direct (textconv, fsmonitor), and the sandbox's shared network could
-# exfiltrate. Trust is per-path, persisted in TrustStore so we ask at most once
-# per project. Gates, cheapest first:
+# (wired inside Code::App#default_build_agent) so a trusted repo also
+# auto-approves read-only git (status/diff/log/show/…). Sound ONLY with the
+# user's affirmation: even a bare `git diff` executes whatever the repo's
+# .git/config / .gitattributes direct (textconv, fsmonitor), and the sandbox's
+# shared network could exfiltrate. Trust is per-path, persisted in TrustStore
+# so we ask at most once per project. Gates, cheapest first:
 #   - confirm_enabled: under --no-confirm/--yolo the confirmer is AUTO_APPROVE,
 #     so allow_git is moot AND we must not persist a grant the user didn't make.
 #   - .git exists: git repos only (.exist?, not .directory? — linked worktrees
@@ -200,9 +206,9 @@ sandbox = if sandbox_enabled
 #     (sanitized puts/gets straight to the terminal — NOT the Shared::Log::BufferingIO),
 #     the same primitive upstream bin/pikuri-code uses; we add persistence.
 # This must run before Tuile::Screen.new (a prompt is invisible once the
-# alternate screen buffer is up) and stay OUT of the App block (which may
-# re-run — re-prompting/re-persisting there would be a bug; the block only
-# reads the captured boolean).
+# alternate screen buffer is up) and stay OUT of App (which builds the agent
+# and may re-run under a test override — re-prompting/re-persisting there would
+# be a bug; App only reads the captured boolean).
 trust_store = Code::TrustStore.new
 trusted_repo =
   confirm_enabled &&
@@ -233,7 +239,9 @@ trust_notice =
   end
 
 # Build the system prompt: static base + optional project context +
-# footer. AGENTS.md wins over CLAUDE.md when both exist.
+# footer. AGENTS.md wins over CLAUDE.md when both exist. Assembled here (not
+# in Code::App) because it reads AGENTS.md/CLAUDE.md off disk and reflects the
+# sandbox / writable-paths / yolo posture — all bin-local boot decisions.
 system_prompt = Pikuri.prompt(:'coding-system-prompt')
 md_path = ['AGENTS.md', 'CLAUDE.md'].map { |f| filesystem.project_root.join(f) }.find(&:file?)
 system_prompt += "\n\n# Project Context\n\n#{File.read(md_path)}" if md_path
@@ -251,53 +259,6 @@ system_prompt += if sandbox_enabled
                      "(keeps the host's /tmp clean)."
                  end
 
-# All configured connections become picker entries (Shared::Model::Choice); the
-# first is the boot model. Shared::Model::Choice.from_llm builds each one's
-# connection-bearing transport (the Pikuri seam lives there, not in the
-# Pikuri-free Config), so the context-window probe and a model switch
-# both target the right server.
-models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
-
-Pikuri::Extractors::PDF.register
-
-cancel_flag = Pikuri::Agent::Control::Cancellable.new
-
-# Shared plan-mode flag: a Pikuri::Workspace::ReadOnly posture in which
-# Edit/Write refuse to write (it gates those two only, NOT bash). Handed to
-# BOTH the Workspace/Code extensions below as read_only: (so Code::Extension
-# wires the model's enter_plan_mode/exit_plan_mode tools, the per-turn
-# reminder, and the PlanModeChanged event, and Edit/Write refuse while it is
-# active) AND Code::App (so the leader menu's p entry toggles the same flag
-# from the keyboard). Whoever flips it — model or menu — the footer badge
-# tracks it through the one PlanModeChanged stream. The message: is the
-# plan-mode-specific refusal wording Edit/Write splice into their "cannot
-# write …" observation (ReadOnly's generic default is posture-agnostic).
-plan_mode = Pikuri::Workspace::ReadOnly.new(
-  message: Pikuri::Code::Extension::PLAN_MODE_READONLY_MESSAGE
-)
-
-# Mid-loop input channel: Code::App injects messages submitted
-# while a turn is in flight; the agent drains the queue at every
-# after_tool_result boundary, and App delivers any leftovers as a fresh
-# turn when the loop ends.
-interloper = Pikuri::Agent::Control::Interloper.new
-
-# MCP servers available to the assistant, declared in [[code.mcp]]. Empty
-# by default — the coding shell behaves identically with no MCP wiring
-# until a config entry is added. (Empty registry ⇒ Mcp::Extension's
-# boot-time synthesize/verify LLM calls are no-ops, so Agent construction
-# stays offline.) The translation from Shared::Config's Pikuri-free
-# McpServer value objects into Registry entries lives here, in the wiring
-# layer where Pikuri::* references are allowed (see Config's class header).
-mcp_entries = config.mcp.map do |m|
-  if m.stdio?
-    Pikuri::Mcp::Registry::StdioEntry.new(id: m.id, command: m.command, env: m.env)
-  else
-    Pikuri::Mcp::Registry::HttpEntry.new(id: m.id, url: m.url, headers: m.headers)
-  end
-end
-mcp_registry = Pikuri::Mcp::Registry.new(entries: mcp_entries)
-
 Tuile::Screen.new
 # Install the app's theme pair (built-in accents + pikuri-tui's own
 # tool/notice/error/thinking/detail tokens) durably, so OS light/dark
@@ -305,147 +266,47 @@ Tuile::Screen.new
 # stock Tuile theme.
 Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 
-# Constructed up front so both the App (for the footer's status line) and
-# the Agent's ListenerList see the same TokenLog instance.
-token_log = Pikuri::Agent::Listener::TokenLog.new
-
-# Per-tool diff formatters for the conversation pane: the edit / write
-# ToolCall renders as a before/after diff (the write side reads the
-# existing file through the same filesystem the Write tool uses) instead of
-# an argument dump, and the paired ToolResult is suppressed on success /
-# surfaced on error. See Shared::ConversationWindow#tool_formatters.
-tool_formatters = {
-  'edit'  => Code::EditFormatter.new,
-  'write' => Code::WriteFormatter.new(filesystem: filesystem)
-}
-
-app = Code::App.new(
-  token_log: token_log,
-  project_root: filesystem.project_root,
-  tool_formatters: tool_formatters,
-  models: models,
-  plan_mode: plan_mode
-) do |listener, confirmer_popup, task_listener, status_footer_updater, plan_mode_listener|
-  # The Tuile modal confirmer for writes + bash, unless confirmations are
-  # disabled (--no-confirm / --yolo), in which case approve everything.
-  confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE
-
-  # Bash auto-gates provably read-only commands on top of the human
-  # confirmer (mirrors pikuri's own bin/pikuri-code): the frequent harmless
-  # inspections (ls, cat, grep, ps, `cd x && ls`, `ps aux | grep`) stop
-  # popping the modal, while every mutation — and anything not provably
-  # read-only — still reaches the y/n popup. Safe even with the sandbox's
-  # shared network: no allowlisted binary can write or exfiltrate, so this
-  # grants nothing the agent's own non-confirming Read/Grep/Glob don't. The
-  # gate is asymmetric — only Code::Extension (Bash) gets a command_approver;
-  # Write/Edit (Workspace::Extension) keep the bare confirmer, so every
-  # overwrite still confirms. Under --no-confirm/--yolo there is nothing to
-  # skip, so no approver is built.
-  code_command_approver = confirm_enabled ? Pikuri::Code::Bash::ReadOnlyCommandApprover.new(allow_git: trusted_repo) : nil
-
-  # Coalesce streaming delta chunks at 15 fps before they reach the
-  # Markdown-rendering Shared::ConversationWindow (see bin/pikuri-tui-chat for the
-  # rationale). flush_pending_on_non_delta: false because the bookend
-  # Assistant / Thinking events re-render the authoritative final content.
-  rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
-    listener,
-    fps: 15,
-    flush_pending_on_non_delta: false
+# Hand off: App owns the whole agent object graph — from config it derives the
+# model list, builds the MCP registry, wires the six file/shell tools + the
+# task/skill/sub-agent extensions + the confirmer/plan-mode/diff surface, and
+# constructs the streaming Pikuri::Agent on the bin-assembled system prompt +
+# the passed workspace/sandbox/trust. Tuile::Screen.new has NOT yet entered
+# raw mode / the alternate buffer (that is run_event_loop's job), so a raise
+# during App.new — e.g. Mcp::Extension's boot-time verify, or a transport
+# probe — still reaches a normal terminal; the begin/ensure tears the screen
+# down on any escape, construction OR loop, which is why Code::App#run no
+# longer closes it itself. The boot diagnostics sit inside the begin so they
+# land in the LogWindow (App.new has rewired Pikuri.log_io to it by then),
+# never in the conversation pane (AGENTS.md).
+begin
+  app = Code::App.new(
+    config: config,
+    filesystem: filesystem,
+    sandbox: sandbox,
+    skill_catalog: skill_catalog,
+    system_prompt: system_prompt,
+    trusted_repo: trusted_repo
   )
 
-  Pikuri::Agent.new(
-    transport: models.first.transport,
-    system_prompt: system_prompt,
-    # Default :raise policy, deliberately NOT :synthesize — a coding turn
-    # ends in a changed working tree, not an answer. On exhaustion the
-    # turn stops; the chat history survives and "continue" just works.
-    step_limit: Pikuri::Agent::Control::StepLimit.new(max: 100),
-    cancellable: cancel_flag,
-    interloper: interloper,
-    streaming: true
-  ) do |c|
-    c.add_listener rate_limited_listener
-    c.add_listener token_log
-    # Renders the Pikuri::Tasks::Extension list into the sidebar task
-    # pane. Not rate-limited — task mutations are rare and each snapshot
-    # is authoritative.
-    c.add_listener task_listener
-    # Keeps the footer's model name in step with leader-menu model switches.
-    c.add_listener status_footer_updater
-    # Keeps the footer's plan-mode badge in step with the shared flag
-    # (the leader menu's 'p' toggle or the model's enter/exit tools).
-    c.add_listener plan_mode_listener
-    # File/shell tools first (declaration order biases some models toward
-    # earlier tools); calculator last as auxiliary. Network tools go on
-    # the sub-agent-only pool so untrusted web content lands in a child
-    # context with no file read/write/bash to hijack — see pikuri's
-    # SECURITY.md "capability boundaries via sub-agents".
-    #
-    # The five file tools (read/grep/glob/edit/write) come from one
-    # Workspace::Extension: it wraps our `filesystem` in a single
-    # Workspace composite (Filesystem + this session's read record)
-    # shared across all five, so the read-before-edit gate works across
-    # them — and replaces the five add_tool lines this used to repeat.
-    # Bash and git_clone are NOT here (they aren't read/edit/write tools
-    # and take the raw Filesystem, not the read record) — they come from
-    # Pikuri::Code::Extension below. The shared read-only flag is threaded
-    # in so Edit/Write refuse while plan mode is active.
-    c.add_extension Pikuri::Workspace::Extension.new(filesystem: filesystem, confirmer: confirmer, read_only: plan_mode)
-    c.add_tool Pikuri::Tool::CALCULATOR
-    c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(brave_key: config.search.brave_key,
-                                                       exa_key: config.search.exa_key)
-    c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
-    c.add_sub_agent_tool Pikuri::Tool::FETCH
-    c.add_extension Pikuri::Code::Extension.new(
-      filesystem: filesystem,
-      confirmer: confirmer,
-      command_approver: code_command_approver,
-      sandbox: sandbox,
-      # The same shared flag handed to Workspace::Extension above: wires the
-      # enter/exit plan tools + the PlanModeChanged event the footer badge
-      # tracks, the same flag Code::App's leader-menu 'p' toggle flips.
-      read_only: plan_mode
-    )
-    c.add_extension Pikuri::Skill::Extension.new(catalog: skill_catalog)
-    c.add_extension Pikuri::Tasks::Extension.new
-    c.add_extension Pikuri::Mcp::Extension.new(
-      registry: mcp_registry,
-      synthesize_descriptions: true,
-      verify_mcp_servers: true
-    )
-    # Privilege-separated read-only sub-agents: FILE_MINER (read/grep/glob)
-    # for code/fs lookups, RESEARCHER (web_search/scrape/fetch) for
-    # external docs, GIT_REPO_RESEARCHER for cloning + mining other repos.
-    c.add_extension Pikuri::SubAgent::Extension.new(
-      personas: [
-        Pikuri::SubAgent::FILE_MINER,
-        Pikuri::SubAgent::RESEARCHER,
-        Pikuri::Code::GIT_REPO_RESEARCHER
-      ]
-    )
+  # Safety-reductions are logged at warn so they stand out among the info noise.
+  main_log.warn(chdir_notice) if chdir_notice
+  main_log.info("Working in #{app.project_root}")
+  main_log.info("Loaded project context from #{md_path}") if md_path
+  unless skill_catalog.empty?
+    names = skill_catalog.list.map(&:name).sort.join(', ')
+    main_log.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
   end
-end
+  main_log.info(trust_notice) if trust_notice
+  safety = []
+  safety << 'Sandbox: DISABLED.' unless sandbox_enabled
+  safety << 'Confirmer: AUTO-APPROVE.' unless confirm_enabled
+  safety << 'Filesystem: ALLOW_ALL (credential denylist only).' if yolo
+  unless safety.empty?
+    safety << 'Use only with an outer sandbox (docker / dev-container) or in a throwaway environment.'
+    main_log.warn(safety.join(' '))
+  end
 
-# Boot diagnostics through the 'main' logger (App.new has rewired
-# Pikuri.log_io to the LogWindow by now, so these land there). The
-# conversation pane is not a log sink (AGENTS.md), so project-root / skill /
-# safety notices go to the diagnostic pane the user opens from the leader menu.
-# Safety-reductions are logged at warn so they stand out among the info noise.
-main_log.warn(chdir_notice) if chdir_notice
-main_log.info("Working in #{filesystem.project_root}")
-main_log.info("Loaded project context from #{md_path}") if md_path
-unless skill_catalog.empty?
-  names = skill_catalog.list.map(&:name).sort.join(', ')
-  main_log.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
+  app.run
+ensure
+  Tuile::Screen.close
 end
-main_log.info(trust_notice) if trust_notice
-safety = []
-safety << 'Sandbox: DISABLED.' unless sandbox_enabled
-safety << 'Confirmer: AUTO-APPROVE.' unless confirm_enabled
-safety << 'Filesystem: ALLOW_ALL (credential denylist only).' if yolo
-unless safety.empty?
-  safety << 'Use only with an outer sandbox (docker / dev-container) or in a throwaway environment.'
-  main_log.warn(safety.join(' '))
-end
-
-app.run
