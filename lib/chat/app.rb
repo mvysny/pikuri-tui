@@ -142,21 +142,17 @@ module Chat
       register_shortcuts
     end
 
-    # Runs the Tuile event loop, blocking the calling thread until the
-    # user quits ({Tuile::Keys::ESC} or +q+) or the loop is otherwise
-    # stopped. The +ensure+ pairs +run_event_loop+ with
-    # +Tuile::Screen#close+ so the terminal is cleared and the screen
-    # singleton is unset regardless of how the loop exits — including
-    # exceptions escaping the loop. +run_event_loop+ itself only
-    # restores stdin / cursor / mouse tracking; it does not clear the
-    # screen, so without this an abnormal exit would leave the painted
-    # frame frozen in the user's terminal scrollback.
+    # Runs the Tuile event loop, blocking the calling thread until the user
+    # quits ({Tuile::Keys::ESC} or +q+) or the loop is otherwise stopped. Does
+    # NOT close the screen: the bin owns teardown via +begin/ensure
+    # Tuile::Screen.close+ around both +App.new+ and this call, so the screen
+    # is torn down whether the failure is in construction (a boot-time
+    # transport probe) or in the loop. +run_event_loop+ only restores stdin /
+    # cursor / mouse; +Screen#close+ clears the frame and unsets the singleton.
     #
     # @return [void]
     def run
       @screen.run_event_loop
-    ensure
-      @screen.close
     end
 
     private

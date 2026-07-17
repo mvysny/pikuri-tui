@@ -89,4 +89,14 @@ Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 # builds the streaming Pikuri::Agent with the chat system prompt and the
 # web/calc tool set, and wires the conversation listeners. The bin's job
 # ends at CLI + config + screen.
-Chat::App.new(config: config).run
+#
+# Tuile::Screen.new has NOT yet entered raw mode / the alternate buffer (that
+# is run_event_loop's job), so a raise during App.new — e.g. a boot-time
+# transport probe against an unreachable server — still reaches a normal
+# terminal; the begin/ensure tears the screen down on any escape, construction
+# OR loop, which is why Chat::App#run no longer closes it itself.
+begin
+  Chat::App.new(config: config).run
+ensure
+  Tuile::Screen.close
+end

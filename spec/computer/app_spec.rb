@@ -2,15 +2,18 @@
 
 RSpec.describe Computer::App do
   # Minimal +Pikuri::Agent+ stand-in — same shape as the chat / code specs'.
-  # The Computer::App build block yields FOUR args (listener, confirmer,
-  # status_footer_updater, plan_mode_listener); StubAgent only needs the listener
-  # (the real agent's tools / ListenerList would take the rest).
-  class StubAgent
-    attr_reader :cancellable, :interloper, :listener, :messages, :transport, :transports, :clear_count
+  # App only reaches for +run_loop+ (from the worker thread), +cancellable+
+  # (from {Shared::AgentSession#interrupt}), +interloper+ (mid-turn queueing +
+  # the Shared::StatusFooterUpdater handoff), +transport+ / +clear_conversation+.
+  # Anything else stays untouched, so we don't pay the network / sandbox-probe
+  # cost in a unit spec. Named +ComputerStubAgent+, not +StubAgent+: three
+  # spec files declaring +class StubAgent+ define one shared top-level constant,
+  # reopened across files — a landmine the moment their signatures diverge.
+  class ComputerStubAgent
+    attr_reader :cancellable, :interloper, :messages, :transport, :transports, :clear_count
 
-    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
+    def initialize(interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
                    api_base: 'http://x/v1')
-      @listener = listener
       @cancellable = Pikuri::Agent::Control::Cancellable.new
       @interloper = interloper
       @transport = Pikuri::Agent::ChatTransport.new(
@@ -38,20 +41,15 @@ RSpec.describe Computer::App do
     end
   end
 
+  let(:config) { computer_config }
   let(:app) do
-    described_class.new do |listener, confirmer, status_footer_updater, plan_mode_listener|
-      @listener = listener
-      @confirmer = confirmer
-      @status_footer_updater = status_footer_updater
-      @plan_mode_listener = plan_mode_listener
-      StubAgent.new(listener)
-    end
+    described_class.new(config: config) { ComputerStubAgent.new }
   end
 
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  it 'mounts an Computer::Layout as the screen content with conversation + input panes (no sidebar)' do
+  it 'mounts a Computer::Layout as the screen content with conversation + input panes (no sidebar)' do
     layout = app.screen.pane.content
     assert_kind_of Computer::Layout, layout
     assert_kind_of Tuile::Component::Window, layout.conversation
@@ -68,25 +66,17 @@ RSpec.describe Computer::App do
     assert_kind_of Tuile::Component::LogWindow, app.log_window
   end
 
-  it 'hands the conversation listener to the build block as the first arg' do
-    app # force construction
-    assert_kind_of Shared::ConversationWindow::Listener, @listener
-  end
-
-  it 'hands a Code::ConfirmerPopup to the build block as the second arg' do
-    app # force construction
-    assert_kind_of Code::ConfirmerPopup, @confirmer
-  end
-
-  it 'hands a PlanModeListener to the build block as the fourth arg' do
-    app # force construction
-    assert_kind_of Code::PlanModeListener, @plan_mode_listener
+  it 'exposes #project_root (the filesystem root the bin logs), defaulting to the launch dir' do
+    assert_equal Pathname.new(Dir.pwd).realpath, Pathname.new(app.project_root.to_s).realpath
   end
 
   it 'exposes the ConfirmerPopup at #confirmer, bound to this app screen' do
     assert_kind_of Code::ConfirmerPopup, app.confirmer
-    assert_same app.confirmer, @confirmer
     assert_same app.screen, app.confirmer.instance_variable_get(:@screen)
+  end
+
+  it 'exposes a Code::PlanModeListener at #plan_mode_listener' do
+    assert_kind_of Code::PlanModeListener, app.plan_mode_listener
   end
 
   it 'starts with no errors logged and a discoverable "^K menu" status-bar hint' do
@@ -160,10 +150,6 @@ RSpec.describe Computer::App do
     assert_includes rendered, 'pikuri-side message'
   end
 
-  it 'raises without a build block (no agent → no app)' do
-    assert_raises(LocalJumpError) { described_class.new }
-  end
-
   it 'installs an on_error handler that funnels uncaught exceptions to the pikuri log' do
     app
     log = capture_log { app.screen.on_error.call(RuntimeError.new('oops')) }
@@ -172,11 +158,9 @@ RSpec.describe Computer::App do
   end
 
   describe 'model picker' do
-    let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }
+    let(:llms) { [llm('Local', 'm1'), llm('Cloud', 'm2')] }
     let(:picker_app) do
-      described_class.new(models: choices) do |listener, _confirmer, _status_footer_updater, _plan_listener|
-        StubAgent.new(listener, model: 'm1')
-      end
+      described_class.new(config: computer_config(llms: llms)) { ComputerStubAgent.new(model: 'm1') }
     end
 
     it 'seeds the footer with the boot model display name' do
@@ -189,13 +173,14 @@ RSpec.describe Computer::App do
     # behavior is unit-tested in model_picker_spec.
     it 'applies the picked transport to the next run_loop, then clears it' do
       agent = picker_app.agent
+      cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
       picker = picker_app.instance_variable_get(:@model_picker)
       _, block = capture_picker { picker.open(current: agent.transport) }
       block.call('2') # pick 'Cloud'
 
       picker_app.session.submit('go')
       wait_until { agent.messages.size == 1 }
-      assert_equal choices[1].transport, agent.transports[0]
+      assert_equal cloud_transport, agent.transports[0]
 
       picker_app.session.submit('again')
       wait_until { agent.messages.size == 2 }
@@ -204,21 +189,15 @@ RSpec.describe Computer::App do
   end
 
   describe 'plan mode' do
-    let(:plan_mode) { Pikuri::Workspace::ReadOnly.new }
-    let(:plan_app) do
-      described_class.new(plan_mode: plan_mode) do |listener, _confirmer, _status_footer_updater, _plan_listener|
-        StubAgent.new(listener)
-      end
-    end
-
     it 'defaults to a control that is not in plan mode' do
       refute app.instance_variable_get(:@plan_mode).active?
     end
 
     it 'toggle_plan_mode flips the shared control on, then off' do
-      plan_app.send(:toggle_plan_mode)
+      plan_mode = app.instance_variable_get(:@plan_mode)
+      app.send(:toggle_plan_mode)
       assert plan_mode.active?
-      plan_app.send(:toggle_plan_mode)
+      app.send(:toggle_plan_mode)
       refute plan_mode.active?
     end
   end
@@ -234,8 +213,8 @@ RSpec.describe Computer::App do
     end
 
     it 'adds a switch-model action when more than one model is configured' do
-      picker_app = described_class.new(models: [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')]) do |listener, _c, _ml, _pl|
-        StubAgent.new(listener, model: 'm1')
+      picker_app = described_class.new(config: computer_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')])) do
+        ComputerStubAgent.new(model: 'm1')
       end
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
       assert_equal %w[l p m c q], keys
@@ -272,14 +251,22 @@ RSpec.describe Computer::App do
 
   private
 
-  def model_choice(name, model)
-    Shared::Model::Choice.new(
-      name: name,
-      transport: Pikuri::Agent::ChatTransport.new(
-        model: model, provider: :openai, assume_model_exists: true,
-        api_base: 'http://x/v1', api_key: 'k'
-      )
+  # A Shared::Config carrying the given connections (defaults to one matching
+  # ComputerStubAgent's default transport, so the footer resolves it). App
+  # derives its @models from config.llms via Shared::Model::Choice.from_llm.
+  def computer_config(llms: [llm('Local', 'stub-model')])
+    Shared::Config.new(
+      llms: llms,
+      search: Shared::Config::Search.new(brave_key: nil, exa_key: nil),
+      sandbox: true, confirm: true, mcp: []
     )
+  end
+
+  # One [[llm]] connection. +server+ is the base URL (no /v1); from_llm
+  # appends /v1, so server 'http://x' yields transport api_base 'http://x/v1'
+  # — matching ComputerStubAgent's default api_base.
+  def llm(name, model, server: 'http://x')
+    Shared::Config::Llm.new(name: name, server: server, model: model, api_key: nil, context_window: nil)
   end
 
   # Swap +PickerWindow.open+ for a recorder (restored after), run the

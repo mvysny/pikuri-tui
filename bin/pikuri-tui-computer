@@ -13,10 +13,12 @@
 # This is pikuri's "reassembled trifecta": whole-disk private pool +
 # attacker-authorable email (untrusted) + egress. Every egress leg is
 # HUMAN-GATED, never autonomous — bash is kernel-severed, each web-research
-# task is approved before dispatch, and every mail/event is a Send/confirm
-# the user performs in Thunderbird's own UI. The pikuri-side wiring is ported
-# from pikuri's own pikuri-os/bin/pikuri-computer demo; everything Tuile is
-# Computer::App's job.
+# task is approved before dispatch, and every mail/event is a Send/confirm the
+# user performs in Thunderbird's own UI. The pikuri-side wiring is ported
+# from pikuri's own pikuri-os/bin/pikuri-computer demo; everything Tuile —
+# and, since the bin→App refactor, the whole agent object graph — is
+# Computer::App's job. The bin does CLI + config + Thunderbird-profile probe
+# + screen mount only.
 #
 # Pin Bundler to this project's Gemfile so locked dependency versions win
 # and the script works when invoked via a symlink (e.g.
@@ -72,7 +74,8 @@ cli_model   = nil
 
 # Bin-local flags (not config-file concerns, so not routed through
 # Shared::Config): web research is ON by default — a "computer" reaches out —
-# and the Thunderbird profile auto-discovers unless pinned.
+# and the Thunderbird profile auto-discovers unless pinned. Both are handed
+# straight to Computer::App.
 internet_enabled = true
 profile_dir = nil
 
@@ -124,95 +127,16 @@ end
 
 # Probe the Thunderbird profile now, before the screen is up, so an ambiguous
 # install (profiles under two roots) fails as a plain warn + exit rather than
-# a torn-down TUI. Profile.discover is idempotent — the Thunderbird::Extension
-# runs it again at wire time; a nil return (Thunderbird not installed) is fine,
-# the extension then registers nothing.
+# a torn-down TUI — a friendly CLI message, not the backtrace the App-side
+# extension would otherwise raise. Profile.discover is idempotent — the
+# Thunderbird::Extension runs it again at wire time; a nil return (Thunderbird
+# not installed) is fine, the extension then registers nothing.
 begin
   Pikuri::Thunderbird::Profile.discover(profile_dir: profile_dir)
 rescue Pikuri::Thunderbird::Profile::DiscoveryError => e
   warn "Thunderbird profile problem: #{e.message}"
   exit 1
 end
-
-sandbox_enabled = config.sandbox
-confirm_enabled = config.confirm
-
-# The whole host is in scope (that's the point). denylist: [] drops the
-# credential floor for the *file* tools too, so Read/Write/Edit see
-# exactly what bash already sees under FullFsNoNet — a half-denylist bash
-# bypasses via an auto-approved `cat` is security theater. Safe because
-# egress is *human-gated*, not open: bash is kernel-severed, every outbound
-# research task is human-approved, and every mail/event is a Send/confirm the
-# user performs in Thunderbird, so nothing leaves the machine the user hasn't
-# seen; and every writable write is confirmed with a diff (confirm_all_writes,
-# wired by Pikuri::Os::Extension), unwritable ones short-circuit to "sudo it
-# yourself". Re-instate the floor the moment this parent ever gains unmediated
-# egress. project_root is the relative-path base and the bash chdir target
-# (the launch dir is the intuitive anchor; absolute paths reach everywhere).
-filesystem = Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd, denylist: [])
-
-# Default sandbox: FullFsNoNet — binds / read-write (full host control) but
-# unshares the network namespace, so bash cannot exfiltrate. This is the
-# load-bearing security property; it probes bwrap + unprivileged user/net
-# namespaces at construction and raises (no silent fallback) if they're
-# unavailable. Boot-time, before the screen is up, so the raise prints a
-# backtrace to a normal terminal. --no-sandbox / --yolo swap in NONE and
-# re-open the network — only for a throwaway box.
-sandbox = if sandbox_enabled
-            Pikuri::Code::Bash::Sandbox::FullFsNoNet.new(filesystem: filesystem)
-          else
-            Pikuri::Code::Bash::Sandbox::NONE
-          end
-
-# Base OS prompt + a network-posture block + date. Upstream split the network
-# posture out of the base :'os-assistant' prompt into two mode-specific
-# blocks: offline ("your tools can't reach the net, hand networked commands
-# to the user") and online ("your shell is still severed, but you may
-# delegate a web lookup to the research agent, and the user approves what
-# leaves the machine"). Which block we append tracks --no-internet. The
-# mail/calendar guidance (untrusted-email policy + draft-hand-off stance) is
-# contributed automatically by Thunderbird::Extension's system_prompt_snippets,
-# and the "# This machine" facts + MACHINE.md memory by Pikuri::Os::Extension,
-# so this script assembles neither.
-system_prompt = Pikuri.prompt(:'os-assistant')
-system_prompt += "\n\n" + Pikuri.prompt(internet_enabled ? :'os-network-online' : :'os-network-offline')
-system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
-
-# All configured connections become picker entries (Shared::Model::Choice); the
-# first is the boot model. Shared::Model::Choice.from_llm builds each one's
-# connection-bearing transport (the Pikuri seam lives there, not in the
-# Pikuri-free Config), so the context-window probe and a model switch
-# both target the right server.
-models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
-
-# Opt the PDF extractor into Pikuri::Extractor.registry (requiring the gem
-# defines it but registers nothing) so the RESEARCHER sub-agent's web_scrape
-# and the file `read` tool extract application/pdf — by header or %PDF- magic
-# — instead of refusing it.
-Pikuri::Extractors::PDF.register
-
-cancel_flag = Pikuri::Agent::Control::Cancellable.new
-
-# Shared plan-mode flag: a Pikuri::Workspace::ReadOnly posture in which
-# Edit/Write refuse to write (it gates those two only, NOT bash). Handed to
-# BOTH Pikuri::Os::Extension below as read_only: (which threads it into its
-# Workspace::Extension so Edit/Write refuse, and its Code::Extension so the
-# model's enter_plan_mode/exit_plan_mode tools, the per-turn reminder, and
-# the PlanModeChanged event are wired) AND Computer::App (so the leader menu's
-# p entry toggles the same flag from the keyboard). Whoever flips it — model
-# or menu — the footer badge tracks it through the one PlanModeChanged stream.
-# The message: is the plan-mode-specific refusal wording Edit/Write splice
-# into their "cannot write …" observation (ReadOnly's generic default is
-# posture-agnostic).
-plan_mode = Pikuri::Workspace::ReadOnly.new(
-  message: Pikuri::Code::Extension::PLAN_MODE_READONLY_MESSAGE
-)
-
-# Mid-loop input channel: Computer::App injects messages submitted
-# while a turn is in flight; the agent drains the queue at every
-# after_tool_result boundary, and App delivers any leftovers as a fresh
-# turn when the loop ends.
-interloper = Pikuri::Agent::Control::Interloper.new
 
 Tuile::Screen.new
 # Install the app's theme pair (built-in accents + pikuri-tui's own
@@ -221,139 +145,39 @@ Tuile::Screen.new
 # stock Tuile theme.
 Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 
-# Constructed up front so both the App (for the footer's status line) and
-# the Agent's ListenerList see the same TokenLog instance.
-token_log = Pikuri::Agent::Listener::TokenLog.new
+# Hand off: App owns the whole agent object graph — from config it derives the
+# model list, assembles the OS-assistant prompt, builds the FullFsNoNet sandbox
+# (whose bwrap probe may raise) and the Os + Thunderbird + RESEARCHER
+# extensions. Tuile::Screen.new has NOT yet entered raw mode / the alternate
+# buffer (that is run_event_loop's job), so a raise during App.new still
+# reaches a normal terminal; the begin/ensure below tears the screen down on
+# any escape — construction OR loop — which is why Computer::App#run no longer
+# closes it itself. The boot diagnostics sit inside the begin so they land in
+# the LogWindow (App.new has rewired Pikuri.log_io to it by then), never in the
+# conversation pane (AGENTS.md).
+begin
+  app = Computer::App.new(config: config, internet_enabled: internet_enabled, profile_dir: profile_dir)
 
-# Per-tool diff formatters for the conversation pane: the edit / write
-# ToolCall renders as a before/after diff (the write side reads the
-# existing file through the same filesystem the Write tool uses) instead of
-# an argument dump, and the paired ToolResult is suppressed on success /
-# surfaced on error. Reused verbatim from the coding shell — the computer's
-# agent edits real files, so the diff view is just as useful here.
-tool_formatters = {
-  'edit'  => Code::EditFormatter.new,
-  'write' => Code::WriteFormatter.new(filesystem: filesystem)
-}
-
-app = Computer::App.new(
-  token_log: token_log,
-  title: "Computer — #{filesystem.project_root}",
-  tool_formatters: tool_formatters,
-  models: models,
-  plan_mode: plan_mode
-) do |listener, confirmer_popup, status_footer_updater, plan_mode_listener|
-  # The Tuile modal confirmer for writes + bash, unless confirmations are
-  # disabled (--no-confirm / --yolo), in which case approve everything.
-  # Pikuri::Os::Extension pairs this human confirmer with a
-  # ReadOnlyCommandApprover (allow_git: true) internally, so provably
-  # read-only bash + read-only git skip the popup while every mutation still
-  # reaches it.
-  confirmer = confirm_enabled ? confirmer_popup : Pikuri::Workspace::Confirmer::AUTO_APPROVE
-
-  # Coalesce streaming delta chunks at 15 fps before they reach the
-  # Markdown-rendering Shared::ConversationWindow (see bin/pikuri-tui-chat for the
-  # rationale). flush_pending_on_non_delta: false because the bookend
-  # Assistant / Thinking events re-render the authoritative final content.
-  rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
-    listener,
-    fps: 15,
-    flush_pending_on_non_delta: false
-  )
-
-  Pikuri::Agent.new(
-    transport: models.first.transport,
-    system_prompt: system_prompt,
-    # Default :raise policy: on exhaustion the turn stops; the chat history
-    # survives and "continue" just works. Computer::App's generic rescue logs
-    # the Exceeded and echoes a one-liner into the conversation pane.
-    step_limit: Pikuri::Agent::Control::StepLimit.new(max: 40),
-    cancellable: cancel_flag,
-    interloper: interloper,
-    streaming: true
-  ) do |c|
-    c.add_listener rate_limited_listener
-    c.add_listener token_log
-    # Keeps the footer's model name in step with leader-menu model switches.
-    c.add_listener status_footer_updater
-    # Keeps the footer's plan-mode badge in step with the shared flag
-    # (the leader menu's 'p' toggle or the model's enter/exit tools).
-    c.add_listener plan_mode_listener
-    c.add_tool Pikuri::Tool::CALCULATOR
-    # One extension wires the whole OS-helper surface: the five file tools,
-    # bash (gated by the read-only auto-confirmer + the sandbox above), the
-    # file-index tools, and the machine facts + MACHINE.md memory folded
-    # into the system prompt.
-    c.add_extension Pikuri::Os::Extension.new(
-      filesystem: filesystem,
-      confirmer: confirmer,
-      sandbox: sandbox,
-      # Threaded into both sub-extensions (Workspace gates Edit/Write, Code
-      # wires the plan-mode tools + the PlanModeChanged event the footer
-      # badge tracks), the same flag Computer::App's leader-menu 'p' toggle flips.
-      read_only: plan_mode
-    )
-    # The local mail + calendar surface: five read-only inbound tools (mail
-    # search/read + contact search when Gloda is present, calendar search/read)
-    # plus both human-gated outbound hand-offs (compose a message, create an
-    # event). No confirmer wired — the gate is Thunderbird's own compose window
-    # / import wizard, where the user reviews and Sends/confirms; the launcher
-    # detaches (setsid --fork) so it never blocks the agent or dies with it.
-    # The extension contributes its own system_prompt_snippets (untrusted-email
-    # policy + draft-hand-off stance), so the base prompt above stays thin.
-    c.add_extension Pikuri::Thunderbird::Extension.new(
-      profile_dir: profile_dir,
-      allow_compose_mail: true,
-      allow_create_calendar_event: true
-    )
-    # Web research, on by default (unless --no-internet), but quarantined: the
-    # web tools go on as *sub-agent-only* (add_sub_agent_tool), so the main
-    # agent never holds them and keeps zero direct egress — it delegates via
-    # the `agent` tool to an isolated RESEARCHER sub-agent that has the web
-    # tools but NO filesystem. The confirmer gates each delegation's task
-    # prompt, so the human (not an injection-driven parent) approves what
-    # leaves this machine; the researcher, having no private data, can at worst
-    # leak that approved task plus the public pages it read. Bash stays
-    # kernel-severed regardless — a separate network boundary. The
-    # add_sub_agent_tool calls must precede the SubAgent extension, whose
-    # configure validates the persona's tool_names.
-    if internet_enabled
-      c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(
-        brave_key: config.search.brave_key,
-        exa_key: config.search.exa_key
-      )
-      c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
-      c.add_sub_agent_tool Pikuri::Tool::FETCH
-      c.add_extension Pikuri::SubAgent::Extension.new(
-        personas: [Pikuri::SubAgent::RESEARCHER],
-        confirmer: confirmer
-      )
-    end
+  main_log.info("Working from #{app.project_root}")
+  main_log.info('Local Thunderbird mail + calendar wired; drafts (reply / event) open in ' \
+                'Thunderbird for you to review and Send/confirm — pikuri sends nothing itself.')
+  if internet_enabled
+    main_log.info('Web research enabled via an isolated RESEARCHER sub-agent (web tools, no filesystem); ' \
+                  'you approve each research task before it runs. The main agent has no direct web access; ' \
+                  'bash stays network-severed regardless.')
+  else
+    main_log.info('Web research disabled (--no-internet). Mail + calendar still work; drafts open in ' \
+                  'Thunderbird for you to Send/confirm.')
   end
-end
+  safety = []
+  safety << 'Network sandbox: DISABLED — bash can reach the internet (egress is OPEN).' unless config.sandbox
+  safety << 'Confirmer: AUTO-APPROVE — mutations run without asking.' unless config.confirm
+  unless safety.empty?
+    safety << 'Use only in a throwaway environment.'
+    main_log.warn(safety.join(' '))
+  end
 
-# Boot diagnostics through the 'main' logger (App.new has rewired
-# Pikuri.log_io to the LogWindow by now, so these land there). The
-# conversation pane is not a log sink (AGENTS.md), so the working-directory /
-# safety notices go to the diagnostic pane the user opens from the leader
-# menu. Safety reductions are logged at warn so they stand out.
-main_log.info("Working from #{filesystem.project_root}")
-main_log.info('Local Thunderbird mail + calendar wired; drafts (reply / event) open in ' \
-              'Thunderbird for you to review and Send/confirm — pikuri sends nothing itself.')
-if internet_enabled
-  main_log.info('Web research enabled via an isolated RESEARCHER sub-agent (web tools, no filesystem); ' \
-                'you approve each research task before it runs. The main agent has no direct web access; ' \
-                'bash stays network-severed regardless.')
-else
-  main_log.info('Web research disabled (--no-internet). Mail + calendar still work; drafts open in ' \
-                'Thunderbird for you to Send/confirm.')
+  app.run
+ensure
+  Tuile::Screen.close
 end
-safety = []
-safety << 'Network sandbox: DISABLED — bash can reach the internet (egress is OPEN).' unless sandbox_enabled
-safety << 'Confirmer: AUTO-APPROVE — mutations run without asking.' unless confirm_enabled
-unless safety.empty?
-  safety << 'Use only in a throwaway environment.'
-  main_log.warn(safety.join(' '))
-end
-
-app.run

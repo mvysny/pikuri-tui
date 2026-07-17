@@ -396,8 +396,13 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/computer/app.rb` — `Computer::App`, the Tuile shell for
   `bin/pikuri-tui-computer`; laid out like `Chat::App` (no sidebar) but carrying
   the coding shell's safety machinery (confirmer, plan mode, diff
-  formatters). The bin wires both `Pikuri::Os::Extension` and
-  `Pikuri::Thunderbird::Extension`.
+  formatters). Like `Chat::App`, it takes the loaded `config:` (plus the
+  `internet_enabled:` / `profile_dir:` flags) and builds its own agent —
+  composing `Pikuri::Os::Extension` + `Pikuri::Thunderbird::Extension` + the
+  quarantined web RESEARCHER — with an optional no-arg block overriding the
+  build for tests. The `FullFsNoNet` sandbox (whose bwrap probe may raise) is
+  built on this production path; the bin's `begin/ensure Tuile::Screen.close`
+  owns teardown, so `#run` no longer closes the screen itself.
 - `lib/computer/layout.rb` — `Computer::Layout`, a parallel copy
   of `Chat::Layout` (vertical split: conversation top, fixed-height input
   strip bottom, no sidebar).
@@ -411,10 +416,14 @@ Zeitwerk over `lib/` and eager-loads it.
   trust / plan-mode wiring), and hands them to `Code::App`. Ports
   pikuri's `bin/pikuri-code` demo.
 - `bin/pikuri-tui-computer` — boot script for the desktop assistant
-  (`Bundler.setup(:default, :computer)`): builds the full-fs, network-severed
-  sandbox + `Pikuri::Os::Extension` + `Pikuri::Thunderbird::Extension` (mail /
-  calendar, both outbound hand-offs) + a quarantined web RESEARCHER onto
-  `Computer::App`. Ports pikuri's `pikuri-os/bin/pikuri-computer` demo.
+  (`Bundler.setup(:default, :computer)`): parses CLI + loads `Shared::Config`,
+  probes the Thunderbird profile (a friendly warn+exit pre-screen), mounts the
+  `Tuile::Screen`, and hands the config (+ `internet_enabled` / `profile_dir`)
+  to `Computer::App` (which builds the agent — sandbox + `Pikuri::Os::Extension`
+  + `Pikuri::Thunderbird::Extension` + the RESEARCHER). Wraps `App.new`/`run`
+  in `begin/ensure Tuile::Screen.close` so the screen is torn down on any
+  escape, construction (the bwrap probe) or loop. Ports pikuri's
+  `pikuri-os/bin/pikuri-computer` demo.
 - `bin/setup` — `bundle install` wrapper.
 - `bin/install` / `bin/uninstall` — symlink `bin/pikuri-tui-chat`,
   `bin/pikuri-tui-code` and `bin/pikuri-tui-computer` into `$PREFIX` (default
