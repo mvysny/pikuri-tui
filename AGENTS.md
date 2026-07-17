@@ -590,9 +590,14 @@ Zeitwerk over `lib/` and eager-loads it.
   implemented, **delete the file** — but first propagate its durable
   nuggets to where they belong: a contract or gotcha into the relevant
   class rdoc, a package-map line into this file's Layout section, a
-  cross-cutting rule into Conventions / Scope decisions. `ideas/` holds
-  only *pending* thinking; anything worth keeping after the work lands
-  moves to a durable home, and the transient container disappears.
+  cross-cutting rule into Conventions / Scope decisions. A **rejected**
+  idea graduates the same way — delete the file — but backport only a
+  *one-line why-not note* into the durable place a future reader would
+  look, and only when the trap it prevents is both invisible in the code
+  and silent under test (the regression-guard gate); if nothing meets
+  that bar, delete outright. `ideas/` holds only *pending* thinking;
+  anything worth keeping after the work lands moves to a durable home,
+  and the transient container disappears.
 - **Pikuri owns the loop and the tools; we own the UI shell.**
   When changing pikuri-tui, the question is "what does the user
   see, and where is focus?" — the agent loop is somebody else's
