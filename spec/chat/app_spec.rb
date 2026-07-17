@@ -5,18 +5,19 @@ RSpec.describe Chat::App do
   # (from the worker thread), +cancellable+ (from {Shared::AgentSession#interrupt})
   # and +interloper+ (mid-turn queueing + the Shared::StatusFooterUpdater handoff).
   # Anything else stays untouched, so we don't pay the network / RubyLLM
-  # cost in a unit spec.
+  # cost in a unit spec. It takes no listener: App wires its own conversation
+  # listeners into the *real* agent (default_build_agent); a stand-in that
+  # never emits events has no use for them.
   #
   # +run_loop+ records each +user_message:+ into {#messages}; after
   # {#block_turns!} it additionally parks on an internal queue until the
   # spec calls {#finish_turn!}, so a spec can hold a turn open and observe
   # the mid-turn paths.
-  class StubAgent
-    attr_reader :cancellable, :interloper, :listener, :messages, :transport, :transports, :clear_count
+  class ChatStubAgent
+    attr_reader :cancellable, :interloper, :messages, :transport, :transports, :clear_count
 
-    def initialize(listener, interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
+    def initialize(interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
                    api_base: 'http://x/v1')
-      @listener = listener
       @cancellable = Pikuri::Agent::Control::Cancellable.new
       @interloper = interloper
       @transport = Pikuri::Agent::ChatTransport.new(
@@ -46,10 +47,7 @@ RSpec.describe Chat::App do
 
   let(:config) { chat_config }
   let(:app) do
-    described_class.new(config: config) do |listener|
-      @listener = listener
-      StubAgent.new(listener)
-    end
+    described_class.new(config: config) { ChatStubAgent.new }
   end
 
   before { Tuile::Screen.fake }
@@ -68,11 +66,6 @@ RSpec.describe Chat::App do
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
     assert_kind_of Tuile::Component::LogWindow, app.log_window
-  end
-
-  it 'hands the conversation listener to the build block (so the agent sees the conversation pane)' do
-    app # force construction
-    assert_kind_of Shared::ConversationWindow::Listener, @listener
   end
 
   it 'starts with no errors logged and a discoverable "^K menu" status-bar hint' do
@@ -98,8 +91,8 @@ RSpec.describe Chat::App do
     end
 
     it 'includes a switch-model action only when more than one model is configured' do
-      picker_app = described_class.new(config: chat_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')])) do |listener, _ml|
-        StubAgent.new(listener, model: 'm1')
+      picker_app = described_class.new(config: chat_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')])) do
+        ChatStubAgent.new(model: 'm1')
       end
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
       assert_equal %w[l m c q], keys
@@ -224,10 +217,7 @@ RSpec.describe Chat::App do
   end
 
   it 'forwards markdown: false to the Shared::ConversationWindow when wired off' do
-    explicit_app = described_class.new(config: chat_config, markdown: false) do |listener|
-      @listener = listener
-      StubAgent.new(listener)
-    end
+    explicit_app = described_class.new(config: chat_config, markdown: false) { ChatStubAgent.new }
     window = explicit_app.instance_variable_get(:@conversation_window)
     assert_equal false, window.instance_variable_get(:@markdown)
   end
@@ -242,9 +232,7 @@ RSpec.describe Chat::App do
   describe 'model picker' do
     let(:llms) { [llm('Local', 'm1'), llm('Cloud', 'm2')] }
     let(:picker_app) do
-      described_class.new(config: chat_config(llms: llms)) do |listener, _status_footer_updater|
-        StubAgent.new(listener, model: 'm1')
-      end
+      described_class.new(config: chat_config(llms: llms)) { ChatStubAgent.new(model: 'm1') }
     end
 
     it 'seeds the footer with the boot model display name' do
@@ -277,8 +265,8 @@ RSpec.describe Chat::App do
     it 'seeds the footer with the active connection, not a same-model sibling' do
       pair = [llm('Local Qwen', 'qwen3', server: 'http://localhost:8080'),
               llm('Remote Qwen', 'qwen3', server: 'http://mavi-fw:8080')]
-      app = described_class.new(config: chat_config(llms: pair)) do |listener, _ml|
-        StubAgent.new(listener, model: 'qwen3', api_base: 'http://mavi-fw:8080/v1')
+      app = described_class.new(config: chat_config(llms: pair)) do
+        ChatStubAgent.new(model: 'qwen3', api_base: 'http://mavi-fw:8080/v1')
       end
       assert_equal 'Remote Qwen', status_footer_updater(app).current_model
     end
@@ -293,7 +281,7 @@ RSpec.describe Chat::App do
   end
 
   # A Shared::Config carrying the given connections (defaults to one
-  # matching StubAgent's default transport, so the footer resolves it). App
+  # matching ChatStubAgent's default transport, so the footer resolves it). App
   # derives its @models from config.llms via Shared::Model::Choice.from_llm.
   def chat_config(llms: [llm('Local', 'stub-model')])
     Shared::Config.new(
@@ -305,7 +293,7 @@ RSpec.describe Chat::App do
 
   # One [[llm]] connection. +server+ is the base URL (no /v1); from_llm
   # appends /v1, so server 'http://x' yields transport api_base 'http://x/v1'
-  # — matching StubAgent's default api_base.
+  # — matching ChatStubAgent's default api_base.
   def llm(name, model, server: 'http://x')
     Shared::Config::Llm.new(name: name, server: server, model: model, api_key: nil, context_window: nil)
   end

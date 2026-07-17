@@ -28,9 +28,12 @@ module Chat
   # The optional block is a **test/override seam**, not production ceremony:
   # a spec passes one returning a lightweight stand-in (a +StubAgent+) so a
   # unit test skips the network / RubyLLM cost of a real agent. Given a
-  # block, App calls it in place of {#default_build_agent}; the block
-  # receives the same +(listener, status_footer_updater)+ pair and must
-  # return a wired +Pikuri::Agent+ (or a duck-type of one).
+  # block, App calls it (with no arguments) in place of
+  # {#default_build_agent} and must get back a wired +Pikuri::Agent+ (or a
+  # duck-type of one). The block takes no arguments because the agent's
+  # collaborators (the conversation listener, the footer) are App's own
+  # objects — {#default_build_agent} reaches them through the
+  # {Shared::ConversationWindow} directly, so there is nothing to hand out.
   #
   # == Screen ownership
   #
@@ -107,19 +110,11 @@ module Chat
     #   conversation pane skips +TTY::Markdown+ and the streaming path
     #   uses {Shared::Markdown::PassthroughBuffer} — appropriate for back-ends whose
     #   content is already in display form.
-    # @yield [listener, status_footer_updater] optional test/override seam. When
-    #   given, App calls it in place of {#default_build_agent} — a spec returns
-    #   a lightweight stand-in to skip the network / RubyLLM cost of a real
-    #   agent. It receives the {Shared::ConversationWindow::Listener} bound to
-    #   this app's conversation pane and the {Shared::StatusFooterUpdater} that
-    #   keeps the footer's model name current, and must return a
-    #   +Pikuri::Agent+ (or duck-type) whose +ListenerList+ includes both
-    #   (plus {#token_log}). Omitted in production.
-    # @yieldparam listener [Shared::ConversationWindow::Listener] the conversation-pane
-    #   listener; include it in the agent's +ListenerList+.
-    # @yieldparam status_footer_updater [Shared::StatusFooterUpdater] the footer,
-    #   which doubles as the model-name listener; include it in the agent's +ListenerList+.
-    # @yieldreturn [Pikuri::Agent] the wired agent.
+    # @yield optional test/override seam, called with no arguments. When
+    #   given, App calls it in place of {#default_build_agent} — a spec
+    #   returns a lightweight stand-in to skip the network / RubyLLM cost of
+    #   a real agent. Omitted in production.
+    # @yieldreturn [Pikuri::Agent] the agent (or a duck-type) to install.
     def initialize(config:, markdown: true, &build_agent)
       @screen = Tuile::Screen.instance
       @config = config
@@ -131,7 +126,7 @@ module Chat
       build_components
       @log_ui.wire!
       builder = build_agent || method(:default_build_agent)
-      @agent = builder.call(@conversation_window.listener, @conversation_window.status_footer_updater)
+      @agent = builder.call
       @session.agent = @agent
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model (resolved from its transport);
@@ -193,12 +188,14 @@ module Chat
     # production factory, called unless the constructor was handed an
     # override block. Registers the conversation listener (rate-limited to
     # 15 fps), {#token_log}, and the {#status_footer_updater} into the
-    # agent's +ListenerList+.
+    # agent's +ListenerList+ — all reached through the {Shared::ConversationWindow}
+    # this App owns, so nothing has to be passed in.
     #
-    # @param listener [Shared::ConversationWindow::Listener] the conversation pane.
-    # @param status_footer_updater [Shared::StatusFooterUpdater] the footer / model listener.
     # @return [Pikuri::Agent] the wired agent.
-    def default_build_agent(listener, status_footer_updater)
+    def default_build_agent
+      listener = @conversation_window.listener
+      status_footer_updater = @conversation_window.status_footer_updater
+
       Pikuri::Extractors::PDF.register
 
       system_prompt = Pikuri.prompt(:'pikuri-chat')
