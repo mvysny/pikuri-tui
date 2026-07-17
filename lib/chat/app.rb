@@ -25,15 +25,14 @@ module Chat
   # and {Shared::StatusFooterUpdater}), *then* builds the agent against those
   # listeners.
   #
-  # The optional block is a **test/override seam**, not production ceremony:
-  # a spec passes one returning a lightweight stand-in (a +StubAgent+) so a
-  # unit test skips the network / RubyLLM cost of a real agent. Given a
-  # block, App calls it (with no arguments) in place of
-  # {#default_build_agent} and must get back a wired +Pikuri::Agent+ (or a
-  # duck-type of one). The block takes no arguments because the agent's
-  # collaborators (the conversation listener, the footer) are App's own
-  # objects — {#default_build_agent} reaches them through the
-  # {Shared::ConversationWindow} directly, so there is nothing to hand out.
+  # The optional +transport:+ is a **test seam**, not production ceremony: a
+  # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
+  # agent — the real {#default_build_agent} listener/tool wiring — on a
+  # scripted-HTTP backend instead of a live server. Production omits it and
+  # boots on the config's first connection ({#config}'s first +llm+). Only the
+  # transport is injectable because the agent's collaborators (the conversation
+  # listener, the footer, the tools) are App's own objects — swapping the
+  # backend is all a test needs to exercise the wiring without the network.
   #
   # == Screen ownership
   #
@@ -110,23 +109,25 @@ module Chat
     #   conversation pane skips +TTY::Markdown+ and the streaming path
     #   uses {Shared::Markdown::PassthroughBuffer} — appropriate for back-ends whose
     #   content is already in display form.
-    # @yield optional test/override seam, called with no arguments. When
-    #   given, App calls it in place of {#default_build_agent} — a spec
-    #   returns a lightweight stand-in to skip the network / RubyLLM cost of
-    #   a real agent. Omitted in production.
-    # @yieldreturn [Pikuri::Agent] the agent (or a duck-type) to install.
-    def initialize(config:, markdown: true, &build_agent)
+    # @param transport [Pikuri::Agent::ChatTransport, nil] test seam: the
+    #   backend to build the real agent on. Omit in production (boots on the
+    #   config's first connection); a spec passes a
+    #   +Pikuri::Testing.fake_transport+ to run real turns against scripted
+    #   HTTP. See the class header.
+    def initialize(config:, markdown: true, transport: nil)
       @screen = Tuile::Screen.instance
       @config = config
       @markdown = markdown
       @token_log = Pikuri::Agent::Listener::TokenLog.new
       @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
       @model_picker = Shared::Model::Picker.new(models: @models)
+      # Test seam: the backend the agent boots on. Production uses the config's
+      # first connection; a spec injects a fake_transport (see class header).
+      @boot_transport = transport || @models.first.transport
 
       build_components
       @log_ui.wire!
-      builder = build_agent || method(:default_build_agent)
-      @agent = builder.call
+      @agent = default_build_agent
       @session.agent = @agent
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model (resolved from its transport);
@@ -179,13 +180,13 @@ module Chat
     end
 
     # Build the chat shell's +Pikuri::Agent+: a streaming agent on the boot
-    # connection (+@models.first+), the +pikuri-chat+ system prompt (dated),
-    # and the web-search / calculator / scrape / fetch tool set. The
-    # production factory, called unless the constructor was handed an
-    # override block. Registers the conversation listener (rate-limited to
-    # 15 fps), {#token_log}, and the {#status_footer_updater} into the
-    # agent's +ListenerList+ — all reached through the {Shared::ConversationWindow}
-    # this App owns, so nothing has to be passed in.
+    # connection (+@boot_transport+, the config's first connection unless a
+    # test injected a fake), the +pikuri-chat+ system prompt (dated), and the
+    # web-search / calculator / scrape / fetch tool set. Registers the
+    # conversation listener (rate-limited to 15 fps), {#token_log}, and the
+    # {#status_footer_updater} into the agent's +ListenerList+ — all reached
+    # through the {Shared::ConversationWindow} this App owns, so nothing has to
+    # be passed in.
     #
     # @return [Pikuri::Agent] the wired agent.
     def default_build_agent
@@ -210,7 +211,7 @@ module Chat
       )
 
       Pikuri::Agent.new(
-        transport: @models.first.transport,
+        transport: @boot_transport,
         system_prompt: system_prompt,
         step_limit: Pikuri::Agent::Control::StepLimit.new(max: 20),
         cancellable: Pikuri::Agent::Control::Cancellable.new,

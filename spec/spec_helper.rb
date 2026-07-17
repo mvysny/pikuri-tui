@@ -15,6 +15,8 @@ require 'minitest/assertions'
 require 'stringio'
 
 require 'pikuri-core'
+require 'pikuri-pdf'     # default dep; Chat::App#default_build_agent registers Extractors::PDF
+require 'pikuri/testing' # scripted-HTTP fake LLM (Pikuri::Testing.fake_transport)
 
 # Load the :code-group gems too, BEFORE pikuri_tui, so its loader sees
 # the :code runtime and eager-loads the Code subtree (see the
