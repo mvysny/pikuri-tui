@@ -195,7 +195,7 @@ module Chat
 
       Pikuri::Extractors::PDF.register
 
-      system_prompt = Pikuri.prompt(:'pikuri-chat')
+      system_prompt = Pikuri.prompts(:'pikuri-chat', :'agent-loop')
       system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
 
       # Coalesce streaming delta chunks at 15 fps before they reach the

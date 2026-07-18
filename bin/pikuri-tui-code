@@ -242,7 +242,7 @@ trust_notice =
 # footer. AGENTS.md wins over CLAUDE.md when both exist. Assembled here (not
 # in Code::App) because it reads AGENTS.md/CLAUDE.md off disk and reflects the
 # sandbox / writable-paths / yolo posture — all bin-local boot decisions.
-system_prompt = Pikuri.prompt(:'coding-system-prompt')
+system_prompt = Pikuri.prompts(:'coding-system-prompt', :'agent-loop')
 md_path = ['AGENTS.md', 'CLAUDE.md'].map { |f| filesystem.project_root.join(f) }.find(&:file?)
 system_prompt += "\n\n# Project Context\n\n#{File.read(md_path)}" if md_path
 system_prompt += "\n\nToday's date is: #{Time.now.strftime('%Y-%m-%d')}"

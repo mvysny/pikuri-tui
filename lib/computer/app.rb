@@ -293,13 +293,17 @@ module Computer
       # still reaches it.
       confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
 
-      # Base OS prompt + a network-posture block (offline: hand networked
-      # commands to the user; online: you may delegate a web lookup, the user
-      # approves what leaves the machine) + date. The mail/calendar guidance
+      # Base OS prompt (which states the constant no-network posture) + the
+      # online network-posture block only when internet is enabled (you may
+      # delegate a web lookup, the user approves what leaves the machine —
+      # offline adds nothing, so nothing is appended) + the shared tool-loop
+      # hygiene (agent-loop) + date. The mail/calendar guidance
       # (Thunderbird::Extension) and the machine facts (Os::Extension) are
       # contributed by the extensions' own system_prompt_snippets.
-      system_prompt = Pikuri.prompt(:'os-assistant')
-      system_prompt += "\n\n" + Pikuri.prompt(@internet_enabled ? :'os-network-online' : :'os-network-offline')
+      prompt_names = [:'os-assistant']
+      prompt_names << :'os-network-online' if @internet_enabled
+      prompt_names << :'agent-loop'
+      system_prompt = Pikuri.prompts(*prompt_names)
       system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
 
       # Coalesce streaming delta chunks at 15 fps before they reach the
