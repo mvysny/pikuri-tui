@@ -190,7 +190,7 @@ sandbox = if sandbox_enabled
             Pikuri::Code::Bash::Sandbox::NONE
           end
 
-# Git-config trust gate. trusted_repo flips ReadOnlyCommandApprover's allow_git:
+# Git-config trust gate. trusted_repo flips PassiveCommandDetector's allow_git:
 # (wired inside Code::App#default_build_agent) so a trusted repo also
 # auto-approves read-only git (status/diff/log/show/…). Sound ONLY with the
 # user's affirmation: even a bare `git diff` executes whatever the repo's

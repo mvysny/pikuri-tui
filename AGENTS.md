@@ -30,8 +30,8 @@ place. `bin/pikuri-tui-code` (the `Code` namespace) is
 the in-repo coding shell: the same Tuile UI plus a project-rooted
 workspace, the bubblewrap sandbox, the six file/shell tools wired
 with a modal y/n confirmer (`Code::ConfirmerPopup`) on writes and
-bash (provably read-only bash commands auto-approve via pikuri's
-`Code::Bash::ReadOnlyAutoConfirmer`, leaving the popup for mutations;
+bash (provably passive bash commands auto-approve via pikuri's
+`Pikuri::Code::Bash::PassiveCommandDetector`, leaving the popup for mutations;
 read-only git additionally auto-approves once the user affirms a
 one-time, persisted git-config trust prompt — `Code::TrustStore`),
 sub-agent-only network tools, the skill / task / MCP /

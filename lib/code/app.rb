@@ -158,7 +158,7 @@ module Code
     #   sandbox / writable-paths / yolo posture (all bin-local decisions).
     # @param trusted_repo [Boolean] whether read-only git auto-approves — the
     #   result of the bin's interactive, persisted git-trust prompt. Flips the
-    #   +ReadOnlyCommandApprover+'s +allow_git:+. Default +false+.
+    #   +PassiveCommandDetector+'s +allow_git:+. Default +false+.
     # @param markdown [Boolean] forwarded to {Shared::ConversationWindow}'s
     #   +markdown:+ flag (default +true+).
     # @param transport [Pikuri::Agent::ChatTransport, nil] test seam: the
@@ -307,14 +307,14 @@ module Code
       # disabled (--no-confirm / --yolo), in which case approve everything.
       confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
 
-      # Bash auto-gates provably read-only commands on top of the human
+      # Bash auto-gates provably passive commands on top of the human
       # confirmer: the frequent harmless inspections (ls, cat, grep, `cd x &&
       # ls`) stop popping the modal, while every mutation still reaches the y/n
       # popup. The gate is asymmetric — only Code::Extension (Bash) gets a
-      # command_approver; Write/Edit keep the bare confirmer. allow_git tracks
+      # passive_detector; Write/Edit keep the bare confirmer. allow_git tracks
       # the persisted trust grant. Under --no-confirm/--yolo there is nothing
-      # to skip, so no approver is built.
-      code_command_approver = @config.confirm ? Pikuri::Code::Bash::ReadOnlyCommandApprover.new(allow_git: @trusted_repo) : nil
+      # to skip, so no detector is built.
+      code_passive_detector = @config.confirm ? Pikuri::Code::Bash::PassiveCommandDetector.new(allow_git: @trusted_repo) : nil
 
       # MCP servers declared in [[code.mcp]]. Empty by default (see the "MCP
       # registry" note above).
@@ -366,7 +366,7 @@ module Code
         c.add_extension Pikuri::Code::Extension.new(
           filesystem: @filesystem,
           confirmer: confirmer,
-          command_approver: code_command_approver,
+          passive_detector: code_passive_detector,
           sandbox: @sandbox,
           read_only: @plan_mode
         )

@@ -288,8 +288,8 @@ module Computer
       # The Tuile modal confirmer for writes + bash, unless confirmations are
       # disabled (--no-confirm / --yolo), in which case approve everything.
       # Pikuri::Os::Extension pairs this human confirmer with a
-      # ReadOnlyCommandApprover (allow_git: true) internally, so provably
-      # read-only bash + read-only git skip the popup while every mutation
+      # PassiveCommandDetector (allow_git: true) internally, so provably
+      # passive bash + read-only git skip the popup while every mutation
       # still reaches it.
       confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
 
