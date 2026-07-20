@@ -217,7 +217,12 @@ module Code
         @clean = clean
         window = Tuile::Component::Window.new('Confirm')
         window.content = build_body(question, detail, warnings)
-        super(content: window)
+        # Near-fullscreen: the payload (a bash command, a diff) can be huge and
+        # there's nothing to interact with underneath, so a half-screen box just
+        # clips. 1-row top/bottom, 2-col left/right padding. Absolute Size reads
+        # this popup's own inherited +#screen+ size (available pre-+super+).
+        super(content: window,
+              size: Tuile::Size.new(screen.size.width - 4, screen.size.height - 2))
       end
 
       # Maps a key to an outcome and resolves. +y+/+yes+ approve (dropped
@@ -286,7 +291,7 @@ module Code
       #
       # A +TextView+ (not a +List+) so long lines word-wrap and scroll
       # inside the popup instead of clipping. The popup is sized top-down
-      # (half the screen; see {#initialize}), so the +TextView+ wraps to its
+      # (near-fullscreen; see {#initialize}), so the +TextView+ wraps to its
       # own granted width — no pre-wrapping here.
       #
       # @param question [Pikuri::Sanitizer::Result]

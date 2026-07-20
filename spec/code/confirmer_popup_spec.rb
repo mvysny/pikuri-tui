@@ -226,9 +226,9 @@ RSpec.describe Code::ConfirmerPopup do
       d = dialog(question: 'Run this?', detail: cmd)
       d.open
       Tuile::Screen.instance.repaint
-      # The body is a TextView sized top-down (half-screen); it wraps the long
-      # command to its granted width at paint time rather than clipping. Read
-      # the painted rows back from the buffer.
+      # The body is a TextView sized top-down (near-fullscreen); it wraps the
+      # long command to its granted width at paint time rather than clipping.
+      # Read the painted rows back from the buffer.
       view = d.content.content
       rows = Tuile::Screen.instance.buffer.region_text(view.rect).map(&:rstrip).reject(&:empty?)
       # More than the 3 logical lines (question + detail + cue) means the
