@@ -184,14 +184,25 @@ module Chat
       )
     end
 
-    # The chat shell's slash commands: quit, twice-named. Callbacks are lazy —
-    # +quit+ resolves at run time — so this is safe to build before the agent.
+    # The chat shell's slash commands — the {Shared::LeaderMenu} actions
+    # reachable by name: +/logs+, +/model+ (only with more than one connection,
+    # like the menu's +m+), +/clear+, and +/exit+ = +/quit+. Callbacks are lazy
+    # (they resolve +@log_ui+ / +@session+ / +@agent+ / +quit+ at run time), so
+    # this is safe to build before the agent; only the +/model+ *presence* is
+    # decided now, from {Shared::Model::Picker#multiple?}.
     #
     # @return [Array<Shared::SlashCommand>]
     def build_slash_commands
       quit_action = -> { quit; nil }
-      [Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
-       Shared::SlashCommand.new('/quit', 'quits the app', quit_action)]
+      commands = [Shared::SlashCommand.new('/logs', 'open the diagnostic log', -> { @log_ui.open; 'Opened the diagnostic log.' })]
+      if @model_picker.multiple?
+        commands << Shared::SlashCommand.new('/model', 'switch model', -> { @model_picker.open(current: @agent.transport); nil })
+      end
+      commands.push(
+        Shared::SlashCommand.new('/clear', 'clear conversation + context', -> { @session.clear_conversation; nil }),
+        Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
+        Shared::SlashCommand.new('/quit', 'quits the app', quit_action)
+      )
     end
 
     # Build the chat shell's +Pikuri::Agent+: a streaming agent on the boot

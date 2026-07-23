@@ -30,8 +30,9 @@ RSpec.describe Code::App do
     assert_kind_of Tuile::Component::TextArea, app.screen.focused
   end
 
-  it 'registers the coding slash commands: quit (twice-named) plus /diff' do
-    assert_equal ['/exit', '/quit', '/diff'], app.send(:build_slash_commands).map(&:name)
+  it 'registers the coding slash commands mirroring the leader menu (single connection: no /model)' do
+    assert_equal ['/logs', '/diff', '/plan', '/clear', '/exit', '/quit'],
+                 app.send(:build_slash_commands).map(&:name)
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do

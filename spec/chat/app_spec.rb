@@ -40,8 +40,14 @@ RSpec.describe Chat::App do
     assert_kind_of Tuile::Component::TextArea, app.screen.focused
   end
 
-  it 'registers the chat slash commands (quit only, twice-named)' do
-    assert_equal ['/exit', '/quit'], app.send(:build_slash_commands).map(&:name)
+  it 'registers the chat slash commands mirroring the leader menu (single connection: no /model)' do
+    assert_equal ['/logs', '/clear', '/exit', '/quit'], app.send(:build_slash_commands).map(&:name)
+  end
+
+  it 'adds /model to the slash commands only when more than one model is configured' do
+    picker_app = build_app(config: chat_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')]), model: 'm1')
+    assert_equal ['/logs', '/model', '/clear', '/exit', '/quit'],
+                 picker_app.send(:build_slash_commands).map(&:name)
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
