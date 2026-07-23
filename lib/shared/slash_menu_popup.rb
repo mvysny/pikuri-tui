@@ -26,13 +26,13 @@ require 'tuile'
 # a skills catalog, split a non-widget service out of {#submit} and leave this
 # to only *pick* a command — until then one box is simpler.
 #
-# The panel is a bare {Tuile::Component::Popup} wrapping the {Tuile::Component::List}
-# directly (no framing {Tuile::Component::Window}), so it renders borderless like
-# the {Tuile::Component::ComboBox} dropdown. It carries the same background tint —
-# {Tuile::Theme#input_bg_color}, assigned as a live {Tuile::Theme.ref} on the
-# popup's {Tuile::Component#bg_color=} and inherited down to the rows and blank
-# filler — so the floating overlay reads as one panel over the conversation and
-# tracks light/dark flips with no hook.
+# The panel *is* a {Tuile::Component::ListDropdown} — Tuile's reusable
+# "borderless, tinted, non-focusable floating list an input drops open" building
+# block, the panel half of {Tuile::Component::ComboBox}. The parent owns the
+# wrapped list, the {Tuile::Theme#input_bg_color} tint, the non-focusable /
+# never-steals-the-caret contract, and key-forwarding ({#move} / {#choose}); the
+# palette adds only the driver-specific parts that vary per dropdown — filtering,
+# two-column row rendering, geometry, and running the picked command.
 #
 # == Implementation details
 #
@@ -51,7 +51,7 @@ require 'tuile'
 # it never reaches the agent's message history.
 #
 # UI-thread-confined.
-class Shared::SlashMenuPopup < Tuile::Component::Popup
+class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
   # Blank columns kept clear on each edge; the requested "1 char padding".
   # @return [Integer]
   PAD = 1
@@ -72,18 +72,13 @@ class Shared::SlashMenuPopup < Tuile::Component::Popup
   # @param conversation [Shared::ConversationWindow] where command echoes and
   #   outcomes are written (never the agent context).
   def initialize(screen:, commands:, conversation:)
+    # Set before +super+: {Tuile::Component::Popup#initialize} calls {#reposition},
+    # which reads @screen and @anchor.
     @screen = screen
     @conversation = conversation
     @anchor = nil
     @matches = []
-    @list = Tuile::Component::List.new
-    @list.cursor = Tuile::Component::List::Cursor.new
-    @list.show_cursor_when_inactive = true # highlight the selection though focus stays in the field
-    super(content: @list, modal: false)
-    # The ComboBox dropdown's tint: a live theme ref resolved each paint and
-    # inherited down to the rows + blank filler, so the palette reads as one
-    # panel over the conversation and tracks light/dark flips with no hook.
-    self.bg_color = Tuile::Theme.ref(:input_bg_color)
+    super() # builds the non-focusable list, the :input_bg_color tint, the cursor
     self.commands = commands
   end
 
@@ -112,28 +107,25 @@ class Shared::SlashMenuPopup < Tuile::Component::Popup
     end
 
     @matches = matches
-    @list.lines = matches.map { |c| row(c) }
-    @list.cursor = Tuile::Component::List::Cursor.new
+    self.lines = matches.map { |c| row(c) }
+    self.cursor = Tuile::Component::List::Cursor.new
     open unless open?
     reposition
   end
 
   # Move the selection or dismiss while the palette is open. Called by the
-  # input's key forwarder, not by dispatch — the list is unfocused, but its
-  # +handle_key+ moves the cursor regardless (dispatch gates on focus, the
-  # handler doesn't).
+  # input's key forwarder, not by dispatch — the list is unfocused, so movement
+  # rides {Tuile::Component::ListDropdown#move} (which forwards to the list
+  # regardless of focus); ESC is driver-owned (dismiss), so {#move} never claims
+  # it and this does.
   # @param key [String]
   # @return [Boolean] true iff the key was consumed here.
   def handle_nav_key(key)
-    case key
-    when Tuile::Keys::UP_ARROW, Tuile::Keys::DOWN_ARROW
-      @list.handle_key(key)
-    when Tuile::Keys::ESC
-      close
-      true
-    else
-      false
-    end
+    return true if move(key)
+    return false unless key == Tuile::Keys::ESC
+
+    close
+    true
   end
 
   # Run the command +text+ names and echo the result to the conversation pane.
@@ -186,7 +178,7 @@ class Shared::SlashMenuPopup < Tuile::Component::Popup
   # @return [Shared::SlashCommand, nil]
   def resolve(text)
     if open? && !@matches.empty?
-      pos = @list.cursor.position
+      pos = cursor.position
       return @matches[pos] if pos.between?(0, @matches.size - 1)
     end
     @commands.find { |c| c.name == first_word(text) }
