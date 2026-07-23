@@ -236,7 +236,12 @@ module Computer
         model_picker: @model_picker, logger: LOG
       )
 
-      @input_window = Shared::InputWindow.new(on_submit: @session.method(:submit))
+      @slash_menu = Shared::SlashMenuPopup.new(
+        screen: @screen, commands: build_slash_commands, conversation: @conversation_window
+      )
+      @input_window = Shared::InputWindow.new(
+        on_submit: @session.method(:submit), slash_menu: @slash_menu
+      )
 
       @confirmer = Code::ConfirmerPopup.new(screen: @screen)
       @plan_mode_listener = Code::PlanModeListener.new(footer: @conversation_window.status_footer_updater, screen: @screen)
@@ -424,6 +429,16 @@ module Computer
       menu.add('c', 'clear conversation + context') { @session.clear_conversation }
       menu.add('q', 'quit') { quit }
       menu
+    end
+
+    # The computer shell's slash commands: quit, twice-named. Callbacks are lazy
+    # (+quit+ resolves at run time), so this is safe to build before the agent.
+    #
+    # @return [Array<Shared::SlashCommand>]
+    def build_slash_commands
+      quit_action = -> { quit; nil }
+      [Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
+       Shared::SlashCommand.new('/quit', 'quits the app', quit_action)]
     end
 
     # Stop the event loop, unwinding {#run} back to the bin's +ensure+ (which

@@ -54,4 +54,70 @@ RSpec.describe Shared::InputWindow do
     screen.send(:handle_key, Tuile::Keys::ENTER)
     assert_empty submitted
   end
+
+  describe 'with a slash menu' do
+    let(:token_log)    { Pikuri::Agent::Listener::TokenLog.new }
+    let(:conversation) { Shared::ConversationWindow.new(token_log: token_log) }
+    let(:ran)          { [] }
+    let(:commands) do
+      [Shared::SlashCommand.new('/diff', 'show the git diff', -> { ran << :diff; 'Opened the git diff.' }),
+       Shared::SlashCommand.new('/quit', 'quits the app',     -> { ran << :quit; nil })]
+    end
+    let(:menu) do
+      Shared::SlashMenuPopup.new(screen: Tuile::Screen.instance, commands: commands, conversation: conversation)
+    end
+    let(:window) { described_class.new(on_submit: ->(text) { submitted << text }, slash_menu: menu) }
+
+    before do
+      screen = Tuile::Screen.instance
+      screen.content = window
+      screen.focused = window
+    end
+
+    def press(key) = Tuile::Screen.instance.send(:handle_key, key)
+
+    it 'makes the window the palette anchor' do
+      assert_same window, menu.anchor
+    end
+
+    it 'opens the palette as soon as the buffer starts with a slash' do
+      window.content.text = '/'
+      assert menu.visible?
+    end
+
+    it 'closes the palette when the buffer stops being a slash command' do
+      window.content.text = '/'
+      window.content.text = 'hello'
+      refute menu.visible?
+    end
+
+    it 'runs the slash command on Enter instead of submitting a turn, then clears' do
+      window.content.text = '/quit'
+      press(Tuile::Keys::ENTER)
+      assert_equal [:quit], ran
+      assert_empty submitted
+      assert_equal '', window.content.text.to_s
+    end
+
+    it 'blocks an unknown slash command from reaching the agent' do
+      window.content.text = '/nope'
+      press(Tuile::Keys::ENTER)
+      assert_empty submitted
+      assert_includes conversation.view.text.to_s, 'Command not found'
+    end
+
+    it 'forwards Down to the palette while it is shown, so Enter runs the selection' do
+      window.content.text = '/'
+      press(Tuile::Keys::DOWN_ARROW) # /diff -> /quit
+      press(Tuile::Keys::ENTER)
+      assert_equal [:quit], ran
+    end
+
+    it 'still submits an ordinary turn on Enter when the buffer is not a slash' do
+      window.content.text = 'hello there'
+      press(Tuile::Keys::ENTER)
+      assert_equal ['hello there'], submitted
+      assert_empty ran
+    end
+  end
 end

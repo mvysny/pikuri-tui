@@ -10,9 +10,17 @@ require 'tuile'
 # lands focus on the inner {Area}, so there is no focus plumbing to expose
 # here:
 #
-#   win = Shared::InputWindow.new(on_submit: session.method(:submit))
+#   menu = Shared::SlashMenuPopup.new(screen:, commands:, conversation:)
+#   win  = Shared::InputWindow.new(on_submit: session.method(:submit), slash_menu: menu)
 #   layout = Chat::Layout.new(conversation: conversation_window, input: win)
 #   screen.focused = win   # cascades onto the inner Area
+#
+# With a +slash_menu+, the prompt also owns slash-command entry: the {Area}
+# opens/filters the palette as the buffer changes, arbitrates Enter (a
+# leading-+/+ buffer runs a command instead of submitting a turn), and forwards
+# Up/Down/ESC to the palette while it's shown. The prompt is the natural owner —
+# it already holds Enter and the buffer, and the {Area} is private, so nothing
+# outside could arbitrate them.
 #
 # Shared by all three shells.
 #
@@ -27,9 +35,13 @@ class Shared::InputWindow < Tuile::Component::Window
   # @param on_submit [Proc, Method] one-arg callable invoked with the
   #   buffer text when the user presses Enter on a non-blank line; handed
   #   straight to the wrapped {Area}.
-  def initialize(on_submit:)
+  # @param slash_menu [Shared::SlashMenuPopup, nil] the slash-command palette
+  #   this prompt drives, or nil for a plain input. This window becomes its
+  #   anchor (the palette floats just above it).
+  def initialize(on_submit:, slash_menu: nil)
     super(TITLE)
-    self.content = Area.new(on_submit: on_submit)
+    self.content = Area.new(on_submit: on_submit, slash_menu: slash_menu)
+    slash_menu.anchor = self if slash_menu
   end
 
   # The editable content: a {Tuile::Component::TextArea} that rebinds Enter
@@ -48,25 +60,52 @@ class Shared::InputWindow < Tuile::Component::Window
     #   user presses Enter on a non-blank buffer. Receives the buffer text
     #   *before* it is cleared; this class owns the clear, so callers don't
     #   wipe the input in their handler.
-    def initialize(on_submit:)
+    # @param slash_menu [Shared::SlashMenuPopup, nil] the palette to drive, or
+    #   nil for a plain input (then every slash branch below is skipped).
+    def initialize(on_submit:, slash_menu:)
       super()
       @on_submit = on_submit
+      @slash_menu = slash_menu
+      self.on_change = ->(text) { slash_menu.sync(text) } if slash_menu
     end
 
-    # Intercept Enter to submit; every other key falls through to
-    # {Tuile::Component::TextArea#handle_key}. Returns +true+ on a consumed
-    # Enter — including the blank-buffer no-op — so the key isn't
-    # re-dispatched up the tree as something else.
+    # Route keys with the slash palette in mind, then fall through to
+    # {Tuile::Component::TextArea#handle_key}. Returns +true+ on a consumed key
+    # so it isn't re-dispatched up the tree as something else. While a palette
+    # is present: Up/Down/ESC drive it *only when shown* (otherwise they edit
+    # normally), and Enter on a leading-+/+ buffer runs a command instead of
+    # submitting a turn.
     #
     # @param key [String]
     # @return [Boolean] +true+ if the key was consumed here.
     def handle_key(key)
+      if @slash_menu
+        return @slash_menu.handle_nav_key(key) if nav_key?(key) && @slash_menu.visible?
+        return submit_command if key == Tuile::Keys::ENTER && active? && text.start_with?('/')
+      end
       return submit if key == Tuile::Keys::ENTER && active?
 
       super
     end
 
     private
+
+    # @param key [String]
+    # @return [Boolean] whether the palette claims this key while shown.
+    def nav_key?(key)
+      [Tuile::Keys::UP_ARROW, Tuile::Keys::DOWN_ARROW, Tuile::Keys::ESC].include?(key)
+    end
+
+    # Run the slash command in the buffer, then clear the field. Order matters:
+    # {Shared::SlashMenuPopup#submit} resolves against the still-open palette
+    # (so the highlighted row wins) *before* the clear closes it.
+    #
+    # @return [Boolean] always true; Enter on a slash buffer is ours.
+    def submit_command
+      @slash_menu.submit(text.dup)
+      self.text = ''
+      true
+    end
 
     # Capture the current buffer, clear it, and hand off to the host
     # callback. The order matters: clear happens before the callback so a

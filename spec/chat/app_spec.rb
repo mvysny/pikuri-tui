@@ -40,6 +40,10 @@ RSpec.describe Chat::App do
     assert_kind_of Tuile::Component::TextArea, app.screen.focused
   end
 
+  it 'registers the chat slash commands (quit only, twice-named)' do
+    assert_equal ['/exit', '/quit'], app.send(:build_slash_commands).map(&:name)
+  end
+
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
     assert_kind_of Tuile::Component::LogWindow, app.log_window
   end

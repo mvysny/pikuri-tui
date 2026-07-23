@@ -271,7 +271,25 @@ Zeitwerk over `lib/` and eager-loads it.
   captioned "Prompt" framing a private nested `TextArea` subclass that
   rebinds Enter to submit-and-clear (blank buffers are a no-op); the host
   focuses the window and Tuile's content-focus cascade lands the caret on
-  the area. Shared by all three shells.
+  the area. With an optional `slash_menu:` it also arbitrates slash-command
+  entry (opens/filters the palette on change, runs a command on Enter for a
+  leading-`/` buffer instead of submitting a turn, forwards Up/Down/ESC while
+  shown) — the prompt owns Enter and the buffer, so it's the only place that
+  can. Shared by all three shells.
+- `lib/shared/slash_command.rb` — `Shared::SlashCommand`, a `Data.define`
+  value object (name / description / callback) for one slash command; sibling
+  of `Shared::LeaderMenu::Action`. The `description` is the autocomplete hint;
+  the callback's `String` return is the outcome echoed below the command.
+- `lib/shared/slash_menu_popup.rb` — `Shared::SlashMenuPopup`, the slash-command
+  palette: a non-modal `Popup` (full width less one column each edge, 10 tall,
+  floating over the input) that filters its command catalog by the typed
+  prefix, renders two-column rows, navigates, executes the picked command, and
+  echoes the command + outcome into the conversation pane via `#add_block`
+  (never the agent context; an unknown command echoes a red "Command not
+  found"). Driven by `Shared::InputWindow` (`#sync` / `#handle_nav_key` /
+  `#submit`); each `App` registers its own command set. Shared by all three
+  shells. (The "slightly distinctive background" awaits tuile#1 — a `List`
+  background-fill color; no whole-component background knob exists yet.)
 - `lib/shared/status_footer_updater.rb` — `Shared::StatusFooterUpdater`, the
   presenter that keeps the conversation window's footer chrome current
   (it drives `Window#footer_text`; it is not itself a widget), shared by
@@ -632,7 +650,8 @@ Zeitwerk over `lib/` and eager-loads it.
   already living this way: `Shared::InputWindow`,
   `Shared::StatusFooterUpdater`,
   `Shared::ConversationWindow`, `Shared::AgentSession`,
-  `Shared::LeaderMenu`, `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
+  `Shared::LeaderMenu`, `Shared::SlashMenuPopup`, `Shared::SlashCommand`,
+  `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the computer shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this
   piece stand alone with a clear contract and carry no

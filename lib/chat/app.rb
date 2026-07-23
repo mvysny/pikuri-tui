@@ -171,12 +171,27 @@ module Chat
         model_picker: @model_picker, logger: LOG
       )
 
-      @input_window = Shared::InputWindow.new(on_submit: @session.method(:submit))
+      @slash_menu = Shared::SlashMenuPopup.new(
+        screen: @screen, commands: build_slash_commands, conversation: @conversation_window
+      )
+      @input_window = Shared::InputWindow.new(
+        on_submit: @session.method(:submit), slash_menu: @slash_menu
+      )
 
       @layout = Layout.new(
         conversation: @conversation_window,
         input: @input_window
       )
+    end
+
+    # The chat shell's slash commands: quit, twice-named. Callbacks are lazy —
+    # +quit+ resolves at run time — so this is safe to build before the agent.
+    #
+    # @return [Array<Shared::SlashCommand>]
+    def build_slash_commands
+      quit_action = -> { quit; nil }
+      [Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
+       Shared::SlashCommand.new('/quit', 'quits the app', quit_action)]
     end
 
     # Build the chat shell's +Pikuri::Agent+: a streaming agent on the boot

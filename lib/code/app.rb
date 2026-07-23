@@ -252,7 +252,12 @@ module Code
         model_picker: @model_picker, logger: LOG
       )
 
-      @input_window = Shared::InputWindow.new(on_submit: @session.method(:submit))
+      @slash_menu = Shared::SlashMenuPopup.new(
+        screen: @screen, commands: build_slash_commands, conversation: @conversation_window
+      )
+      @input_window = Shared::InputWindow.new(
+        on_submit: @session.method(:submit), slash_menu: @slash_menu
+      )
 
       # The tasks + git sidebar as one box: it owns its tasks-over-git split,
       # the GitWatcher poll (started/stopped in #run), and the diff popup the
@@ -437,6 +442,18 @@ module Code
       menu.add('c', 'clear conversation + context') { @session.clear_conversation }
       menu.add('q', 'quit') { quit }
       menu
+    end
+
+    # The coding shell's slash commands: quit (twice-named) plus +/diff+, which
+    # opens the git-diff popup. Callbacks are lazy — +quit+ and +@sidebar+
+    # resolve at run time — so this is safe to build before the agent/sidebar.
+    #
+    # @return [Array<Shared::SlashCommand>]
+    def build_slash_commands
+      quit_action = -> { quit; nil }
+      [Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
+       Shared::SlashCommand.new('/quit', 'quits the app', quit_action),
+       Shared::SlashCommand.new('/diff', 'show the git diff', -> { @sidebar.open_diff; 'Opened the git diff.' })]
     end
 
     # Stop the event loop, unwinding {#run} back to the bin's +ensure+ (which
