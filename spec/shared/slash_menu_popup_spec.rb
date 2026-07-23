@@ -17,15 +17,20 @@ RSpec.describe Shared::SlashMenuPopup do
   after  { Tuile::Screen.close }
 
   def rendered = conversation.view.text.to_s
-  def list     = menu.content.content
+  def list     = menu.content
   def rows     = list.lines.map(&:to_s)
 
-  it 'stands up as a non-modal Popup framing a "Commands" list window' do
+  it 'stands up as a non-modal, borderless Popup wrapping a List directly' do
     assert_kind_of Tuile::Component::Popup, menu
     refute menu.modal?
-    assert_equal 'Commands', menu.content.caption
     assert_kind_of Tuile::Component::List, list
     refute menu.visible?
+  end
+
+  it 'tints the panel with the ComboBox dropdown tint (:input_bg_color)' do
+    assert_equal Tuile::Theme.ref(:input_bg_color), menu.bg_color
+    # inherited down to the list so the rows + blank filler read as one panel
+    assert_equal Tuile::Screen.instance.theme.input_bg_color, list.effective_bg_color
   end
 
   describe '#sync opens, filters and closes off the buffer' do

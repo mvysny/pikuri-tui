@@ -4,14 +4,12 @@ require 'tuile'
 
 # The slash-command palette: a non-modal overlay that appears while the prompt
 # buffer starts with +/+, lists the matching commands in two columns, and runs
-# the picked one. A full-width bar floating just above the input:
+# the picked one. A borderless full-width bar floating just above the input:
 #
-#   ┌ Commands ─────────────────────────────────────────┐
-#   │ /diff   show the git diff                          │
-#   │ /exit   quits the app                              │
-#   │ /quit   quits the app                              │
-#   │ <name>  <description>                              │
-#   └────────────────────────────────────────────────────┘
+#    /diff   show the git diff
+#    /exit   quits the app
+#    /quit   quits the app
+#    <name>  <description>
 #
 # Driven entirely by the {Shared::InputWindow} that owns it — the popup never
 # takes focus (the caret stays in the field). The window wires three verbs:
@@ -27,6 +25,14 @@ require 'tuile'
 # outcome to the conversation pane. If skill commands later need the agent and
 # a skills catalog, split a non-widget service out of {#submit} and leave this
 # to only *pick* a command — until then one box is simpler.
+#
+# The panel is a bare {Tuile::Component::Popup} wrapping the {Tuile::Component::List}
+# directly (no framing {Tuile::Component::Window}), so it renders borderless like
+# the {Tuile::Component::ComboBox} dropdown. It carries the same background tint —
+# {Tuile::Theme#input_bg_color}, assigned as a live {Tuile::Theme.ref} on the
+# popup's {Tuile::Component#bg_color=} and inherited down to the rows and blank
+# filler — so the floating overlay reads as one panel over the conversation and
+# tracks light/dark flips with no hook.
 #
 # == Implementation details
 #
@@ -54,10 +60,6 @@ class Shared::SlashMenuPopup < Tuile::Component::Popup
   # @return [Integer]
   HEIGHT = 10
 
-  # The list window's caption.
-  # @return [String]
-  CAPTION = 'Commands'
-
   # The input window the palette floats above; its rect gives the bottom edge
   # to anchor to. Set by the {Shared::InputWindow} that owns this popup. When
   # nil (bare use / tests) the palette anchors to the screen bottom.
@@ -77,9 +79,11 @@ class Shared::SlashMenuPopup < Tuile::Component::Popup
     @list = Tuile::Component::List.new
     @list.cursor = Tuile::Component::List::Cursor.new
     @list.show_cursor_when_inactive = true # highlight the selection though focus stays in the field
-    window = Tuile::Component::Window.new(CAPTION)
-    window.content = @list
-    super(content: window, modal: false)
+    super(content: @list, modal: false)
+    # The ComboBox dropdown's tint: a live theme ref resolved each paint and
+    # inherited down to the rows + blank filler, so the palette reads as one
+    # panel over the conversation and tracks light/dark flips with no hook.
+    self.bg_color = Tuile::Theme.ref(:input_bg_color)
     self.commands = commands
   end
 

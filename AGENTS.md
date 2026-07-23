@@ -281,15 +281,17 @@ Zeitwerk over `lib/` and eager-loads it.
   of `Shared::LeaderMenu::Action`. The `description` is the autocomplete hint;
   the callback's `String` return is the outcome echoed below the command.
 - `lib/shared/slash_menu_popup.rb` — `Shared::SlashMenuPopup`, the slash-command
-  palette: a non-modal `Popup` (full width less one column each edge, 10 tall,
-  floating over the input) that filters its command catalog by the typed
-  prefix, renders two-column rows, navigates, executes the picked command, and
-  echoes the command + outcome into the conversation pane via `#add_block`
-  (never the agent context; an unknown command echoes a red "Command not
-  found"). Driven by `Shared::InputWindow` (`#sync` / `#handle_nav_key` /
-  `#submit`); each `App` registers its own command set. Shared by all three
-  shells. (The "slightly distinctive background" awaits tuile#1 — a `List`
-  background-fill color; no whole-component background knob exists yet.)
+  palette: a non-modal, borderless `Popup` wrapping a `List` directly — no
+  framing `Window` (full width less one column each edge, 10 tall, floating over
+  the input) — that filters its command catalog by the typed prefix, renders
+  two-column rows, navigates, executes the picked command, and echoes the
+  command + outcome into the conversation pane via `#add_block` (never the agent
+  context; an unknown command echoes a red "Command not found"). Driven by
+  `Shared::InputWindow` (`#sync` / `#handle_nav_key` / `#submit`); each `App`
+  registers its own command set. Shared by all three shells. Carries the
+  `ComboBox` dropdown's background tint (`Tuile::Theme#input_bg_color`, assigned
+  as a live `Tuile::Theme.ref` on the popup's `bg_color` and inherited down to
+  the rows + blank filler) so it reads as one panel over the conversation.
 - `lib/shared/status_footer_updater.rb` — `Shared::StatusFooterUpdater`, the
   presenter that keeps the conversation window's footer chrome current
   (it drives `Window#footer_text`; it is not itself a widget), shared by

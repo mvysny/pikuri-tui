@@ -5,9 +5,10 @@ source 'https://rubygems.org'
 ruby '>= 3.3'
 
 # Component-oriented terminal UI framework. The shared API has stabilized,
-# so we consume the released gem; for co-development against an unreleased
-# Tuile change, temporarily swap this for `path: '../tuile'`.
-gem 'tuile', '~> 0.9.0'
+# so we normally consume the released gem; temporarily on `path: '../tuile'`
+# for co-development against the unreleased Component#bg_color= /
+# Theme::Ref work (tuile#1) the slash-menu tint rides on.
+gem 'tuile', path: '../tuile'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching
