@@ -191,44 +191,42 @@ If per-skill callbacks bloat `#submit`, take the `Shared::SlashMenuPopup` rdoc's
 service escape hatch (split a non-widget service holding conversation + agent +
 skills out of `#submit`).
 
-### Pikuri-core dependency: `EmptyTurnError` for the all-`:system` bare-load
+### Pikuri-core dependency: `EmptyTurnError` — LANDED in `../pikuri` (commit `e727f3d`)
 
-The one piece that lives in pikuri-core (`../pikuri`), to build there and release
-before the bare-load path above works. Today `run_loop` short-circuits a blank
-turn against an all-`:system` conversation with a silent `return false`
-(`agent.rb:254`), guarding uniformly across providers. Replace that with a
-provider-aware split — decided across this thread:
+Built and committed in pikuri-core; **still pending release + switching pikuri-tui
+off the `../pikuri` path dep** before the bare-load path above works. `run_loop`'s
+old uniform `return false` for a blank turn against an all-`:system` conversation
+is now a provider-aware split, keyed on the new `Agent::SYSTEM_HOISTING_PROVIDERS`
+constant:
 
-- **OpenAI / Gemini: let it run.** They represent system content *inside* the
-  messages array (OpenAI keeps `:system`; Gemini remaps `:system`→`user`), so a
-  system-only request is valid. Drop the short-circuit for them and complete the
-  turn. The LLM may or may not act on a system-only skill-load (it's framed as
-  available reference via `Renderer.format_skill`'s `<skill>` wrapper, not an
-  imperative, and a user-less turn is out-of-distribution); if it doesn't, the
-  user types a message. Accepted.
-- **Anthropic: raise `Pikuri::Agent::EmptyTurnError`.** Anthropic hoists every
-  `:system` into the top-level `system` param (`anthropic/chat.rb:18,68`), so an
-  all-`:system` chat sends `messages: []` → a hard 400. It genuinely can't run.
-  Raise instead of returning false so the shell can surface *why* (fail-loud; a
-  silent `false` is easy to ignore and reproduces the original mystery). No
-  existing caller consumes the `false` return — `thinker` / `synthesizer` /
-  `sub_agent_tool` / the bin REPLs all pass a real `user_message` — so this is
-  contract-safe.
+- **OpenAI / Gemini (and llama.cpp): let it run.** They represent system content
+  *inside* the messages array (OpenAI keeps `:system`; Gemini remaps
+  `:system`→`user`), so a system-only request is valid. The short-circuit is
+  dropped for them and the turn completes. The LLM may or may not act on a
+  system-only skill-load (it's framed as available reference via
+  `Renderer.format_skill`'s `<skill>` wrapper, not an imperative, and a user-less
+  turn is out-of-distribution); if it doesn't, the user types a message. Accepted.
+- **Anthropic *and Bedrock*: raise `Pikuri::Agent::EmptyTurnError`.** Both hoist
+  every `:system` block out of the messages array into a separate top-level field
+  (Anthropic's `system` param; Bedrock's `system` blocks — verified in
+  `ruby_llm`'s `anthropic/chat.rb` + `bedrock/chat.rb`, both `partition { role ==
+  :system }`), so an all-`:system` chat sends `messages: []` → a hard 400. The set
+  is `SYSTEM_HOISTING_PROVIDERS = %w[anthropic bedrock]` — a *denylist of
+  system-hoisting providers*, not just "Anthropic", so a third such provider is a
+  one-token add and any non-listed provider defaults to "try it." Raise (not
+  `false`) so the shell can surface *why*; fail-loud replaces a silent `false`
+  that reproduced the very 400 it meant to prevent. No existing caller consumed
+  the `false` return — `thinker` / `synthesizer` / `sub_agent_tool` / the bin
+  REPLs all pass a real `user_message` — so this was contract-safe. The error
+  carries the offending `provider` slug.
 
-Two things to get right in the pikuri-core change:
-
-1. **Detect the provider from the resolved model, not the transport.**
-   `transport.provider` is only non-nil when a per-connection override is set; a
-   default-configured Anthropic connection has `transport.provider == nil` while
-   the backend is still Anthropic. Key the branch on `@chat.model.provider` (after
-   `apply_transport!` at the top of `run_loop`, so a mid-conversation switch is
-   reflected), or the 400 slips through.
-2. **Keep the error content-neutral.** pikuri-core doesn't know the injected
-   system block is a *skill* (could be memory context or retrieved docs), so its
-   message stays general — e.g. *"Anthropic can't complete a turn whose
-   conversation holds only system content (no user or assistant message); add a
-   user message."* The **shell** owns the skill-flavored wording (step 6), since
-   only it knows a skill was just loaded.
+Both pitfalls were handled in the shipped change: (1) the branch keys on
+`@chat.model.provider` (the *resolved model*, after `apply_transport!` — not
+`transport.provider`, which is `nil` for a default-configured Anthropic
+connection and would let the 400 slip through); (2) the error message is
+content-neutral (pikuri-core doesn't know the `:system` block is a *skill* vs
+memory vs retrieved docs), so the **shell** owns the skill-flavored wording
+(step 6).
 
 ## Later
 
