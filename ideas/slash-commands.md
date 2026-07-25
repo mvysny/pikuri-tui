@@ -208,10 +208,9 @@ constant:
   turn is out-of-distribution); if it doesn't, the user types a message. Accepted.
 - **Anthropic *and Bedrock*: raise `Pikuri::Agent::EmptyTurnError`.** Both hoist
   every `:system` block out of the messages array into a separate top-level field
-  (Anthropic's `system` param; Bedrock's `system` blocks — verified in
-  `ruby_llm`'s `anthropic/chat.rb` + `bedrock/chat.rb`, both `partition { role ==
-  :system }`), so an all-`:system` chat sends `messages: []` → a hard 400. The set
-  is `SYSTEM_HOISTING_PROVIDERS = %w[anthropic bedrock]` — a *denylist of
+  (Anthropic's `system` param; Bedrock's `system` blocks), so an all-`:system`
+  chat sends `messages: []` → a hard 400. The set is
+  `SYSTEM_HOISTING_PROVIDERS = %w[anthropic bedrock]` — a *denylist of
   system-hoisting providers*, not just "Anthropic", so a third such provider is a
   one-token add and any non-listed provider defaults to "try it." Raise (not
   `false`) so the shell can surface *why*; fail-loud replaces a silent `false`
@@ -219,6 +218,21 @@ constant:
   the `false` return — `thinker` / `synthesizer` / `sub_agent_tool` / the bin
   REPLs all pass a real `user_message` — so this was contract-safe. The error
   carries the offending `provider` slug.
+
+  Bedrock verification (confidence, so a future reader needn't re-derive it):
+  the *empty-messages* half is **source-verified** — `ruby_llm`'s
+  `bedrock/chat.rb` (its own `Bedrock::Chat`, not inherited from Anthropic)
+  does `system_messages, chat_messages = messages.partition { role == :system }`
+  then `messages: render_messages(chat_messages)` with no guard, and
+  `render_messages([])` returns `[]`, byte-identical in shape to
+  `anthropic/chat.rb`. The *→ 400* half rests on AWS's **documented Converse
+  API contract** (`messages` required + non-empty, must lead with a `user`
+  turn; `system` is a separate optional field) — **not live-tested** (no AWS
+  creds to hand). Kept in the set anyway because the false-positive is graceful:
+  if Bedrock ever tolerated empty `messages`, the only cost is a bare `/foo`
+  load raising `EmptyTurnError` unnecessarily, and the user loads via a typed
+  message instead — no corruption, no lost skill. Asymmetric risk (silent 400
+  vs. one harmless extra prompt) favors inclusion.
 
 Both pitfalls were handled in the shipped change: (1) the branch keys on
 `@chat.model.provider` (the *resolved model*, after `apply_transport!` — not
