@@ -13,13 +13,14 @@ RSpec.describe Shared::AgentSession do
   # spec calls {#finish_turn!}, so a spec can hold a turn open and observe
   # the mid-turn paths.
   class TurnAgentStub
-    attr_reader :cancellable, :interloper, :messages, :transports, :clear_count
+    attr_reader :cancellable, :interloper, :messages, :transports, :clear_count, :drained
 
     def initialize(interloper: Pikuri::Agent::Control::Interloper.new)
       @cancellable = Pikuri::Agent::Control::Cancellable.new
       @interloper = interloper
       @messages = []
       @transports = []
+      @drained = []
       @clear_count = 0
       @gate = Queue.new
       @blocking = false
@@ -29,11 +30,21 @@ RSpec.describe Shared::AgentSession do
 
     def finish_turn! = @gate << :done
 
+    # Make the next +run_loop+ raise {Pikuri::Agent::EmptyTurnError} (a bare turn
+    # on a system-hoisting provider), still recording the +user_message+ first.
+    def raise_empty_turn!(provider = 'anthropic') = @empty_turn_provider = provider
+
     def clear_conversation = @clear_count += 1
 
     def run_loop(user_message:, transport: nil)
       @messages << user_message
       @transports << transport
+      # Mirror the real agent draining its interloper at turn start, so a
+      # re-injected :system leftover is consumed here (recorded for specs)
+      # instead of looping back into another delivery turn.
+      @drained.concat(@interloper&.drain! || [])
+      raise Pikuri::Agent::EmptyTurnError, @empty_turn_provider if @empty_turn_provider
+
       @gate.pop if @blocking
     end
   end
@@ -42,16 +53,18 @@ RSpec.describe Shared::AgentSession do
   # assert the coordinator poked the conversation window without standing up
   # the real {Shared::ConversationWindow} (token log, markdown, panes).
   class FakeConversationWindow
-    attr_reader :animation, :errors
+    attr_reader :animation, :errors, :notices
 
     def initialize
       @animation = []
       @errors = []
+      @notices = []
     end
 
     def start_animation = @animation << :start
     def stop_animation = @animation << :stop
     def render_turn_error(exception) = @errors << exception
+    def render_notice(text) = @notices << text
   end
 
   # A one-shot pending-switch source: hands out +pending+ in order, then
@@ -107,7 +120,7 @@ RSpec.describe Shared::AgentSession do
     wait_until { agent.messages.size == 1 }
 
     session.submit('second')
-    assert_equal ['second'], agent.interloper.peek
+    assert_equal ['second'], agent.interloper.peek.map(&:content)
     assert_equal ['first'], agent.messages
   ensure
     # One release for the held turn, one for the leftover-delivery turn.
@@ -157,6 +170,55 @@ RSpec.describe Shared::AgentSession do
     wait_until { !session.turn_in_progress? }
     assert_equal ['first'], no_interloper.messages
     assert_includes log_io.string, 'mid-turn message dropped'
+  end
+
+  describe 'blank submit (a skill bare-load)' do
+    it 'runs a bare turn when idle' do
+      session.submit('')
+      wait_until { agent.messages == [''] }
+      wait_until { !session.turn_in_progress? }
+    end
+
+    it 'is a no-op while a turn is running (the scheduled skill already rides it)' do
+      agent.block_turns!
+      session.submit('first')
+      wait_until { agent.messages.size == 1 }
+
+      session.submit('')
+      session.submit('   ')
+      assert_empty agent.interloper.peek, 'a blank mid-turn submit must not queue anything'
+    ensure
+      agent.finish_turn!
+      wait_until { !session.turn_in_progress? }
+    end
+
+    it 'renders a dim notice (not an error) when the bare turn raises EmptyTurnError' do
+      agent.raise_empty_turn!
+      session.submit('')
+      wait_until { !session.turn_in_progress? }
+
+      assert_equal 1, conversation_window.notices.size
+      assert_empty conversation_window.errors, 'EmptyTurnError must not red-line as a turn failure'
+    end
+  end
+
+  it 're-injects a leftover :system item as system context instead of folding it into a user turn' do
+    agent.block_turns!
+    session.submit('first')
+    wait_until { agent.messages.size == 1 }
+
+    agent.interloper.inject_system_message('<skill>x</skill>') # a skill scheduled mid-turn, never drained
+    session.submit('a user correction')                        # plus a user leftover
+    agent.finish_turn!
+    wait_until { agent.messages.size == 2 }
+
+    # the user leftover is the fresh turn's message, clean (not the Item struct)...
+    assert_equal 'a user correction', agent.messages.last
+    # ...and the system leftover rode the queue into that turn's run_loop as :system.
+    assert_equal [[:system, '<skill>x</skill>']], agent.drained.map { |i| [i.kind, i.content] }
+  ensure
+    agent.finish_turn!
+    wait_until { !session.turn_in_progress? }
   end
 
   describe '#clear_conversation' do

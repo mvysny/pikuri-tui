@@ -269,6 +269,19 @@ class Shared::ConversationWindow < Tuile::Component::Window
     end
   end
 
+  # Append a one-line, muted informational notice to the transcript — the dim
+  # sibling of {#render_turn_error}, same self-marshaling shape but the detail
+  # tone, so a non-failure (e.g. a bare skill-load with nothing to send yet)
+  # never reads as an error. Safe to call from the agent worker thread.
+  #
+  # @param text [String] the notice, plain; this applies the tone.
+  # @return [void]
+  def render_notice(text)
+    screen.event_queue.submit do
+      @view.add_line(screen.theme.detail("· #{text}"))
+    end
+  end
+
   private
 
   # Prepend +indent+ spaces to a block, handling both +String+ blocks (theme
@@ -461,6 +474,12 @@ class Shared::ConversationWindow < Tuile::Component::Window
         @assistant.wipe
         @thinking.preserve
         render_tool_result(content)
+      in Pikuri::Agent::Event::SystemInjected(content:)
+        @assistant.wipe
+        @thinking.preserve
+        # A host-loaded skill (or other :system injection) landing mid-stream;
+        # dim with a ⊕ marker, mirroring Pikuri::Agent::Listener::Terminal.
+        @view.add_block(@view.theme.detail("⊕ #{content}"), indent: @indent)
       in Pikuri::Agent::Event::FallbackNotice(reason:)
         @assistant.wipe
         @thinking.preserve

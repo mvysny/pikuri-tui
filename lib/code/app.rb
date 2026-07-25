@@ -375,7 +375,10 @@ module Code
           sandbox: @sandbox,
           read_only: @plan_mode
         )
-        c.add_extension Pikuri::Skill::Extension.new(catalog: @skill_catalog)
+        # Kept (not dropped) so the /<skill> slash commands can reach
+        # +schedule_load_skill+ — see #build_slash_commands.
+        @skill_ext = Pikuri::Skill::Extension.new(catalog: @skill_catalog)
+        c.add_extension @skill_ext
         c.add_extension Pikuri::Tasks::Extension.new
         c.add_extension Pikuri::Mcp::Extension.new(
           registry: mcp_registry,
@@ -454,20 +457,59 @@ module Code
     #
     # @return [Array<Shared::SlashCommand>]
     def build_slash_commands
-      quit_action = -> { quit; nil }
+      quit_action = ->(_rest) { quit; nil }
       commands = [
-        Shared::SlashCommand.new('/logs', 'open the diagnostic log', -> { @log_ui.open; 'Opened the diagnostic log.' }),
-        Shared::SlashCommand.new('/diff', 'show the git diff', -> { @sidebar.open_diff; 'Opened the git diff.' }),
-        Shared::SlashCommand.new('/plan', 'toggle plan mode', -> { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' })
+        Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
+        Shared::SlashCommand.new('/diff', 'show the git diff', ->(_rest) { @sidebar.open_diff; 'Opened the git diff.' }),
+        Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' })
       ]
       if @model_picker.multiple?
-        commands << Shared::SlashCommand.new('/model', 'switch model', -> { @model_picker.open(current: @agent.transport); nil })
+        commands << Shared::SlashCommand.new('/model', 'switch model', ->(_rest) { @model_picker.open(current: @agent.transport); nil })
       end
       commands.push(
-        Shared::SlashCommand.new('/clear', 'clear conversation + context', -> { @session.clear_conversation; nil }),
+        Shared::SlashCommand.new('/clear', 'clear conversation + context', ->(_rest) { @session.clear_conversation; nil }),
         Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
         Shared::SlashCommand.new('/quit', 'quits the app', quit_action)
       )
+      commands + skill_commands(commands.map(&:name))
+    end
+
+    # One +/<skill-name>+ command per catalog skill (none for an empty catalog),
+    # mirroring Claude Code: the command loads that skill on the user's own
+    # initiative, then drives a turn on the rest of the line (blank → a bare
+    # load). A skill whose +/<name>+ collides with a built-in command
+    # (+reserved_names+) is skipped with a warn — the built-in verb wins, and the
+    # skill stays reachable by asking the agent to load it in a message.
+    #
+    # @param reserved_names [Array<String>] the built-in command names to avoid.
+    # @return [Array<Shared::SlashCommand>]
+    def skill_commands(reserved_names)
+      @skill_catalog.list.filter_map do |skill|
+        name = "/#{skill.name}"
+        if reserved_names.include?(name)
+          LOG.warn("skill #{skill.name.inspect} shadows a built-in command; not registered as #{name}")
+          nil
+        else
+          Shared::SlashCommand.new(name, skill.description, skill_loader(skill.name))
+        end
+      end
+    end
+
+    # The callback for a +/<name>+ skill command: schedule the skill as a
+    # +:system+ block, *then* drive a turn on +rest+. Order matters — both ride
+    # the agent's interloper, so scheduling first lands the skill ahead of the
+    # message (a blank +rest+ is a bare load: the skill becomes the whole turn).
+    # Returns nil: the turn and its {Pikuri::Agent::Event::SystemInjected} block
+    # are the transcript record, so there is no palette echo.
+    #
+    # @param name [String] the catalog skill name (no leading slash).
+    # @return [Proc]
+    def skill_loader(name)
+      lambda do |rest|
+        @skill_ext.schedule_load_skill(name)
+        @session.submit(rest)
+        nil
+      end
     end
 
     # Stop the event loop, unwinding {#run} back to the bin's +ensure+ (which

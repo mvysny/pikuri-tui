@@ -58,10 +58,10 @@ RSpec.describe Shared::InputWindow do
   describe 'with a slash menu' do
     let(:token_log)    { Pikuri::Agent::Listener::TokenLog.new }
     let(:conversation) { Shared::ConversationWindow.new(token_log: token_log) }
-    let(:ran)          { [] }
+    let(:ran)          { [] } # [symbol, rest] pairs
     let(:commands) do
-      [Shared::SlashCommand.new('/diff', 'show the git diff', -> { ran << :diff; 'Opened the git diff.' }),
-       Shared::SlashCommand.new('/quit', 'quits the app',     -> { ran << :quit; nil })]
+      [Shared::SlashCommand.new('/diff', 'show the git diff', ->(rest) { ran << [:diff, rest]; 'Opened the git diff.' }),
+       Shared::SlashCommand.new('/quit', 'quits the app',     ->(rest) { ran << [:quit, rest]; nil })]
     end
     let(:menu) do
       Shared::SlashMenuPopup.new(screen: Tuile::Screen.instance, commands: commands, conversation: conversation)
@@ -94,7 +94,16 @@ RSpec.describe Shared::InputWindow do
     it 'runs the slash command on Enter instead of submitting a turn, then clears' do
       window.content.text = '/quit'
       press(Tuile::Keys::ENTER)
-      assert_equal [:quit], ran
+      assert_equal [[:quit, '']], ran
+      assert_empty submitted
+      assert_equal '', window.content.text.to_s
+    end
+
+    it 'runs a slash command with a trailing argument (palette already hidden past the space)' do
+      window.content.text = '/diff run the migration'
+      refute menu.visible?
+      press(Tuile::Keys::ENTER)
+      assert_equal [[:diff, 'run the migration']], ran
       assert_empty submitted
       assert_equal '', window.content.text.to_s
     end
@@ -110,7 +119,7 @@ RSpec.describe Shared::InputWindow do
       window.content.text = '/'
       press(Tuile::Keys::DOWN_ARROW) # /diff -> /quit
       press(Tuile::Keys::ENTER)
-      assert_equal [:quit], ran
+      assert_equal [[:quit, '']], ran
     end
 
     it 'still submits an ordinary turn on Enter when the buffer is not a slash' do

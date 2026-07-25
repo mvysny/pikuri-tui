@@ -21,10 +21,13 @@ require 'tuile'
 #   menu.submit(buffer)            # Enter: run the selected/typed command
 #
 # This is one self-sufficient component: it holds the catalog, filters it,
-# renders it, tracks the selection, executes the command, and echoes the
-# outcome to the conversation pane. If skill commands later need the agent and
-# a skills catalog, split a non-widget service out of {#submit} and leave this
-# to only *pick* a command — until then one box is simpler.
+# renders it, tracks the selection, splits +"/name rest"+, runs the command with
+# +rest+, and echoes any outcome to the conversation pane. It stays generic
+# across command *kinds* — a skill command carries its agent/catalog wiring in
+# its own {Shared::SlashCommand} callback (built by the shell), so this box only
+# resolves-and-calls. Should those callbacks ever bloat, split a non-widget
+# service out and leave this to only *pick* a command; until then one box is
+# simpler.
 #
 # The panel *is* a {Tuile::Component::ListDropdown} — Tuile's reusable
 # "borderless, tinted, non-focusable floating list an input drops open" building
@@ -93,14 +96,18 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
   # @return [Boolean] whether the palette is currently shown.
   def visible? = open?
 
-  # Reconcile the palette with the current buffer: open + refilter when +text+
-  # is a slash command with matches, otherwise close. Called on every buffer
-  # change; the selection resets to the top match on each refilter (arrow keys
-  # don't change the text, so they don't reset it).
+  # Reconcile the palette with the current buffer: open + refilter while +text+
+  # is a bare command token (leading +/+, no whitespace yet) with matches,
+  # otherwise close. Once the user types a space they've committed to a command
+  # and are writing its follow-up message, so the palette gets out of the way —
+  # Enter still runs the command (parsed in {#submit}), but there's nothing left
+  # to pick. Called on every buffer change; the selection resets to the top
+  # match on each refilter (arrow keys don't change the text, so they don't
+  # reset it).
   # @param text [String] the whole input buffer.
   # @return [void]
   def sync(text)
-    matches = text.start_with?('/') ? matching(text) : []
+    matches = picking?(text) ? matching(text) : []
     if matches.empty?
       close if open?
       return
@@ -128,21 +135,28 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
     true
   end
 
-  # Run the command +text+ names and echo the result to the conversation pane.
-  # Resolve prefers the highlighted row while the palette is open, else an exact
-  # first-word match; an unknown command echoes a red "Command not found" and
-  # runs nothing. Either way the agent is never touched. Closes the palette.
+  # Run the command +text+ names, passing the rest of the line as its argument,
+  # and echo any outcome to the conversation pane. +"/name the rest"+ splits
+  # into the command (resolved: the highlighted row while the palette is open,
+  # else an exact first-word match) and +"the rest"+ (+""+ when none), which is
+  # handed to the callback — an action command ignores it, a skill command sends
+  # it as a follow-up message. A truthy return is echoed below the name; a nil
+  # return echoes nothing (the command's own effect — a popup, an agent turn —
+  # is the feedback). An unknown command echoes a red "Command not found" and
+  # runs nothing. Either way the agent context is never written directly. Closes
+  # the palette.
   # @param text [String] the whole input buffer (must start with +/+).
   # @return [void]
   def submit(text)
     command = resolve(text)
     close if open?
     if command
+      rest = remainder(text)
       # Deferred so a command opening its own popup (/diff) doesn't stack under
       # this one closing; its return value is the outcome shown below the name.
       @screen.event_queue.submit do
-        outcome = command.callback.call
-        @conversation.add_block(echo(command.name, outcome))
+        outcome = command.callback.call(rest)
+        @conversation.add_block(echo(command.name, outcome)) if outcome
       end
     else
       @conversation.add_block(echo(first_word(text), theme.error('Command not found')))
@@ -163,14 +177,25 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
 
   private
 
-  # Commands whose name starts with the buffer's first whitespace word, so a
-  # future +"/cmd args"+ still narrows on +/cmd+.
+  # Whether the buffer is still a command being *picked*: a leading +/+ with no
+  # whitespace yet. A space means the user has moved on to the command's
+  # argument, so the palette closes (see {#sync}).
+  # @param text [String]
+  # @return [Boolean]
+  def picking?(text) = text.start_with?('/') && !text.match?(/\s/)
+
+  # Commands whose name starts with the (whole, space-free) buffer.
   # @param text [String]
   # @return [Array<Shared::SlashCommand>]
   def matching(text)
-    word = first_word(text)
-    @commands.select { |c| c.name.start_with?(word) }
+    @commands.select { |c| c.name.start_with?(text) }
   end
+
+  # The text after the command name — the follow-up argument. +""+ when the
+  # buffer is a bare command (+"/foo"+ → +""+, +"/foo a b"+ → +"a b"+).
+  # @param text [String]
+  # @return [String]
+  def remainder(text) = text.to_s.split(/\s+/, 2)[1].to_s
 
   # The command +text+ should run: the highlighted match while open (so a
   # partial name completes to the selection), else an exact first-word match.
@@ -198,12 +223,13 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
   end
 
   # The conversation echo for a run command: its name in the tool tone with the
-  # outcome (already colored, or nil) on the line below.
+  # already-colored outcome on the line below. Only called with a real outcome
+  # ({#submit} skips the echo entirely when the callback returns nil).
   # @param name [String]
-  # @param outcome [String, nil]
+  # @param outcome [String]
   # @return [String]
   def echo(name, outcome)
-    outcome ? "#{theme.tool(name)}\n#{outcome}" : theme.tool(name)
+    "#{theme.tool(name)}\n#{outcome}"
   end
 
   # @return [Shared::AppTheme]

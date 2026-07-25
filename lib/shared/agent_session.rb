@@ -87,10 +87,19 @@ module Shared
     # {Shared::InputWindow}'s +on_submit+ target, and the re-entry point
     # {#deliver_pending_injections} uses to flush leftovers as a fresh turn.
     #
-    # @param message [String] non-empty draft handed up by {Shared::InputWindow}.
+    # +message+ is normally non-blank (the input suppresses blank submits), but a
+    # skill command submits +""+ to drive a *bare* load (the skill it just
+    # scheduled becomes the whole turn). A blank submit is only meaningful when
+    # idle — it runs a bare +run_loop+; a blank submit *mid-turn* is a no-op, as
+    # the scheduled skill already rides the running turn and there's no message to
+    # inject.
+    #
+    # @param message [String] the draft; blank only from a skill bare-load.
     # @return [void]
     def submit(message)
       if @turn_in_progress
+        return if message.to_s.strip.empty?
+
         queue_mid_turn(message)
         return
       end
@@ -186,6 +195,11 @@ module Shared
         @agent.run_loop(user_message: message, transport: transport)
       rescue Pikuri::Agent::Control::Cancellable::Cancelled
         # Notice already rendered by the Shared::ConversationWindow::Listener; nothing else to do.
+      rescue Pikuri::Agent::EmptyTurnError
+        # A bare load (blank turn on a system-hoisting provider) can't complete —
+        # not a failure. Whatever was injected (a skill) already rendered its own
+        # SystemInjected block; nudge the user to say something, dim not red.
+        @conversation_window.render_notice('Nothing to send yet — type a message to start the turn.')
       rescue StandardError => e
         @logger.error(
           "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"
@@ -200,22 +214,33 @@ module Shared
       end
     end
 
-    # A turn can end with messages still sitting in the interloper queue (the
-    # agent only drains it at +after_tool_result+ boundaries). Drain the
-    # leftovers here and start a fresh turn with them, in submission order, so
-    # every mid-turn message is delivered promptly. Fires after a cancelled
+    # A turn can end with items still sitting in the interloper queue (the agent
+    # only drains it at +after_tool_result+ boundaries). Drain them and start a
+    # fresh turn so every leftover is delivered promptly. Fires after a cancelled
     # turn too: a mid-turn message is usually a correction, and the cancel is
     # what makes room for it.
+    #
+    # The queue holds two {Pikuri::Agent::Control::Interloper::Item} kinds
+    # (+:user+ / +:system+). +:user+ leftovers join, in submission order, into
+    # the fresh turn's message; +:system+ leftovers (e.g. a skill scheduled
+    # during the final assistant message and never drained) go *back* on the
+    # queue via +inject_system_message+, so the next +run_loop+ re-applies them
+    # as system context at its top rather than folding a skill body into a user
+    # message. With only +:system+ leftovers the fresh turn is bare, which still
+    # drains + applies them.
     #
     # Runs on the UI thread (the caller marshals via +submit+), so the
     # +@turn_in_progress+ read inside {#submit} is safe.
     #
     # @return [void]
     def deliver_pending_injections
-      pending = @agent.interloper&.drain! || []
+      interloper = @agent.interloper
+      pending = interloper&.drain! || []
       return if pending.empty?
 
-      submit(pending.join("\n\n"))
+      system_items, user_items = pending.partition { |item| item.kind == :system }
+      system_items.each { |item| interloper.inject_system_message(item.content) }
+      submit(user_items.map(&:content).join("\n\n"))
     end
   end
 end

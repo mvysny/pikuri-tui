@@ -68,6 +68,12 @@ RSpec.describe Shared::ConversationWindow do
       assert_includes rendered, 'RuntimeError'
       assert_includes rendered, 'boom'
     end
+
+    it 'renders a notice as a plain dim transcript line (no error marker)' do
+      window.render_notice('type a message to start the turn')
+      assert_includes rendered, 'type a message to start the turn'
+      refute_includes rendered, '!'
+    end
   end
 
   it 'renders UserTurn as "> <content>" (the CLI listener stayed silent here)' do
@@ -112,6 +118,11 @@ RSpec.describe Shared::ConversationWindow do
     assert_includes rendered, '…'
     assert_includes rendered, '5000 bytes total'
     refute_includes rendered, 'x' * 5_000
+  end
+
+  it 'renders SystemInjected (a host-loaded skill) as a dim ⊕ block' do
+    listener.on_event(Pikuri::Agent::Event::SystemInjected.new(content: '<skill>writing-rdoc</skill>'))
+    assert_includes rendered, '⊕ <skill>writing-rdoc</skill>'
   end
 
   it 'renders FallbackNotice with the reason' do

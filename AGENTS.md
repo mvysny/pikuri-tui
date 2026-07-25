@@ -279,15 +279,19 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/shared/slash_command.rb` — `Shared::SlashCommand`, a `Data.define`
   value object (name / description / callback) for one slash command; sibling
   of `Shared::LeaderMenu::Action`. The `description` is the autocomplete hint;
-  the callback's `String` return is the outcome echoed below the command.
+  the callback takes the rest-of-line as one `String` arg (`""` when none — an
+  action command ignores it, a skill command forwards it as a follow-up
+  message) and its `String` return is the outcome echoed below the command
+  (`nil` → no echo, for a command whose own effect is the feedback).
 - `lib/shared/slash_menu_popup.rb` — `Shared::SlashMenuPopup`, the slash-command
   palette: a `Tuile::Component::ListDropdown` (Tuile's reusable borderless/tinted/
   non-focusable floating list, the `ComboBox` panel half — brings the
   `input_bg_color` tint, the never-steals-the-caret list, and `#move`/`#choose`
   key-forwarding) sized full width less one column each edge, 10 tall, floating
   over the input. Adds the driver-specific parts: filters its command catalog by
-  the typed prefix, renders two-column rows, navigates, executes the picked
-  command, and echoes the command + outcome into the conversation pane via
+  the first token (hiding once a space starts the argument), renders two-column
+  rows, navigates, splits `/name rest` and runs the picked command with `rest`,
+  and echoes the command + any outcome into the conversation pane via
   `#add_block` (never the agent context; an unknown command echoes a red
   "Command not found"). Driven by `Shared::InputWindow` (`#sync` /
   `#handle_nav_key` / `#submit`); each `App` registers its own command set.
@@ -304,8 +308,11 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/shared/agent_session.rb` — `Shared::AgentSession`, the turn-lifecycle
   engine all three shells compose: owns one agent's worker thread, the
   `@turn_in_progress` concurrency guard, mid-turn interloper injection +
-  leftover delivery, the conversation spinner, the pending model-switch drain,
-  and the `Ctrl+C` escalation. A coordinator/presenter (holds the `screen` +
+  leftover delivery (splitting `:user` leftovers into the fresh turn's message
+  from `:system` ones it re-injects as context), the blank-submit split (idle →
+  a bare `run_loop`; mid-turn → no-op) with an `EmptyTurnError` rescue that dims
+  a notice instead of red-lining, the conversation spinner, the pending
+  model-switch drain, and the `Ctrl+C` escalation. A coordinator/presenter (holds the `screen` +
   conversation window, drives its spinner/error verbs) — sibling of
   `Shared::StatusFooterUpdater`, *not* a UI-independent service like
   `Code::GitWatcher`. Each `App` constructs one, sets `#agent=` after its build
@@ -322,7 +329,9 @@ Zeitwerk over `lib/` and eager-loads it.
   `Shared::StatusFooterUpdater` footer that itself doubles as the
   `ModelSwitched` listener. Exposes `#listener` (the transcript) /
   `#status_footer_updater` (the footer) for the host to compose into the
-  agent's `ListenerList`.
+  agent's `ListenerList`, plus `#render_notice` (a dim, non-error transcript
+  line, sibling of `#render_turn_error`); a `SystemInjected` event (a host-loaded
+  skill) renders as a dim `⊕` block.
 - `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
   `lib/chat/`) for the chat front-end (`Chat::App` + `Chat::Layout`); the
   baseline shell the `Code` / `Computer` siblings were copied from.
@@ -340,9 +349,13 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/code/app.rb` — `Code::App`, the Tuile
   shell for `bin/pikuri-tui-code`; like `Chat::App` but adds the
   `Code::ConfirmerPopup`, the `Code::WorkspaceSidebar` (tasks + git changes +
-  diff popup), and plan-mode toggle. Like the other two shells it builds its
+  diff popup), plan-mode toggle, and one `/<skill-name>` slash command per
+  `skill_catalog` entry (skipping a name that collides with a built-in command,
+  with a warn) that loads that skill then drives a turn on the rest of the line.
+  Like the other two shells it builds its
   own agent (models, MCP registry, the six file/shell tools + task/skill/
-  sub-agent extensions) with an optional no-arg block overriding the build for
+  sub-agent extensions — keeping the `Skill::Extension` reference for those
+  commands' `schedule_load_skill`) with an optional no-arg block overriding the build for
   tests — but because the git-trust prompt / skill-catalog / CLI-flag-driven
   workspace can't be a pure post-screen graph, it takes the bin-built
   `filesystem:` / `sandbox:` / `skill_catalog:` / `system_prompt:` /

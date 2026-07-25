@@ -441,16 +441,16 @@ module Computer
     #
     # @return [Array<Shared::SlashCommand>]
     def build_slash_commands
-      quit_action = -> { quit; nil }
+      quit_action = ->(_rest) { quit; nil }
       commands = [
-        Shared::SlashCommand.new('/logs', 'open the diagnostic log', -> { @log_ui.open; 'Opened the diagnostic log.' }),
-        Shared::SlashCommand.new('/plan', 'toggle plan mode', -> { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' })
+        Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
+        Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' })
       ]
       if @model_picker.multiple?
-        commands << Shared::SlashCommand.new('/model', 'switch model', -> { @model_picker.open(current: @agent.transport); nil })
+        commands << Shared::SlashCommand.new('/model', 'switch model', ->(_rest) { @model_picker.open(current: @agent.transport); nil })
       end
       commands.push(
-        Shared::SlashCommand.new('/clear', 'clear conversation + context', -> { @session.clear_conversation; nil }),
+        Shared::SlashCommand.new('/clear', 'clear conversation + context', ->(_rest) { @session.clear_conversation; nil }),
         Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
         Shared::SlashCommand.new('/quit', 'quits the app', quit_action)
       )

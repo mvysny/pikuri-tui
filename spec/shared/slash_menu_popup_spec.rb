@@ -3,11 +3,11 @@
 RSpec.describe Shared::SlashMenuPopup do
   let(:token_log)    { Pikuri::Agent::Listener::TokenLog.new }
   let(:conversation) { Shared::ConversationWindow.new(token_log: token_log) }
-  let(:ran)          { [] }
+  let(:ran)          { [] } # [symbol, rest] pairs, so tests assert the forwarded arg too
   let(:commands) do
-    [Shared::SlashCommand.new('/diff', 'show the git diff', -> { ran << :diff; 'Opened the git diff.' }),
-     Shared::SlashCommand.new('/exit', 'quits the app',     -> { ran << :exit; nil }),
-     Shared::SlashCommand.new('/quit', 'quits the app',     -> { ran << :quit; nil })]
+    [Shared::SlashCommand.new('/diff', 'show the git diff', ->(rest) { ran << [:diff, rest]; 'Opened the git diff.' }),
+     Shared::SlashCommand.new('/exit', 'quits the app',     ->(rest) { ran << [:exit, rest]; nil }),
+     Shared::SlashCommand.new('/quit', 'quits the app',     ->(rest) { ran << [:quit, rest]; nil })]
   end
   let(:menu) do
     described_class.new(screen: Tuile::Screen.instance, commands: commands, conversation: conversation)
@@ -62,6 +62,13 @@ RSpec.describe Shared::SlashMenuPopup do
       refute menu.visible?
     end
 
+    it 'closes once the buffer has a space (past the command name into its argument)' do
+      menu.sync('/diff')
+      assert menu.visible?
+      menu.sync('/diff run the thing')
+      refute menu.visible?
+    end
+
     it 'resets the selection to the top match on each refilter' do
       menu.sync('/')
       menu.handle_nav_key(Tuile::Keys::DOWN_ARROW)
@@ -92,17 +99,22 @@ RSpec.describe Shared::SlashMenuPopup do
     it 'runs the exact-named command and echoes its returned outcome below it' do
       menu.sync('/diff')
       menu.submit('/diff')
-      assert_equal [:diff], ran
+      assert_equal [[:diff, '']], ran
       assert_includes rendered, '/diff'
       assert_includes rendered, 'Opened the git diff.'
       refute menu.visible?
+    end
+
+    it 'passes the rest of the line to the callback as its argument' do
+      menu.submit('/diff run the migration')
+      assert_equal [[:diff, 'run the migration']], ran
     end
 
     it 'completes a partial buffer to the highlighted row' do
       menu.sync('/')
       menu.handle_nav_key(Tuile::Keys::DOWN_ARROW) # /diff -> /exit
       menu.submit('/')
-      assert_equal [:exit], ran
+      assert_equal [[:exit, '']], ran
     end
 
     it 'echoes a red "Command not found" and runs nothing on an unknown command' do
@@ -112,11 +124,11 @@ RSpec.describe Shared::SlashMenuPopup do
       assert_includes rendered, 'Command not found'
     end
 
-    it 'echoes only the command name when the callback returns nil' do
+    it 'echoes nothing when the callback returns nil (the effect is its own feedback)' do
       menu.sync('/quit')
       menu.submit('/quit')
-      assert_equal [:quit], ran
-      assert_includes rendered, '/quit'
+      assert_equal [[:quit, '']], ran
+      refute_includes rendered, '/quit'
     end
   end
 

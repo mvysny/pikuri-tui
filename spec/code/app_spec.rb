@@ -35,6 +35,42 @@ RSpec.describe Code::App do
                  app.send(:build_slash_commands).map(&:name)
   end
 
+  describe 'skill slash commands (one per catalog skill)' do
+    let(:app) do
+      code_app(skill_catalog: StubCatalog.new([skill('writing-rdoc', 'writing rdoc docs'),
+                                               skill('plan', 'a skill that collides with /plan')]))
+    end
+
+    it 'appends a /<name> per catalog skill, after the built-in commands, with the skill description as the hint' do
+      commands = app.send(:build_slash_commands)
+      rdoc = commands.find { |c| c.name == '/writing-rdoc' }
+      refute_nil rdoc
+      assert_equal 'writing rdoc docs', rdoc.description
+      assert_equal '/writing-rdoc', commands.map(&:name).last # after the built-ins
+    end
+
+    it 'lets a built-in command win a name collision: the skill is skipped, not a duplicate /plan' do
+      names = app.send(:build_slash_commands).map(&:name)
+      assert_equal 1, names.count('/plan'), 'the /plan skill must not shadow or duplicate the built-in'
+    end
+
+    it 'drives a turn from a skill command: schedules the skill, then submits the rest of the line' do
+      loaded = []
+      submitted = []
+      app.instance_variable_set(:@skill_ext, Class.new do
+        define_method(:schedule_load_skill) { |name| loaded << name }
+      end.new)
+      app.instance_variable_set(:@session, Class.new do
+        define_method(:submit) { |msg| submitted << msg }
+      end.new)
+
+      rdoc = app.send(:build_slash_commands).find { |c| c.name == '/writing-rdoc' }
+      assert_nil rdoc.callback.call('polish the docs') # no echo; the turn is the record
+      assert_equal ['writing-rdoc'], loaded
+      assert_equal ['polish the docs'], submitted
+    end
+  end
+
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
     assert_kind_of Tuile::Component::LogWindow, app.log_window
   end
@@ -266,18 +302,33 @@ RSpec.describe Code::App do
   # footer resolves its name). A +gate+ holds turns open; the block scripts the
   # conversation (default: a single streamed reply, enough for construction-only
   # specs that never run a turn).
-  def code_app(config: code_config, model: 'stub-model', api_base: 'http://x/v1', gate: nil, &script)
+  def code_app(config: code_config, model: 'stub-model', api_base: 'http://x/v1', gate: nil,
+               skill_catalog: Pikuri::Skill::Catalog::Bundled.new(search_bases: []), &script)
     script ||= ->(llm) { llm.stream('ok') }
     transport = Pikuri::Testing.fake_transport(model: model, api_base: api_base, gate: gate, &script)
     described_class.new(
       config: config,
       filesystem: Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd),
       sandbox: Pikuri::Code::Bash::Sandbox::NONE,
-      skill_catalog: Pikuri::Skill::Catalog::Bundled.new(search_bases: []),
+      skill_catalog: skill_catalog,
       system_prompt: 'test system prompt',
       transport: transport
     )
   end
+
+  # An in-memory {Pikuri::Skill::Catalog} for the skill-command specs (the
+  # standard's own escape hatch: "hosts that read skills from a hardcoded
+  # registry subclass directly").
+  class StubCatalog < Pikuri::Skill::Catalog
+    def initialize(skills) = @skills = skills
+    def list = @skills
+    def get(name) = @skills.find { |s| s.name == name }
+    def roots = []
+  end
+
+  def skill(name, description) = Pikuri::Skill::Catalog::Skill.new(
+    name: name, description: description, location: "/skills/#{name}/SKILL.md", body: "# #{name}\n"
+  )
 
   # A Shared::Config carrying the given connections (defaults to one matching
   # code_app's default fake transport, so the footer resolves it). App derives
