@@ -148,6 +148,20 @@ Consequences:
    `inject_user_message` after the skill (mid-loop); blank+idle → bare
    `run_loop(nil)`; blank+busy → **must be a no-op** (the skill already rides the
    running turn) — see step 5.
+
+   - **Hint text: the skill's own one-line summary** from `Catalog::Skill`
+     (falling back to `"load the <name> skill"` when it has none). That's the
+     `SlashCommand#description` shown as the palette autocomplete hint.
+   - **Name-collision policy: the action command wins.** The seven built-in
+     verbs (`/logs`, `/diff`, `/plan`, `/model`, `/clear`, `/exit`, `/quit`) are
+     a fixed reserved set; if a skill shares one of those names, **skip** its
+     `/<name>` registration and log a warning through the code shell's `LOG`
+     (e.g. `"skill 'plan' shadows a built-in command; not registered as /plan"`).
+     Silently shadowing a documented built-in would be a nasty surprise, and the
+     collision is rare. The skill stays reachable the normal way — **tell the LLM
+     to load it in a plain user message** (the recommended fallback), or via the
+     `skill` tool. Rejected alternatives: skill-wins (breaks a built-in),
+     `/skill:foo` namespacing (ugly, defeats the mirror-Claude-Code feel).
 5. **`Shared::AgentSession#submit`: harden blank-while-busy to a no-op.** Today
    `submit` is only ever called with non-empty text, so `queue_mid_turn(nil)` →
    `inject_user_message(nil)` → `ArgumentError` is untested territory. Guard it so
@@ -161,9 +175,12 @@ Consequences:
    `render_turn_error`. `@turn_in_progress` still clears in the existing `ensure`.
    Because the skill has already loaded by the time it raises (`agent.rb:248`
    drains before the guard), the notice says *"skill loaded — send a message and
-   it'll apply,"* not "load the skill again." A small `render_notice` verb on
-   `Shared::ConversationWindow` (dim, not red) is the clean home; reuse
-   `render_turn_error` only as a v1 shortcut.
+   it'll apply,"* not "load the skill again." **Decided: a small dim
+   `render_notice` verb on `Shared::ConversationWindow`** (not red) is the home —
+   the message is informational, not an error, so red-lining it via
+   `render_turn_error` would contradict the intent. It's a few lines, and step 7
+   (`SystemInjected` → dim block) already establishes the dim-block pattern, so
+   it adds no real surface.
 7. **`Shared::ConversationWindow::Listener`: render `Event::SystemInjected`.** Not
    handled today; add a dim block (mirror pikuri's terminal listener at
    `pikuri-core/lib/pikuri/agent/listener/terminal.rb:92`) so a loaded skill shows
