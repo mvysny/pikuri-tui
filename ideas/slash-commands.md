@@ -76,13 +76,40 @@ generic `SystemInjected`, not a skill-specific event. (2)/(5) moot — the catal
 + interloper live on the *extension*, and enqueue-only + `Mutex` guarding removes
 the outside-a-turn/dedup concerns entirely.
 
-### Decision: `/foo [args]` loads, then drives a turn
+### Decision: `/foo <message>` loads the skill, then drives a turn — no skill parameters
 
 A skill command is a **distinct breed** from the existing action commands
 (`/logs`, `/clear`, `/plan`, `/diff`, `/model`): those fire a UI action and echo
 an outcome string via `#add_block`, no agent turn. A skill command instead
 consumes the *rest of the line* as a prompt and **drives an `AgentSession`
-turn** (pikuri's load+message / bare-load modes above). Consequences:
+turn** (pikuri's load+message / bare-load modes above).
+
+**No skill-parameter support.** The text after `/foo` is a **follow-up user
+message**, not an argument to the skill. `/foo run the migration` = *load the
+`foo` skill, then post the user message "run the migration"* — two separate
+things that happen to share one Enter, not a parameterized skill invocation.
+Decided because:
+
+- It's the only shape pikuri supports: `schedule_load_skill(name)` takes a name
+  and renders the whole `SKILL.md` body via `Renderer.format_skill` — there's no
+  substitution slot a parameter could fill. Real skill params would need a
+  pikuri-core template change, on top of the `EmptyTurnError` dependency.
+- Skills are reference content injected as `:system`, not templates; a
+  "parameter `xyz`" has no defined insertion point or consumer, whereas a
+  follow-up user message has both.
+- The two are behaviorally indistinguishable anyway: `run_loop` drains the
+  scheduled `:system` injection *before* appending the user message
+  (`agent.rb:248`), so the skill always lands first and the message second,
+  both before the first completion — a user who thinks "run foo with xyz" gets
+  exactly that.
+
+Consequence for the empty-turn split (step 6): `rest` being a *user message*
+makes the bare-load case crisp — `/foo` alone carries no user message (the
+Anthropic `EmptyTurnError` path); `/foo <text>` always carries one and never
+hits it. Keep docs/notices framed as "load, then optionally say something," not
+"arguments to the skill."
+
+Consequences:
 
 1. **`Shared::SlashCommand` callback gains a remainder argument.** From no-arg to
    one `String` arg — the text after the command name, `""` when none. Action
@@ -94,11 +121,12 @@ turn** (pikuri's load+message / bare-load modes above). Consequences:
    parse `buffer[1..].split(/\s+/, 2)` → `name` + `rest`, calling
    `command.callback.call(rest)`. Unknown first token → the existing red "Command
    not found".
-   - Open question: how the argument is entered. Minimal (recommended to start):
-     **inline only** — type `/foo run the migration` and one Enter; the palette
-     filters on `foo`, hides once a space is present. Later refinement: select the
-     skill from the palette, then type the prompt (but that overloads Enter with
-     pick-vs-run — defer).
+   - **Decided: inline follow-up message only.** Type `/foo run the migration`
+     and one Enter; the palette filters on `foo` and hides once a space is
+     present. `rest` is the follow-up user message (not a skill parameter — see
+     the section heading). The "select the skill from the palette, then type the
+     prompt" alternative is **rejected for v1** — it overloads Enter with
+     pick-vs-run; revisit only if a concrete need appears.
 3. **`Code::App`: keep the extension reference.** The build block does
    `c.add_extension Pikuri::Skill::Extension.new(catalog: @skill_catalog)`
    (`app.rb:378`) and drops the instance. Assign it (`@skill_ext = …`) so the
