@@ -10,7 +10,7 @@ RSpec.describe Code::App do
 
   let(:app) { code_app }
 
-  before { Tuile::Screen.fake }
+  before { fake_screen }
   after  { Tuile::Screen.close }
 
   it 'mounts a Code::Layout as the screen content with its panes and sidebar' do
@@ -387,12 +387,4 @@ RSpec.describe Code::App do
     -> { stopped }
   end
 
-  def wait_until(timeout: 2)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
-    until yield
-      raise 'timed out waiting for condition' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
-
-      sleep 0.005
-    end
-  end
 end

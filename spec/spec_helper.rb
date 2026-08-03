@@ -40,6 +40,10 @@ require 'pikuri-thunderbird'
 
 require 'pikuri_tui'
 
+# Fake screen + wait_until for the specs that let production code run on a
+# worker thread (App turns, the confirmer's blocking #ask).
+require_relative 'support/marshalling_fake_screen'
+
 # Point the construction-time theme default at the app's theme pair so
 # every +Tuile::Screen.fake+ a spec builds resolves pikuri-tui's custom
 # tokens (+theme[:tool]+, +theme.error(…)+, …); without this a component
@@ -63,6 +67,7 @@ RSpec.configure do |config|
   config.before { Pikuri.log_io = NULL_LOG }
 
   config.include Minitest::Assertions
+  config.include ThreadedUi
   config.include(Module.new do
     attr_writer :assertions
 

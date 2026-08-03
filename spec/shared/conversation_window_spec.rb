@@ -26,12 +26,12 @@ RSpec.describe Shared::ConversationWindow do
   describe 'window scaffolding' do
     it 'stands up from just a screen + token_log, as a titled Tuile Window' do
       assert_kind_of Tuile::Component::Window, window
-      assert_equal 'Conversation', window.caption
+      assert_equal 'Conversation', window.caption.to_s
     end
 
     it 'takes a custom title (the coding shell passes its project root)' do
       titled = described_class.new(token_log: token_log, title: '/srv/app')
-      assert_equal '/srv/app', titled.caption
+      assert_equal '/srv/app', titled.caption.to_s
     end
 
     it 'owns the transcript listener it exposes for the agent ListenerList' do

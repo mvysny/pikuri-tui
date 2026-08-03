@@ -9,7 +9,7 @@ RSpec.describe Shared::InputWindow do
 
   it 'stands up as a titled "Prompt" Tuile Window' do
     assert_kind_of Tuile::Component::Window, window
-    assert_equal 'Prompt', window.caption
+    assert_equal 'Prompt', window.caption.to_s
   end
 
   it 'frames an editable TextArea as its content' do

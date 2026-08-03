@@ -46,7 +46,7 @@ RSpec.describe Computer::App do
     described_class.new(config: config) { ComputerStubAgent.new }
   end
 
-  before { Tuile::Screen.fake }
+  before { fake_screen }
   after  { Tuile::Screen.close }
 
   it 'mounts a Computer::Layout as the screen content with conversation + input panes (no sidebar)' do
@@ -313,12 +313,4 @@ RSpec.describe Computer::App do
     -> { stopped }
   end
 
-  def wait_until(timeout: 2)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
-    until yield
-      raise 'timed out waiting for condition' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
-
-      sleep 0.005
-    end
-  end
 end

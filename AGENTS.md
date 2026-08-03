@@ -605,6 +605,20 @@ Zeitwerk over `lib/` and eager-loads it.
   the minitest style (`assert_equal`, `assert`, `refute`, …)
   rather than RSpec matchers. Same convention as pikuri — keeps
   the two codebases readable side-by-side.
+- **A spec that crosses a thread mounts `fake_screen`, not
+  `Tuile::Screen.fake`.** Tuile confines the UI to one thread even under
+  `FakeScreen` (tuile 0.10.0 dropped the fake's bypass of `check_locked`),
+  and `Tuile::FakeEventQueue#submit` runs its block *inline on the calling
+  thread* — so production code submitting from a worker (`Shared::AgentSession`'s
+  per-turn thread, the tool thread blocking in `Code::ConfirmerPopup#ask`)
+  raises there and the worker dies silently, leaving the example to time out
+  on a render that never happened. `spec/support/marshalling_fake_screen.rb`
+  fixes the seam rather than the symptom: `fake_screen` mounts a screen whose
+  queue *queues* off-thread submits, and the shared `wait_until` drains them
+  on the example thread — the manual equivalent of the real loop draining its
+  queue, so the worker's UI work runs where production runs it. Use them
+  together; a spec that only presses keys and asserts needs neither (an
+  on-UI-thread submit still runs inline).
 - **Run the suite with `bundle exec rspec`.** Always go through
   Bundler — never plain `rspec`. Sometimes during the development, the pikuri gems are local path
   dependencies (`../pikuri/*`), and `spec_helper` pulls in the

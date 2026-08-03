@@ -14,7 +14,7 @@ RSpec.describe Chat::App do
   let(:config) { chat_config }
   let(:app) { build_app }
 
-  before { Tuile::Screen.fake }
+  before { fake_screen }
   after  { Tuile::Screen.close }
 
   # Build a Chat::App on a fake_transport that impersonates a config
@@ -339,18 +339,5 @@ RSpec.describe Chat::App do
     stopped = false
     some_app.screen.event_queue.define_singleton_method(:stop) { stopped = true }
     -> { stopped }
-  end
-
-  # Spin until the block yields truthy. App's turn lifecycle crosses a real
-  # worker thread (AgentSession's per-turn Thread.new) even under FakeScreen —
-  # the fake event queue runs submits inline on whichever thread calls them —
-  # so specs that observe post-turn state must wait for the worker.
-  def wait_until(timeout: 2)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
-    until yield
-      raise 'timed out waiting for condition' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
-
-      sleep 0.005
-    end
   end
 end

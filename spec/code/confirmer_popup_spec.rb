@@ -3,7 +3,7 @@
 RSpec.describe Code::ConfirmerPopup do
   let(:screen) { Tuile::Screen.instance }
 
-  before { Tuile::Screen.fake }
+  before { fake_screen }
   after  { Tuile::Screen.close }
 
   def approved(detail) = Pikuri::Workspace::Confirmer::Approved.new(new_request_detail: detail)
@@ -11,18 +11,6 @@ RSpec.describe Code::ConfirmerPopup do
 
   def request(question: 'OK to run this?', detail: nil, editable: false)
     Pikuri::Workspace::Confirmer::Request.new(question: question, detail: detail, editable: editable)
-  end
-
-  # Spin until the block yields truthy. ask blocks the calling thread on
-  # Queue#pop, so the integration specs drive it from a worker and answer the
-  # popups from the main thread.
-  def wait_until(timeout: 2)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
-    until yield
-      raise 'timed out waiting for condition' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
-
-      sleep 0.005
-    end
   end
 
   # Run +ask+ (or +confirm?+) on a worker and drive its popups from the

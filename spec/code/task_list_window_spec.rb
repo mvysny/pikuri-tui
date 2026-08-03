@@ -14,7 +14,7 @@ RSpec.describe Code::TaskListWindow do
 
   it 'stands up as a titled "Tasks" Tuile Window framing a text view' do
     assert_kind_of Tuile::Component::Window, window
-    assert_equal 'Tasks', window.caption
+    assert_equal 'Tasks', window.caption.to_s
     assert_kind_of Tuile::Component::TextView, window.view
   end
 
