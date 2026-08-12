@@ -4,13 +4,11 @@ source 'https://rubygems.org'
 
 ruby '>= 3.3'
 
-# Component-oriented terminal UI framework. The shared API has stabilized,
-# so we normally consume the released gem; temporarily on `path: '../tuile'`
-# for the unreleased wrap fix (tuile#2) — 0.10.0's word-wrapper eats a
-# first-line indent, which flattens every indented block we paint (the
-# /trifecta tree, the sub-agent transcript indent). CI can't build against a
-# path gem; back to a version pin once that lands in a release.
-gem 'tuile', path: '../tuile'
+# Component-oriented terminal UI framework. The shared API has stabilized, so
+# we consume the released gem. The floor is 0.11.0 for its wrap fix (tuile#2):
+# 0.10.0's word-wrapper ate a first-line indent, flattening every indented
+# block we paint (the /trifecta tree, the sub-agent transcript indent).
+gem 'tuile', '~> 0.11'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching
