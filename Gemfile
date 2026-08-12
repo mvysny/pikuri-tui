@@ -6,9 +6,11 @@ ruby '>= 3.3'
 
 # Component-oriented terminal UI framework. The shared API has stabilized,
 # so we normally consume the released gem; temporarily on `path: '../tuile'`
-# for co-development against the unreleased Component#bg_color= /
-# Theme::Ref work (tuile#1) the slash-menu tint rides on.
-gem 'tuile', '>= 0.10.0'
+# for the unreleased wrap fix (tuile#2) — 0.10.0's word-wrapper eats a
+# first-line indent, which flattens every indented block we paint (the
+# /trifecta tree, the sub-agent transcript indent). CI can't build against a
+# path gem; back to a version pin once that lands in a release.
+gem 'tuile', path: '../tuile'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching

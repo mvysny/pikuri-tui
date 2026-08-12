@@ -489,6 +489,38 @@ RSpec.describe Shared::ConversationWindow do
     end
   end
 
+  # Every other spec here reads window.view.text — the pre-wrap model, which
+  # holds the indent whether or not the pane can display it. tuile#2 (0.10.0's
+  # wrapper ate a leading whitespace run on the *first* row, not just on
+  # continuations) was invisible to all of them: the /trifecta tree and the
+  # sub-agent indent painted flush left with the model still reading nested.
+  # These assert on painted rows, so a wrapper that swallows an indent fails
+  # here rather than in a screenshot.
+  describe 'painted indentation' do
+    # Wide enough that nothing wraps: the bug is about the indent, not the wrap.
+    # Read back one column short of the pane so the scrollbar gutter's glyph
+    # stays out of the compared text.
+    def painted(view)
+      view.rect = Tuile::Rect.new(0, 0, 60, 6)
+      view.repaint
+      text_area = Tuile::Rect.new(0, 0, view.rect.width - 1, view.rect.height)
+      Tuile::Screen.instance.buffer.region_text(text_area).map(&:rstrip)
+    end
+
+    it 'paints the indent: prefix, so sub-agent blocks nest visibly' do
+      window.add_block('→ web_search', indent: described_class::Listener::SUB_AGENT_INDENT)
+      assert_equal ["#{' ' * described_class::Listener::SUB_AGENT_INDENT}→ web_search"],
+                   painted(window.view).reject(&:empty?)
+    end
+
+    it 'paints indentation carried inside a block, so a /trifecta tree stays a tree' do
+      window.add_block("pikuri-tui-code [:egress]\n  read [:untrusted_hard]\n  file_miner []\n    read []")
+      assert_equal ['pikuri-tui-code [:egress]', '  read [:untrusted_hard]',
+                    '  file_miner []', '    read []'],
+                   painted(window.view).reject(&:empty?)
+    end
+  end
+
   describe '#for_sub_agent' do
     let(:sub) { listener.for_sub_agent(id: 'researcher 0') }
     let(:pad) { ' ' * described_class::Listener::SUB_AGENT_INDENT }
