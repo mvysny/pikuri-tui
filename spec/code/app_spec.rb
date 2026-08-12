@@ -31,8 +31,30 @@ RSpec.describe Code::App do
   end
 
   it 'registers the coding slash commands mirroring the leader menu (single connection: no /model)' do
-    assert_equal ['/logs', '/diff', '/plan', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/diff', '/plan', '/clear', '/exit', '/quit'],
                  app.send(:build_slash_commands).map(&:name)
+  end
+
+  describe '/trifecta' do
+    def trifecta_output(target = app)
+      target.send(:build_slash_commands).find { |c| c.name == '/trifecta' }.callback.call('')
+    end
+
+    it 'echoes the real agent\'s own report — advisory first, then the wired tool map' do
+      output = trifecta_output
+      assert_includes output, app.agent.trifecta.advisory
+      assert_includes output.lines(chomp: true), '  bash [:untrusted_hard, :egress]'
+    end
+
+    # The bin's startup question sets exactly this, and nothing else: the
+    # workspace's private: declaration, which the file tools' legs inherit.
+    it 'counts the private leg iff the workspace was declared private' do
+      refute_includes trifecta_output, ':private'
+      private_app = code_app(
+        filesystem: Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd, private: true)
+      )
+      assert_includes trifecta_output(private_app), ':private'
+    end
   end
 
   describe 'skill slash commands (one per catalog skill)' do
@@ -303,12 +325,13 @@ RSpec.describe Code::App do
   # conversation (default: a single streamed reply, enough for construction-only
   # specs that never run a turn).
   def code_app(config: code_config, model: 'stub-model', api_base: 'http://x/v1', gate: nil,
-               skill_catalog: Pikuri::Skill::Catalog::Bundled.new(search_bases: []), &script)
+               skill_catalog: Pikuri::Skill::Catalog::Bundled.new(search_bases: []),
+               filesystem: Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd), &script)
     script ||= ->(llm) { llm.stream('ok') }
     transport = Pikuri::Testing.fake_transport(model: model, api_base: api_base, gate: gate, &script)
     described_class.new(
       config: config,
-      filesystem: Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd),
+      filesystem: filesystem,
       sandbox: Pikuri::Code::Bash::Sandbox::NONE,
       skill_catalog: skill_catalog,
       system_prompt: 'test system prompt',

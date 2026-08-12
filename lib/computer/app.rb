@@ -434,8 +434,11 @@ module Computer
     # The computer shell's slash commands — the {Shared::LeaderMenu} actions
     # reachable by name: +/logs+, +/plan+ (toggle), +/model+ (only with more
     # than one connection, like the menu's +m+), +/clear+, and +/exit+ =
-    # +/quit+. No +/diff+ — the computer shell has no git window. Callbacks are
-    # lazy (they resolve +@log_ui+ / +@plan_mode+ / +@session+ / +@agent+ /
+    # +/quit+. No +/diff+ — the computer shell has no git window. Plus
+    # +/trifecta+, the one with no menu counterpart: a report to read when you
+    # wonder, not an action worth a leader key — and the shell whose premise is
+    # the reassembled trifecta is the one where it is worth reading. Callbacks
+    # are lazy (they resolve +@log_ui+ / +@plan_mode+ / +@session+ / +@agent+ /
     # +quit+ at run time), so this is safe to build before the agent; only the
     # +/model+ *presence* is decided now, from {Shared::Model::Picker#multiple?}.
     #
@@ -444,6 +447,8 @@ module Computer
       quit_action = ->(_rest) { quit; nil }
       commands = [
         Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
+        Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
+                                 ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
         Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' })
       ]
       if @model_picker.multiple?

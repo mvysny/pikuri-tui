@@ -35,8 +35,12 @@ bash (provably passive bash commands auto-approve via pikuri's
 read-only git additionally auto-approves once the user affirms a
 one-time, persisted git-config trust prompt — `Code::TrustStore`),
 sub-agent-only network tools, the skill / task / MCP /
-sub-agent extensions, and a plan-mode toggle (a read-only
-posture surfaced as a footer badge) — all ported from pikuri's
+sub-agent extensions, a plan-mode toggle (a read-only
+posture surfaced as a footer badge), and a second one-time,
+persisted startup question — does this project hold anything you'd
+mind leaking? (`Code::PrivacyStore`) — whose answer sets the
+workspace's `private:` and so the private leg of the `/trifecta`
+report — all ported from pikuri's
 `bin/pikuri-code` demo onto the Tuile shell. `bin/pikuri-tui-computer`
 (the `Computer` namespace) is the desktop assistant: the
 chat shell's layout (one conversation pane over an input strip, no
@@ -61,7 +65,11 @@ and renders `edit` / `write` diffs — all reusing the coding shell's
 `Code::*` adapters verbatim, ported from pikuri's
 `pikuri-os/bin/pikuri-computer` demo. All three shells route every
 command through one leader key (`Ctrl+K` → `Shared::LeaderMenu`); only
-`Ctrl+C` (cancel/quit) stays a direct shortcut.
+`Ctrl+C` (cancel/quit) stays a direct shortcut. All three also carry
+`/trifecta`, which echoes pikuri's own lethal-trifecta report for the
+running wiring (`Shared::TrifectaRenderer`) — the one slash command with
+no leader-menu counterpart, since it is a read-it-when-you-wonder
+diagnostic rather than an action.
 
 The three shells keep their genuinely-divergent scaffolding (`App` /
 `Layout`) as deliberate parallel copies, not a common base (see
@@ -296,6 +304,10 @@ Zeitwerk over `lib/` and eager-loads it.
   "Command not found"). Driven by `Shared::InputWindow` (`#sync` /
   `#handle_nav_key` / `#submit`); each `App` registers its own command set.
   Shared by all three shells.
+- `lib/shared/trifecta_renderer.rb` — `Shared::TrifectaRenderer`, paints a
+  `Pikuri::Trifecta::Report` for the conversation pane (advisory toned by
+  verdict, map untoned) — what `/trifecta` echoes in all three shells;
+  screen-agnostic (takes the theme) like `Code::DiffRenderer`.
 - `lib/shared/status_footer_updater.rb` — `Shared::StatusFooterUpdater`, the
   presenter that keeps the conversation window's footer chrome current
   (it drives `Window#footer_text`; it is not itself a widget), shared by
@@ -413,6 +425,10 @@ Zeitwerk over `lib/` and eager-loads it.
   `Code::TrustStore`, the persisted set of git-config-trusted
   project roots that gate read-only-git auto-approval; asked at most once
   per project.
+- `lib/code/privacy_store.rb` —
+  `Code::PrivacyStore`, the persisted per-project private/public answer
+  (tri-state: never-asked is not "no") feeding the workspace's `private:`,
+  i.e. the `/trifecta` private leg; asked at most once per project.
 - `lib/code/diff_renderer.rb` —
   `Code::DiffRenderer`, renders a before/after string pair as
   a two-tier ANSI unified diff for the conversation pane; screen-agnostic,
@@ -453,8 +469,10 @@ Zeitwerk over `lib/` and eager-loads it.
 - `bin/pikuri-tui-code` — boot script for the coding agent
   (`Bundler.setup(:default, :code)`): does the pre-screen boot sequencing App
   can't — CLI + `--readable`/`--writable` validation, project-root discovery +
-  `Dir.chdir`, config, the skill catalog + workspace + sandbox, the
-  interactive git-trust prompt (→ `trusted_repo`), and the posture-reflecting
+  `Dir.chdir`, config, the skill catalog + workspace + sandbox, the two
+  interactive prompts — is this project private? (→ the workspace's
+  `private:`, asked before the workspace exists) and the git-trust one
+  (→ `trusted_repo`) — and the posture-reflecting
   system prompt — then hands those to `Code::App` (which builds the agent) and
   wraps `App.new`/`run` in `begin/ensure Tuile::Screen.close`. Ports pikuri's
   `bin/pikuri-code` demo.

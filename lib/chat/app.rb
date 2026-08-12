@@ -186,15 +186,21 @@ module Chat
 
     # The chat shell's slash commands — the {Shared::LeaderMenu} actions
     # reachable by name: +/logs+, +/model+ (only with more than one connection,
-    # like the menu's +m+), +/clear+, and +/exit+ = +/quit+. Callbacks are lazy
-    # (they resolve +@log_ui+ / +@session+ / +@agent+ / +quit+ at run time), so
-    # this is safe to build before the agent; only the +/model+ *presence* is
-    # decided now, from {Shared::Model::Picker#multiple?}.
+    # like the menu's +m+), +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+,
+    # the one with no menu counterpart: a report to read when you wonder, not an
+    # action worth a leader key. Callbacks are lazy (they resolve +@log_ui+ /
+    # +@session+ / +@agent+ / +quit+ at run time), so this is safe to build
+    # before the agent; only the +/model+ *presence* is decided now, from
+    # {Shared::Model::Picker#multiple?}.
     #
     # @return [Array<Shared::SlashCommand>]
     def build_slash_commands
       quit_action = ->(_rest) { quit; nil }
-      commands = [Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' })]
+      commands = [
+        Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
+        Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
+                                 ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) })
+      ]
       if @model_picker.multiple?
         commands << Shared::SlashCommand.new('/model', 'switch model', ->(_rest) { @model_picker.open(current: @agent.transport); nil })
       end

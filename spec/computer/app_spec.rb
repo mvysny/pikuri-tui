@@ -63,7 +63,7 @@ RSpec.describe Computer::App do
   end
 
   it 'registers the computer slash commands mirroring the leader menu (single connection: no /model, no /diff)' do
-    assert_equal ['/logs', '/plan', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/plan', '/clear', '/exit', '/quit'],
                  app.send(:build_slash_commands).map(&:name)
   end
 

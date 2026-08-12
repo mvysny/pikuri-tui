@@ -450,7 +450,11 @@ module Code
     # The coding shell's slash commands — the {Shared::LeaderMenu} actions
     # reachable by name: +/logs+, +/diff+ (the git-diff popup), +/plan+ (toggle),
     # +/model+ (only with more than one connection, like the menu's +m+),
-    # +/clear+, and +/exit+ = +/quit+. Callbacks are lazy (they resolve
+    # +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+, the one with no menu
+    # counterpart: a report to read when you wonder, not an action worth a
+    # leader key. Its private leg is whatever the bin's startup question
+    # recorded ({PrivacyStore}), carried in on +filesystem+. Callbacks are lazy
+    # (they resolve
     # +@log_ui+ / +@sidebar+ / +@plan_mode+ / +@session+ / +@agent+ / +quit+ at
     # run time), so this is safe to build before the agent/sidebar; only the
     # +/model+ *presence* is decided now, from {Shared::Model::Picker#multiple?}.
@@ -460,6 +464,8 @@ module Code
       quit_action = ->(_rest) { quit; nil }
       commands = [
         Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
+        Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
+                                 ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
         Shared::SlashCommand.new('/diff', 'show the git diff', ->(_rest) { @sidebar.open_diff; 'Opened the git diff.' }),
         Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' })
       ]

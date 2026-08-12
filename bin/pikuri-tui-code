@@ -152,16 +152,54 @@ skill_catalog = Pikuri::Skill::Catalog::Bundled.new(
   search_bases: [project_root, Dir.home]
 )
 
+# The private-data declaration, sole input to the trifecta's private leg (see
+# Code::PrivacyStore). A question and not a --private flag because a forgotten
+# flag fails silent, and silent over a repo full of secrets is the outcome the
+# detector exists to prevent. Nothing is gated on the answer: it changes what
+# /trifecta says, never what the agent may do.
+#
+# Gated on a TTY only, deliberately NOT on confirm_enabled the way the git
+# prompt below is: skipping that one fails safe (nothing gets auto-approved)
+# while skipping this one fails silent, so --yolo would otherwise take the
+# quiet reading over exactly the repo that most wants the loud one.
+privacy_store = Code::PrivacyStore.new
+private_answer = privacy_store.answer(project_root)
+if private_answer.nil? && $stdin.tty?
+  private_answer = Pikuri::Workspace::Confirmer::Terminal.new.confirm?(
+    request: Pikuri::Workspace::Confirmer::Request.new(
+      question: 'Does this project hold anything you would mind leaking ' \
+                '(credentials, client work, unpublished code)?',
+      detail: "#{project_root}\n\nAsked once per project. This sets one line of the " \
+              '/trifecta report; it blocks nothing either way. Say yes and the report ' \
+              'will tell you whenever this agent simultaneously holds private data, ' \
+              'attacker-authored content, and a way to send bytes out.'
+    )
+  )
+  privacy_store.record!(project_root, private: private_answer)
+end
+private_repo = private_answer || false
+# Logged (not echoed into the conversation pane) once App has rewired
+# Pikuri.log_io to the LogWindow, alongside the trust notice below.
+privacy_notice =
+  case private_answer
+  when true then 'Project declared private: /trifecta counts the private leg.'
+  when false then 'Project declared public: /trifecta counts no private leg.'
+  else 'Project privacy undeclared (no TTY to ask): assuming public, so /trifecta counts no private leg.'
+  end
+
 # Workspace: project_root is the writable ceiling, the bind root, the
 # relative-path base. temp: true mints an ephemeral writable scratch dir.
-# --yolo swaps in AllowAll (everything but the credential denylist).
+# private: is the declaration above — read by the file tools' trifecta legs
+# only, never by any access check. --yolo swaps in AllowAll (everything but the
+# credential denylist).
 filesystem = if yolo
               warn '--readable/--writable ignored under --yolo (filesystem is ALLOW_ALL).' \
                 unless extra_readable.empty? && extra_writable.empty?
               Pikuri::Workspace::Filesystem::AllowAll.new(
                 project_root:      project_root,
                 temp:              true,
-                alias_tmp_to_temp: sandbox_enabled
+                alias_tmp_to_temp: sandbox_enabled,
+                private:           private_repo
               )
             else
               Pikuri::Workspace::Filesystem.new(
@@ -171,7 +209,8 @@ filesystem = if yolo
                                    extra_readable,
                 writable:          extra_writable,
                 temp:              true,
-                alias_tmp_to_temp: sandbox_enabled
+                alias_tmp_to_temp: sandbox_enabled,
+                private:           private_repo
               )
             end
 
@@ -297,6 +336,7 @@ begin
     main_log.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
   end
   main_log.info(trust_notice) if trust_notice
+  main_log.info(privacy_notice)
   safety = []
   safety << 'Sandbox: DISABLED.' unless sandbox_enabled
   safety << 'Confirmer: AUTO-APPROVE.' unless confirm_enabled
