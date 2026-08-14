@@ -44,9 +44,14 @@ RSpec.describe Shared::LeaderMenu do
     menu.add('q', 'quit') {}
     menu.open
 
-    assert_kind_of Tuile::Component::PickerWindow, modal_popup.content
-    lines = modal_popup.content.content.lines.map(&:to_s)
-    assert_equal ['l logs', 'q quit'], lines
+    picker = modal_popup.content
+    assert_kind_of Tuile::Component::PickerWindow, picker
+    # The picker's list holds Option items and renders them at paint time, so the
+    # rows are read off the painted buffer.
+    picker.rect = Tuile::Rect.new(0, 0, 20, 4)
+    picker.content.repaint
+    rows = Tuile::Screen.instance.buffer.region_text(picker.content.rect).map(&:strip)
+    assert_equal ['l logs', 'q quit'], rows.reject(&:empty?)
   end
 
   it 'runs the matching action and closes the menu when its key is pressed' do

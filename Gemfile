@@ -8,7 +8,11 @@ ruby '>= 3.3'
 # we consume the released gem. The floor is 0.11.0 for its wrap fix (tuile#2):
 # 0.10.0's word-wrapper ate a first-line indent, flattening every indented
 # block we paint (the /trifecta tree, the sub-agent transcript indent).
-gem 'tuile', '~> 0.11'
+#
+# Swapped to the local checkout for co-development of the 0.12.0 List changes
+# (items + renderer, the lines/appender cleanup) so breaking changes get fixed
+# in lockstep. Restore `gem 'tuile', '~> 0.12'` once 0.12.0 is released.
+gem 'tuile', path: '../tuile'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching

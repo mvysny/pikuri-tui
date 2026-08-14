@@ -18,7 +18,12 @@ RSpec.describe Shared::SlashMenuPopup do
 
   def rendered = conversation.view.text.to_s
   def list     = menu.content
-  def rows     = list.lines.map(&:to_s)
+  # The list holds SlashCommands and renders them at paint time, so the rows are
+  # read off the painted buffer (blank filler rows dropped).
+  def rows
+    list.repaint
+    Tuile::Screen.instance.buffer.region_text(list.rect).map(&:strip).reject(&:empty?)
+  end
 
   it 'stands up as a non-modal, borderless Popup wrapping a List directly' do
     assert_kind_of Tuile::Component::Popup, menu

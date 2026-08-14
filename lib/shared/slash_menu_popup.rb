@@ -80,8 +80,10 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
     @screen = screen
     @conversation = conversation
     @anchor = nil
-    @matches = []
     super() # builds the non-focusable list, the :input_bg_color tint, the cursor
+    # The list holds the SlashCommands themselves and renders them on demand, so
+    # the highlighted row resolves straight to a command — no parallel array.
+    self.renderer = method(:row)
     self.commands = commands
   end
 
@@ -113,8 +115,7 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
       return
     end
 
-    @matches = matches
-    self.lines = matches.map { |c| row(c) }
+    self.items = matches
     self.cursor = Tuile::Component::List::Cursor.new
     open unless open?
     reposition
@@ -202,9 +203,9 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
   # @param text [String]
   # @return [Shared::SlashCommand, nil]
   def resolve(text)
-    if open? && !@matches.empty?
+    if open? && !items.empty?
       pos = cursor.position
-      return @matches[pos] if pos.between?(0, @matches.size - 1)
+      return items[pos] if pos.between?(0, items.size - 1)
     end
     @commands.find { |c| c.name == first_word(text) }
   end
