@@ -152,18 +152,20 @@ character 0" (and Down at `text.length`). It needs no Tuile change and
 dovetails with the existing snap, but costs a second press from any non-empty
 buffer and isn't the behaviour we agreed.
 
-## Open: recall must not open the slash palette
+## Recall must not open the slash palette
 
 Not a Tuile issue — ours. `text=` fires `on_change`
 (`abstract_string_field.rb:127`) and `Area` wires `on_change` →
-`slash_menu.sync`. So recalling an entry that starts with `/` opens the
+`slash_menu.sync`. So recalling an entry that starts with `/` would open the
 palette, and by our own precedence rule the palette then owns Up/Down/ESC —
-history navigation is trapped after one recall of a slash command.
+history navigation trapped after one recall of a slash command.
 
-Proposed: suppress the palette for the duration of a recall (a guard around
-the assignment). Recall isn't typing, and the palette is autocomplete-as-you-
-type; a recalled `/trifecta` should sit inert until you either press Enter or
-type a character (which fires `on_change` and opens it, correctly filtered).
+**Decided**: suppress the palette for the duration of a recall (a guard around
+the assignment). Recall isn't typing, and the palette is
+autocomplete-as-you-type; a recalled `/trifecta` sits inert until you either
+press Enter (which runs it, since `handle_key` tests the buffer's leading `/`,
+not the palette's visibility) or type a character — which fires `on_change`
+and opens the palette, correctly filtered.
 
 ## Decided
 
