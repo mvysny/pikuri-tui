@@ -123,7 +123,9 @@ has no public answer.
 
 Three ways out, in preference order:
 
-1. **Ask Tuile for the overflow hook** (preferred FR).
+1. **Ask Tuile for the overflow hook** (preferred FR — filed as
+   https://github.com/mvysny/tuile/issues/3, which asks for the hook and
+   offers the readers below as the alternative/complement).
    `move_caret_vertical` already detects our exact condition — `new_row ==
    cur_row` means "nowhere to go in that direction" — and currently responds
    by snapping the caret to the start/end of the text. Add a protected hook
