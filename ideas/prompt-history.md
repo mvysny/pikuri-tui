@@ -92,6 +92,79 @@ any one of them sufficient:
 the user never typed, so deriving would mean filtering.) So the record lives
 with the prompt — appended at submit, in memory, dying with the process.
 
+## What Tuile 0.11.0 already gives us
+
+Checked against `tuile/component/text_area.rb` + `abstract_string_field.rb`.
+
+- **Scrolling to the caret is free.** `caret=` fires `on_caret_mutated` →
+  `TextArea#adjust_top_display_row`, which scrolls so the caret's row is
+  visible (`text_area.rb:387-401`). Recall = `self.text = entry` then
+  `self.caret = text.length`, and a recall taller than the strip lands
+  scrolled to the bottom with no work from us. The earlier "verify this or
+  it's a Tuile bug" item is settled: it's implemented.
+- **Buffer + caret are public.** `text=` / `caret=` both clamp and snap to
+  grapheme boundaries. Order matters — text first (it clamps the caret), caret
+  second.
+- **Key interception needs no new seam.** We already override the public
+  `handle_key`; the documented subclass hook is the protected
+  `handle_text_input_key`, and `on_key` exists as a composition seam
+  (first refusal before the default handling).
+- **The visual-row math exists and is correct** — grapheme-cluster aware, wide
+  glyphs, hard breaks, whitespace absorbed at soft wraps. We must never
+  reimplement it; an empty buffer reports exactly one row, so first == last and
+  both arrows recall, as specified.
+
+## The one gap: "is the caret in the first/last display row?"
+
+Public API answers half of it: `cursor_position.y - rect.top +
+top_display_row` is the caret's absolute display row, so *first row* is
+`== 0`. The row **count** lives in the private `display_rows`, so *last row*
+has no public answer.
+
+Three ways out, in preference order:
+
+1. **Ask Tuile for the overflow hook** (preferred FR).
+   `move_caret_vertical` already detects our exact condition — `new_row ==
+   cur_row` means "nowhere to go in that direction" — and currently responds
+   by snapping the caret to the start/end of the text. Add a protected hook
+   there, consulted before the snap:
+
+   ```ruby
+   # @param delta [Integer] -1 for up, +1 for down.
+   # @return [Boolean] true if the subclass consumed the overflow.
+   def on_caret_vertical_overflow(delta) = false
+   ```
+
+   Then our `Area` overrides it and touches no row math at all: Tuile owns the
+   wrap and the "nowhere to go" decision, we own what happens instead. Useful
+   beyond us (a `TextArea` in a scrolling container, Down as tab-to-next-field).
+2. **Or public readers** `#caret_display_row` / `#display_row_count` — both
+   one-liners over the existing privates, more general, and they'd let anyone
+   build this. Weaker for us than the hook (we'd re-derive a decision Tuile
+   already makes) but worth having anyway.
+3. **Interim without touching Tuile:** Ruby lets a subclass call the inherited
+   private `caret_to_display` / `display_rows`, so the exact spec is reachable
+   today. Works, but couples us to the wrap cache's `{start:, length:,
+   columns:}` shape — acceptable as a stopgap, not as the answer.
+
+Rejected: a public-API-only rule of "Up recalls when the caret is at
+character 0" (and Down at `text.length`). It needs no Tuile change and
+dovetails with the existing snap, but costs a second press from any non-empty
+buffer and isn't the behaviour we agreed.
+
+## Open: recall must not open the slash palette
+
+Not a Tuile issue — ours. `text=` fires `on_change`
+(`abstract_string_field.rb:127`) and `Area` wires `on_change` →
+`slash_menu.sync`. So recalling an entry that starts with `/` opens the
+palette, and by our own precedence rule the palette then owns Up/Down/ESC —
+history navigation is trapped after one recall of a slash command.
+
+Proposed: suppress the palette for the duration of a recall (a guard around
+the assignment). Recall isn't typing, and the palette is autocomplete-as-you-
+type; a recalled `/trifecta` should sit inert until you either press Enter or
+type a character (which fires `on_change` and opens it, correctly filtered).
+
 ## Decided
 
 - **No persistence.** In-session, in-memory, per process, dies with the app.
