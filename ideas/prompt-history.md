@@ -212,8 +212,8 @@ and opens the palette, correctly filtered.
 
 ## Open before coding
 
-Three raised, all app-side; none needs Tuile. **1 is now decided**, 2 and 3
-still carry proposals only.
+Three raised, all app-side; none needs Tuile. **1 and 2 are now decided**; only
+3 (where the store lives) still carries a proposal.
 
 1. ~~What a recall returns when there's nothing to recall.~~ **Decided: decline
    the key — `return true if recall_older`, else fall through to `super`** (the
@@ -233,11 +233,49 @@ still carry proposals only.
    inherit for free. The "lurch" worry that argued for consuming was backwards:
    the snap is what the widget already does at that edge, so declining is the
    *consistent* answer, not the surprising one.
-2. **When the draft is snapshotted.** Not continuously from `on_change` — that
-   would let editing a *recalled* entry overwrite the draft, breaking the one
-   slot the strict model promises to preserve. Proposed: **capture on leaving
-   the draft**, i.e. the first Up while the position is at the draft copies the
-   buffer into it; nothing else ever writes it but a submit (which clears it).
+2. ~~When the draft is snapshotted.~~ **Decided: capture on leaving the draft**
+   — the first Up while the position is *at* the draft copies the buffer into
+   it. Explicitly not continuously from `on_change`, which would let editing a
+   *recalled* entry overwrite the draft, breaking the one slot the strict model
+   promises to preserve.
+
+   The submit side samples the same way: **the append happens before the
+   callback, from the exact String the callback receives.** Both call sites,
+   since `submit_command` never reaches `on_submit`:
+
+   ```ruby
+   def submit
+     message = text.dup
+     return true if message.strip.empty?   # blank submits are not entries
+
+     @history.append(message)              # before the clear, before the call
+     self.text = ''                        # ... which also resets position + draft
+     @on_submit.call(message)
+     true
+   end
+
+   def submit_command
+     command = text.dup
+     @history.append(command)
+     @slash_menu.submit(command)           # still before the clear — the palette
+     self.text = ''                        #   resolves against the open palette
+     true
+   end
+   ```
+
+   Before the callback for the same reason the clear already is (see `#submit`'s
+   rdoc): **a handler that raises must not cost you the message** — that is
+   precisely the moment you reach for Up. Sampling after the call would also
+   read an empty buffer, and sampling `text` twice would risk two different
+   Strings.
+
+   One caveat that follows from "append-only and **immutable**": store the
+   value, not the object. `message` is an unfrozen `dup` of a live buffer handed
+   to foreign code, so a callback doing `message << '…'` would edit an entry
+   already in the list. `@history.append` freezes what it keeps (`-str`).
+
+   Submit then resets the position to the draft and clears it — so submitting
+   while browsing discards the pending draft, as shells do.
 3. **Where the store lives.** Proposed: a small `Shared::PromptHistory` —
    `#append` / `#older` / `#newer` / `#draft=` / `#reset`, no Tuile, no Pikuri —
    composed by `Area` rather than a clutch of ivars on it. `Area` already
@@ -246,11 +284,10 @@ still carry proposals only.
    that unit-tests without a screen. The alternative (ivars in `Area`) is
    fewer files but tests only through key presses.
 
-Also worth noting, not a question: **two call sites append**, not one —
-`Area#submit` (turns and mid-turn injections) *and* `Area#submit_command`
-(slash commands, which never reach `on_submit`). Missing the second would
-silently drop exactly the entries the *Ownership* section says we keep history
-for.
+(The two-call-site point above is not a question, just easy to miss: `#submit`
+carries turns *and* mid-turn injections, while `#submit_command` carries slash
+commands — and dropping the second would lose exactly the entries the
+*Ownership* section says we keep our own history for.)
 
 ## Decided
 
