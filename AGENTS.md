@@ -283,7 +283,19 @@ Zeitwerk over `lib/` and eager-loads it.
   entry (opens/filters the palette on change, runs a command on Enter for a
   leading-`/` buffer instead of submitting a turn, forwards Up/Down/ESC while
   shown) — the prompt owns Enter and the buffer, so it's the only place that
-  can. Shared by all three shells.
+  can. It likewise owns shell-style history recall: submissions land in its
+  `Shared::PromptHistory`, Up/Down recall them at the buffer's first/last row
+  (asking Tuile's `TextArea#caret_row` / `#row_count`, and *declining* the key
+  when the store is exhausted so the plain TextArea edge-snap survives), and
+  its `on_escape` replaces Tuile's clear-focus default with "leave history,
+  else clear the buffer". Shared by all three shells.
+- `lib/shared/prompt_history.rb` — `Shared::PromptHistory`, the prompt's
+  in-memory record of what was submitted this session (turns, injections and
+  slash commands alike), with the unsent draft pinned below the newest entry;
+  append-only, frozen entries, consecutive duplicates collapsed, `nil` at
+  either end of the walk. UI-free and Pikuri-free — deliberately not derived
+  from the agent's conversation log, which `/clear` wipes, which never sees a
+  slash command, and which has nowhere to put an unsent draft.
 - `lib/shared/slash_command.rb` — `Shared::SlashCommand`, a `Data.define`
   value object (name / description / callback) for one slash command; sibling
   of `Shared::LeaderMenu::Action`. The `description` is the autocomplete hint;
@@ -695,7 +707,7 @@ Zeitwerk over `lib/` and eager-loads it.
   `Shared::` namespace (or `Code::*` when it's coding-family) and
   reuse it — that is how we kill duplication. The building blocks
   already living this way: `Shared::InputWindow`,
-  `Shared::StatusFooterUpdater`,
+  `Shared::PromptHistory`, `Shared::StatusFooterUpdater`,
   `Shared::ConversationWindow`, `Shared::AgentSession`,
   `Shared::LeaderMenu`, `Shared::SlashMenuPopup`, `Shared::SlashCommand`,
   `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and

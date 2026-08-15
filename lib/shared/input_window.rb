@@ -52,9 +52,12 @@ class Shared::InputWindow < Tuile::Component::Window
   #
   # Enter is line-at-a-time because pikuri's turn is, and Shift+Enter is not
   # used for a newline: most terminals don't distinguish it from a plain
-  # Enter on the wire. All other TextArea behaviour (caret motion,
-  # word-jumps, backspace/delete) is inherited unchanged. Private to
-  # {InputWindow} — the frame is the only public handle.
+  # Enter on the wire. Everything submitted also lands in a
+  # {Shared::PromptHistory}: Up/Down recall it once the caret has nowhere left
+  # to go in that direction, and ESC goes back to the draft. All other
+  # TextArea behaviour (caret motion, word-jumps, backspace/delete) is
+  # inherited unchanged. Private to {InputWindow} — the frame is the only
+  # public handle.
   class Area < Tuile::Component::TextArea
     # @param on_submit [Proc, Method] one-arg callable invoked when the
     #   user presses Enter on a non-blank buffer. Receives the buffer text
@@ -66,7 +69,10 @@ class Shared::InputWindow < Tuile::Component::Window
       super()
       @on_submit = on_submit
       @slash_menu = slash_menu
-      self.on_change = ->(text) { slash_menu.sync(text) } if slash_menu
+      @history = Shared::PromptHistory.new
+      @recalling = false
+      self.on_change = ->(text) { slash_menu.sync(text) unless @recalling } if slash_menu
+      self.on_escape = method(:escape)
     end
 
     # Route keys with the slash palette in mind, then fall through to
@@ -88,6 +94,26 @@ class Shared::InputWindow < Tuile::Component::Window
       super
     end
 
+    protected
+
+    # Claim Up/Down for history recall, but only at the edge the arrow can no
+    # longer move within — and only when the store has something to give.
+    # Everything else, exhausted edges included, goes to +super+: with an empty
+    # history the prompt behaves exactly as a plain {Tuile::Component::TextArea},
+    # arrows moving the caret and snapping to the start/end of the text.
+    #
+    # @param key [String]
+    # @return [Boolean] +true+ if the key was consumed here.
+    def handle_text_input_key(key)
+      if key == Tuile::Keys::UP_ARROW && caret_row.zero?
+        return true if recall_older
+      elsif key == Tuile::Keys::DOWN_ARROW && caret_row == row_count - 1
+        return true if recall_newer
+      end
+
+      super
+    end
+
     private
 
     # @param key [String]
@@ -96,22 +122,69 @@ class Shared::InputWindow < Tuile::Component::Window
       [Tuile::Keys::UP_ARROW, Tuile::Keys::DOWN_ARROW, Tuile::Keys::ESC].include?(key)
     end
 
+    # ESC outside the palette, in place of the inherited clear-focus default:
+    # leave history if browsing, otherwise wipe the buffer. Double-ESC while
+    # browsing therefore reads as one "get me out of here" — leave, then wipe.
+    #
+    # @return [void]
+    def escape
+      if @history.at_draft?
+        self.text = ''
+      else
+        recall(@history.jump_to_draft)
+      end
+    end
+
+    # Step to the older entry, preserving the buffer as the draft first if
+    # we're leaving it.
+    #
+    # @return [Boolean] whether an entry was recalled.
+    def recall_older
+      @history.draft = text.dup if @history.at_draft?
+      recall(@history.older)
+    end
+
+    # @return [Boolean] whether an entry (or the draft) was recalled.
+    def recall_newer = recall(@history.newer)
+
+    # Show +entry+ with the caret at its end, keeping the slash palette out of
+    # it: a recalled +/command+ is not typing, so it sits inert until the user
+    # edits it (which fires {#on_change} and opens the palette, correctly
+    # filtered) or presses Enter (which tests the buffer, not the palette).
+    #
+    # @param entry [String, nil] the text to show; +nil+ when the store had
+    #   nothing at that end.
+    # @return [Boolean] whether anything was recalled.
+    def recall(entry)
+      return false if entry.nil?
+
+      @recalling = true
+      self.text = entry
+      self.caret = text.length
+      true
+    ensure
+      @recalling = false
+    end
+
     # Run the slash command in the buffer, then clear the field. Order matters:
     # {Shared::SlashMenuPopup#submit} resolves against the still-open palette
     # (so the highlighted row wins) *before* the clear closes it.
     #
     # @return [Boolean] always true; Enter on a slash buffer is ours.
     def submit_command
-      @slash_menu.submit(text.dup)
+      command = text.dup
+      @history.append(command)
+      @slash_menu.submit(command)
       self.text = ''
       true
     end
 
-    # Capture the current buffer, clear it, and hand off to the host
-    # callback. The order matters: clear happens before the callback so a
-    # handler that triggers a synchronous redraw sees the fresh empty input
-    # (and so a handler that raises doesn't leave the buffer in a
-    # half-cleared state).
+    # Capture the current buffer, record it, clear it, and hand off to the host
+    # callback. The order matters: both the history append and the clear happen
+    # before the callback, so a handler that triggers a synchronous redraw sees
+    # the fresh empty input, and a handler that *raises* neither leaves the
+    # buffer half-cleared nor costs the user the message — which is precisely
+    # when they'll reach for Up.
     #
     # @return [Boolean] always true; the host has decided Enter is a
     #   meaningful key for the input.
@@ -119,6 +192,7 @@ class Shared::InputWindow < Tuile::Component::Window
       message = text.dup
       return true if message.strip.empty?
 
+      @history.append(message)
       self.text = ''
       @on_submit.call(message)
       true
