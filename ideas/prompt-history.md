@@ -1,6 +1,9 @@
 # Prompt history (Up/Down recall in the input window)
 
-Status: brainstorming, nothing implemented.
+Status: design settled, nothing implemented — but the upstream blocker is gone.
+[tuile#3](https://github.com/mvysny/tuile/issues/3) landed as
+`TextArea#caret_row` / `#row_count` (see *Solved* below), so this is now
+buildable entirely in `Shared::InputWindow::Area`.
 
 ## The ask
 
@@ -92,16 +95,17 @@ any one of them sufficient:
 the user never typed, so deriving would mean filtering.) So the record lives
 with the prompt — appended at submit, in memory, dying with the process.
 
-## What Tuile 0.11.0 already gives us
+## What Tuile gives us
 
-Checked against `tuile/component/text_area.rb` + `abstract_string_field.rb`.
+Checked against `../tuile` at 5d65960 (unreleased, post-0.11.0 — we already
+consume it via `gem 'tuile', path: '../tuile'`).
 
 - **Scrolling to the caret is free.** `caret=` fires `on_caret_mutated` →
-  `TextArea#adjust_top_display_row`, which scrolls so the caret's row is
-  visible (`text_area.rb:387-401`). Recall = `self.text = entry` then
-  `self.caret = text.length`, and a recall taller than the strip lands
-  scrolled to the bottom with no work from us. The earlier "verify this or
-  it's a Tuile bug" item is settled: it's implemented.
+  `TextArea#adjust_scroll_top_row`, which scrolls so the caret's row is
+  visible. Recall = `self.text = entry` then `self.caret = text.length`, and a
+  recall taller than the strip lands scrolled to the bottom with no work from
+  us. The earlier "verify this or it's a Tuile bug" item is settled: it's
+  implemented.
 - **Buffer + caret are public.** `text=` / `caret=` both clamp and snap to
   grapheme boundaries. Order matters — text first (it clamps the caret), caret
   second.
@@ -109,50 +113,82 @@ Checked against `tuile/component/text_area.rb` + `abstract_string_field.rb`.
   `handle_key`; the documented subclass hook is the protected
   `handle_text_input_key`, and `on_key` exists as a composition seam
   (first refusal before the default handling).
-- **The visual-row math exists and is correct** — grapheme-cluster aware, wide
+- **The row math exists and is correct** — grapheme-cluster aware, wide
   glyphs, hard breaks, whitespace absorbed at soft wraps. We must never
   reimplement it; an empty buffer reports exactly one row, so first == last and
   both arrows recall, as specified.
 
-## The one gap: "is the caret in the first/last display row?"
+### Nomenclature: "display row" is now just "row"
 
-Public API answers half of it: `cursor_position.y - rect.top +
-top_display_row` is the caret's absolute display row, so *first row* is
-`== 0`. The row **count** lives in the private `display_rows`, so *last row*
-has no public answer.
+The same unreleased line renamed Tuile's scrolling vocabulary (57fc4ef): a
+wrapped unit of text *is* a **row**, `line` means a `\n` unit, and
+`TextArea#top_display_row` is now `#scroll_top_row`. So this doc's "visual row,
+not logical line" disclaimer above is now sayable in Tuile's own words — *row*
+vs *line* — and we should use them when this lands in rdoc.
 
-Three ways out, in preference order:
+## Solved: "is the caret in the first/last row?" — tuile#3 landed
 
-1. **Ask Tuile for the overflow hook** (preferred FR — filed as
-   https://github.com/mvysny/tuile/issues/3, which asks for the hook and
-   offers the readers below as the alternative/complement).
-   `move_caret_vertical` already detects our exact condition — `new_row ==
-   cur_row` means "nowhere to go in that direction" — and currently responds
-   by snapping the caret to the start/end of the text. Add a protected hook
-   there, consulted before the snap:
+[tuile#3](https://github.com/mvysny/tuile/issues/3) is **closed**; the
+resolution went to the *readers*, not the `on_caret_vertical_overflow` hook
+this doc preferred. `TextArea` gained two public one-liners over the (still
+private) wrap:
 
-   ```ruby
-   # @param delta [Integer] -1 for up, +1 for down.
-   # @return [Boolean] true if the subclass consumed the overflow.
-   def on_caret_vertical_overflow(delta) = false
-   ```
+```ruby
+def caret_row = wrap.row_at(@caret)   # 0            => Up has nowhere to go
+def row_count = wrap.row_count        # >= 1; caret_row == row_count - 1 => same for Down
+```
 
-   Then our `Area` overrides it and touches no row math at all: Tuile owns the
-   wrap and the "nowhere to go" decision, we own what happens instead. Useful
-   beyond us (a `TextArea` in a scrolling container, Down as tab-to-next-field).
-2. **Or public readers** `#caret_display_row` / `#display_row_count` — both
-   one-liners over the existing privates, more general, and they'd let anyone
-   build this. Weaker for us than the hook (we'd re-derive a decision Tuile
-   already makes) but worth having anyway.
-3. **Interim without touching Tuile:** Ruby lets a subclass call the inherited
-   private `caret_to_display` / `display_rows`, so the exact spec is reachable
-   today. Works, but couples us to the wrap cache's `{start:, length:,
-   columns:}` shape — acceptable as a stopgap, not as the answer.
+Why not the hook (Tuile's `DECISIONS.md` `D-text-area-rows`, condensed): it
+would be a *fourth* key-interception mechanism next to `on_key`,
+`handle_text_input_key` and the ancestor bubble; it names an implementation
+moment inside `move_caret_vertical` rather than an event, so its firing
+condition could drift under us, where `caret_row == 0` cannot; and it points
+the arrow the wrong way — the framework consulting the app, where Tuile
+consistently prefers an optional read-only caller-side query. The
+"re-derivation" the hook was meant to save us turns out to be `- 1`.
+Publishing `wrap` / `WrappedText` wholesale was rejected too (it's a lazy
+cache, nilled on text/width change — a handed-out reference answers
+confidently about text the widget no longer holds).
 
-Rejected: a public-API-only rule of "Up recalls when the caret is at
-character 0" (and Down at `text.length`). It needs no Tuile change and
-dovetails with the existing snap, but costs a second press from any non-empty
-buffer and isn't the behaviour we agreed.
+So our side of the feature is now pure app code, no upstream dependency, and
+the spec is expressible exactly as agreed:
+
+```ruby
+# Shared::InputWindow::Area, protected — Tuile's own recipe from TextArea's rdoc
+def handle_text_input_key(key)
+  return recall_older if key == Tuile::Keys::UP_ARROW && caret_row.zero?
+  return recall_newer if key == Tuile::Keys::DOWN_ARROW && caret_row == row_count - 1
+
+  super # anywhere else: the caret moves, and the unclaimed edge still snaps
+end
+```
+
+**Which of our two override points takes which key** — a layering that falls
+out of the ladder (`handle_key` → `on_key` → `handle_text_input_key`) and
+matches the precedence we decided:
+
+- the **public `handle_key`** keeps the slash-palette arbitration it already
+  has (Up/Down/ESC to the palette *while shown*, Enter on a leading-`/`
+  buffer). It runs first, so the palette keeps winning Up/Down/ESC for free —
+  no `@slash_menu.visible?` test in the history branch.
+- the **protected `handle_text_input_key`** gets the recall branches above.
+
+ESC is *not* a third branch there: `AbstractStringField` ships a dedicated
+`on_escape` seam (fired from its own `handle_text_input_key`, `nil` → let ESC
+bubble). Our two non-palette tiers — browsing → jump to the draft, otherwise →
+clear the buffer — go in an `on_escape` we set. Note it **replaces** Tuile's
+default, which clears focus (`screen.focused = nil`); we don't want a prompt
+that un-focuses itself on ESC anyway, so that's a loss worth taking, but it's a
+behaviour change to mention when this lands.
+
+Both recall methods return `true` to consume the key. `super` at the end keeps
+Tuile's edge snap for any edge we don't claim — worth a spec of our own, since
+we claim both.
+
+Rejected earlier, still rejected: a rule of "Up recalls when the caret is at
+character 0" (and Down at `text.length`). It needed no Tuile change, but costs
+a second press from any non-empty buffer and isn't the behaviour we agreed —
+and it's moot now that `caret_row` exists.
 
 ## Recall must not open the slash palette
 
