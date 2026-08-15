@@ -155,12 +155,16 @@ So our side of the feature is now pure app code, no upstream dependency, and
 the spec is expressible exactly as agreed:
 
 ```ruby
-# Shared::InputWindow::Area, protected — Tuile's own recipe from TextArea's rdoc
+# Shared::InputWindow::Area, protected — Tuile's recipe from TextArea's rdoc,
+# in the declining form (see "Nothing to recall" below).
 def handle_text_input_key(key)
-  return recall_older if key == Tuile::Keys::UP_ARROW && caret_row.zero?
-  return recall_newer if key == Tuile::Keys::DOWN_ARROW && caret_row == row_count - 1
+  if key == Tuile::Keys::UP_ARROW && caret_row.zero?
+    return true if recall_older
+  elsif key == Tuile::Keys::DOWN_ARROW && caret_row == row_count - 1
+    return true if recall_newer
+  end
 
-  super # anywhere else: the caret moves, and the unclaimed edge still snaps
+  super # nothing to recall, or not an edge: the caret moves / the edge snaps
 end
 ```
 
@@ -182,9 +186,9 @@ default, which clears focus (`screen.focused = nil`); we don't want a prompt
 that un-focuses itself on ESC anyway, so that's a loss worth taking, but it's a
 behaviour change to mention when this lands.
 
-Both recall methods return `true` to consume the key. `super` at the end keeps
-Tuile's edge snap for any edge we don't claim — worth a spec of our own, since
-we claim both.
+A recall returns truthy only when it actually recalled, so `super` at the end
+keeps Tuile's edge snap both for the edges we don't claim and for the ones we
+claim but can't serve — worth a spec of our own.
 
 Rejected earlier, still rejected: a rule of "Up recalls when the caret is at
 character 0" (and Down at `text.length`). It needed no Tuile change, but costs
@@ -208,19 +212,27 @@ and opens the palette, correctly filtered.
 
 ## Open before coding
 
-Three, all app-side; none needs Tuile.
+Three raised, all app-side; none needs Tuile. **1 is now decided**, 2 and 3
+still carry proposals only.
 
-1. **What a recall returns when there's nothing to recall.** The sketch above
-   reads `return recall_older if key == UP_ARROW && caret_row.zero?` — so if
-   `recall_older` returned `false` at the oldest entry, the method returns
-   `false` *without reaching `super`*, and the key bubbles to the parent as
-   unhandled. That's the one shape we must not ship. Proposed: **the recall
-   methods always return `true`** — at the oldest, Up is a silent no-op, and at
-   the draft, so is Down. Deliberately *not* falling through to Tuile's edge
-   snap: having Up jump the caret to character 0 only once you've hit the end
-   of history is a lurch, and the snap is not behaviour anyone asked for here.
-   Consequence: the prompt loses the snap-to-start/end gesture entirely (both
-   edges are claimed) — accepted, ESC and Home/End cover it.
+1. ~~What a recall returns when there's nothing to recall.~~ **Decided: decline
+   the key — `return true if recall_older`, else fall through to `super`** (the
+   form in the sketch above; the earlier `return recall_older if …` was the bug,
+   returning `false` early and bubbling an unhandled key past `super`). At the
+   oldest entry Up therefore snaps the caret to character 0, and at the draft
+   Down snaps to the end — `TextArea`'s existing edge behaviour, untouched.
+
+   Chosen over "recall always consumes" on three counts. It makes the feature
+   **strictly additive**: with an empty history — every session before its first
+   message — the prompt behaves *exactly* as it does today, where consuming
+   would have quietly turned Up-at-row-0 from a snap into a dead key. It is
+   Tuile's house style for the key ladder (claim the key, or decline it);
+   swallowing a key we did nothing with dead-ends it past both `TextArea` and
+   the ancestor bubble. And it keeps us on the default path, so anything
+   `TextArea` grows there later — an edge hook, desired-column memory — we
+   inherit for free. The "lurch" worry that argued for consuming was backwards:
+   the snap is what the widget already does at that edge, so declining is the
+   *consistent* answer, not the surprising one.
 2. **When the draft is snapshotted.** Not continuously from `on_change` — that
    would let editing a *recalled* entry overwrite the draft, breaking the one
    slot the strict model promises to preserve. Proposed: **capture on leaving
