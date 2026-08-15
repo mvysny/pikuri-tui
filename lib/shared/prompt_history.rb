@@ -10,11 +10,8 @@
 #   history.older                     # => nil — already at the oldest
 #   history.newer                     # => 'half-typed' — back on the draft
 #
-# Entries are frozen and never rewritten, so editing a recalled one changes
-# only the caller's buffer; submitting that edit appends a *new* entry and
-# leaves the old one where it was. The draft is the one mutable slot, and
-# {#append} clears it — submitting while browsing discards the pending draft,
-# as shells do.
+# Entries are frozen and never rewritten — the arrows always show exactly what
+# was sent, and the draft is the one mutable slot.
 class Shared::PromptHistory
   def initialize
     @entries = []
@@ -31,10 +28,12 @@ class Shared::PromptHistory
   #   currently recalled.
   def at_draft? = @position.nil?
 
-  # Record a submitted message, then return the cursor to a cleared draft.
-  # A message identical to the newest entry is dropped rather than appended
-  # (zsh's +HIST_IGNORE_DUPS+), so re-sending the previous message doesn't
-  # grow the list — while re-sending something older does.
+  # Record a submitted message, then return the cursor to a cleared draft —
+  # so submitting while browsing discards the pending draft, as shells do.
+  # Only *consecutive* duplicates collapse (zsh's +HIST_IGNORE_DUPS+):
+  #
+  #   history.append('ls'); history.append('ls')    # => one entry
+  #   history.append('pwd'); history.append('ls')   # => ls, pwd, ls
   #
   # @param text [String] the submitted text; kept frozen, so the caller may
   #   go on mutating the String it passed.

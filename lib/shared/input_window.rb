@@ -96,11 +96,10 @@ class Shared::InputWindow < Tuile::Component::Window
 
     protected
 
-    # Claim Up/Down for history recall, but only at the edge the arrow can no
-    # longer move within — and only when the store has something to give.
-    # Everything else, exhausted edges included, goes to +super+: with an empty
-    # history the prompt behaves exactly as a plain {Tuile::Component::TextArea},
-    # arrows moving the caret and snapping to the start/end of the text.
+    # Claim Up/Down for history recall, but only in the first/last row and only
+    # when the store has something to give. Anything else — an exhausted edge
+    # included — falls through to +super+, so with no history the prompt is a
+    # plain {Tuile::Component::TextArea}, edge-snap included.
     #
     # @param key [String]
     # @return [Boolean] +true+ if the key was consumed here.
@@ -123,8 +122,7 @@ class Shared::InputWindow < Tuile::Component::Window
     end
 
     # ESC outside the palette, in place of the inherited clear-focus default:
-    # leave history if browsing, otherwise wipe the buffer. Double-ESC while
-    # browsing therefore reads as one "get me out of here" — leave, then wipe.
+    # leave history if browsing, otherwise wipe the buffer.
     #
     # @return [void]
     def escape
@@ -147,10 +145,9 @@ class Shared::InputWindow < Tuile::Component::Window
     # @return [Boolean] whether an entry (or the draft) was recalled.
     def recall_newer = recall(@history.newer)
 
-    # Show +entry+ with the caret at its end, keeping the slash palette out of
-    # it: a recalled +/command+ is not typing, so it sits inert until the user
-    # edits it (which fires {#on_change} and opens the palette, correctly
-    # filtered) or presses Enter (which tests the buffer, not the palette).
+    # Show +entry+ with the caret at its end, without letting the slash palette
+    # react — a recall is not typing, so a recalled +/command+ sits inert until
+    # the user edits it or sends it.
     #
     # @param entry [String, nil] the text to show; +nil+ when the store had
     #   nothing at that end.
@@ -166,7 +163,8 @@ class Shared::InputWindow < Tuile::Component::Window
       @recalling = false
     end
 
-    # Run the slash command in the buffer, then clear the field. Order matters:
+    # Record and run the slash command in the buffer, then clear the field.
+    # Order matters:
     # {Shared::SlashMenuPopup#submit} resolves against the still-open palette
     # (so the highlighted row wins) *before* the clear closes it.
     #
@@ -179,12 +177,10 @@ class Shared::InputWindow < Tuile::Component::Window
       true
     end
 
-    # Capture the current buffer, record it, clear it, and hand off to the host
-    # callback. The order matters: both the history append and the clear happen
-    # before the callback, so a handler that triggers a synchronous redraw sees
-    # the fresh empty input, and a handler that *raises* neither leaves the
-    # buffer half-cleared nor costs the user the message — which is precisely
-    # when they'll reach for Up.
+    # Capture the buffer, record it, clear it, then hand off to the host
+    # callback — in that order, so a handler that redraws synchronously sees an
+    # empty input, and one that *raises* costs neither the clear nor the
+    # history entry.
     #
     # @return [Boolean] always true; the host has decided Enter is a
     #   meaningful key for the input.
