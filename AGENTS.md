@@ -288,7 +288,11 @@ Zeitwerk over `lib/` and eager-loads it.
   (asking Tuile's `TextArea#caret_row` / `#row_count`, and *declining* the key
   when the store is exhausted so the plain TextArea edge-snap survives), and
   its `on_escape` replaces Tuile's clear-focus default with "leave history,
-  else clear the buffer". Shared by all three shells.
+  else clear the buffer". With an optional `conversation:` it also pages that
+  pane — PageUp/PageDown scroll it half a screen (Tuile's
+  `TextView#scroll_half_page_up` / `#scroll_half_page_down`) without the caret
+  leaving the prompt, and a visible slash palette gets those keys first, since
+  only the prompt knows it is up. Shared by all three shells.
 - `lib/shared/prompt_history.rb` — `Shared::PromptHistory`, the prompt's
   in-memory record of what was submitted this session (turns, injections and
   slash commands alike), with the unsent draft pinned below the newest entry;
@@ -355,7 +359,9 @@ Zeitwerk over `lib/` and eager-loads it.
   `#status_footer_updater` (the footer) for the host to compose into the
   agent's `ListenerList`, plus `#render_notice` (a dim, non-error transcript
   line, sibling of `#render_turn_error`); a `SystemInjected` event (a host-loaded
-  skill) renders as a dim `⊕` block.
+  skill) renders as a dim `⊕` block. `#scroll_half_page_up` /
+  `#scroll_half_page_down` page the viewport for a host holding focus elsewhere
+  (the prompt's PageUp/PageDown); paging back to the bottom re-arms tailing.
 - `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
   `lib/chat/`) for the chat front-end (`Chat::App` + `Chat::Layout`); the
   baseline shell the `Code` / `Computer` siblings were copied from.

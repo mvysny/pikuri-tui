@@ -11,7 +11,8 @@ require 'tuile'
 # here:
 #
 #   menu = Shared::SlashMenuPopup.new(screen:, commands:, conversation:)
-#   win  = Shared::InputWindow.new(on_submit: session.method(:submit), slash_menu: menu)
+#   win  = Shared::InputWindow.new(on_submit: session.method(:submit),
+#                                  slash_menu: menu, conversation: conversation_window)
 #   layout = Chat::Layout.new(conversation: conversation_window, input: win)
 #   screen.focused = win   # cascades onto the inner Area
 #
@@ -21,6 +22,10 @@ require 'tuile'
 # Up/Down/ESC to the palette while it's shown. The prompt is the natural owner —
 # it already holds Enter and the buffer, and the {Area} is private, so nothing
 # outside could arbitrate them.
+#
+# With a +conversation+, PageUp/PageDown page that pane half a screen — the
+# transcript reads back without the caret leaving the prompt. A visible palette
+# gets those keys first, to page its own list.
 #
 # Shared by all three shells.
 #
@@ -38,9 +43,12 @@ class Shared::InputWindow < Tuile::Component::Window
   # @param slash_menu [Shared::SlashMenuPopup, nil] the slash-command palette
   #   this prompt drives, or nil for a plain input. This window becomes its
   #   anchor (the palette floats just above it).
-  def initialize(on_submit:, slash_menu: nil)
+  # @param conversation [Shared::ConversationWindow, nil] the transcript
+  #   PageUp/PageDown page while the prompt holds focus, or nil to leave those
+  #   keys to the {Tuile::Component::TextArea}.
+  def initialize(on_submit:, slash_menu: nil, conversation: nil)
     super(TITLE)
-    self.content = Area.new(on_submit: on_submit, slash_menu: slash_menu)
+    self.content = Area.new(on_submit: on_submit, slash_menu: slash_menu, conversation: conversation)
     slash_menu.anchor = self if slash_menu
   end
 
@@ -65,10 +73,13 @@ class Shared::InputWindow < Tuile::Component::Window
     #   wipe the input in their handler.
     # @param slash_menu [Shared::SlashMenuPopup, nil] the palette to drive, or
     #   nil for a plain input (then every slash branch below is skipped).
-    def initialize(on_submit:, slash_menu:)
+    # @param conversation [Shared::ConversationWindow, nil] the pane the page
+    #   keys scroll, or nil to leave them unclaimed.
+    def initialize(on_submit:, slash_menu:, conversation:)
       super()
       @on_submit = on_submit
       @slash_menu = slash_menu
+      @conversation = conversation
       @history = Shared::PromptHistory.new
       @recalling = false
       self.on_change = ->(text) { slash_menu.sync(text) unless @recalling } if slash_menu
@@ -90,6 +101,7 @@ class Shared::InputWindow < Tuile::Component::Window
         return submit_command if key == Tuile::Keys::ENTER && active? && text.start_with?('/')
       end
       return submit if key == Tuile::Keys::ENTER && active?
+      return scroll_conversation(key) if @conversation && PAGE_KEYS.include?(key) && active?
 
       super
     end
@@ -115,10 +127,31 @@ class Shared::InputWindow < Tuile::Component::Window
 
     private
 
+    # The keys that page the conversation pane, and that a visible palette
+    # claims ahead of it for its own list — hence the two uses below.
+    #
+    # @return [Array<String>]
+    PAGE_KEYS = [Tuile::Keys::PAGE_UP, Tuile::Keys::PAGE_DOWN].freeze
+    private_constant :PAGE_KEYS
+
     # @param key [String]
     # @return [Boolean] whether the palette claims this key while shown.
     def nav_key?(key)
-      [Tuile::Keys::UP_ARROW, Tuile::Keys::DOWN_ARROW, Tuile::Keys::ESC].include?(key)
+      [Tuile::Keys::UP_ARROW, Tuile::Keys::DOWN_ARROW, Tuile::Keys::ESC, *PAGE_KEYS].include?(key)
+    end
+
+    # Page the conversation pane by half a screen.
+    #
+    # @param key [String] +PAGE_UP+ or +PAGE_DOWN+.
+    # @return [Boolean] always true — a scroll clamped at either edge still
+    #   consumed the key.
+    def scroll_conversation(key)
+      if key == Tuile::Keys::PAGE_UP
+        @conversation.scroll_half_page_up
+      else
+        @conversation.scroll_half_page_down
+      end
+      true
     end
 
     # ESC outside the palette, in place of the inherited clear-focus default:

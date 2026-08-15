@@ -76,6 +76,35 @@ RSpec.describe Shared::ConversationWindow do
     end
   end
 
+  describe 'half-page scrolling' do
+    let(:half_page) { window.view.rect.height / 2 }
+
+    before do
+      window.rect = Tuile::Rect.new(0, 0, 40, 10)
+      30.times { |i| window.add_block("line #{i}") }
+    end
+
+    it 'pages up half a screen, clamped at the top' do
+      window.view.scroll_top_row = 10
+      window.scroll_half_page_up
+      assert_equal 10 - half_page, window.view.scroll_top_row
+
+      3.times { window.scroll_half_page_up }
+      assert_equal 0, window.view.scroll_top_row
+    end
+
+    it 'pages down half a screen, and re-arms tailing on reaching the bottom' do
+      window.view.scroll_top_row = 0
+      refute window.view.following?, 'scrolled off the bottom'
+
+      window.scroll_half_page_down
+      assert_equal half_page, window.view.scroll_top_row
+
+      10.times { window.scroll_half_page_down }
+      assert window.view.following?, 'paging back to the bottom resumes tailing'
+    end
+  end
+
   it 'renders UserTurn as "> <content>" (the CLI listener stayed silent here)' do
     listener.on_event(Pikuri::Agent::Event::UserTurn.new(content: 'hello?'))
     assert_includes rendered, '> hello?'

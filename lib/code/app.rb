@@ -256,7 +256,8 @@ module Code
         screen: @screen, commands: build_slash_commands, conversation: @conversation_window
       )
       @input_window = Shared::InputWindow.new(
-        on_submit: @session.method(:submit), slash_menu: @slash_menu
+        on_submit: @session.method(:submit), slash_menu: @slash_menu,
+        conversation: @conversation_window
       )
 
       # The tasks + git sidebar as one box: it owns its tasks-over-git split,

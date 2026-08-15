@@ -276,4 +276,82 @@ RSpec.describe Shared::InputWindow do
       assert_equal '/', window.content.text.to_s
     end
   end
+
+  describe 'paging the conversation' do
+    let(:token_log)    { Pikuri::Agent::Listener::TokenLog.new }
+    let(:conversation) { Shared::ConversationWindow.new(token_log: token_log) }
+    let(:commands)     { [Shared::SlashCommand.new('/quit', 'quits the app', ->(_rest) { nil })] }
+    let(:menu) do
+      Shared::SlashMenuPopup.new(screen: Tuile::Screen.instance, commands: commands, conversation: conversation)
+    end
+    let(:window) do
+      described_class.new(on_submit: ->(text) { submitted << text }, conversation: conversation)
+    end
+    let(:half_page) { conversation.view.rect.height / 2 }
+
+    before do
+      screen = Tuile::Screen.instance
+      conversation.rect = Tuile::Rect.new(0, 0, 40, 10)
+      30.times { |i| conversation.add_block("line #{i}") }
+      screen.content = window
+      screen.focused = window
+    end
+
+    def press(key) = Tuile::Screen.instance.send(:handle_key, key)
+
+    it 'pages the transcript down half a screen on PageDown' do
+      conversation.view.scroll_top_row = 0
+      press(Tuile::Keys::PAGE_DOWN)
+      assert_equal half_page, conversation.view.scroll_top_row
+    end
+
+    it 'pages the transcript up half a screen on PageUp' do
+      conversation.view.scroll_top_row = 10
+      press(Tuile::Keys::PAGE_UP)
+      assert_equal 10 - half_page, conversation.view.scroll_top_row
+    end
+
+    it 'leaves the prompt buffer and caret untouched while paging' do
+      window.content.text = 'half typed'
+      window.content.caret = 4
+      press(Tuile::Keys::PAGE_UP)
+      assert_equal 'half typed', window.content.text.to_s
+      assert_equal 4, window.content.caret
+    end
+
+    it 'clamps at the top rather than raising' do
+      conversation.view.scroll_top_row = 0
+      press(Tuile::Keys::PAGE_UP)
+      assert_equal 0, conversation.view.scroll_top_row
+    end
+
+    it 'leaves the page keys alone without a conversation' do
+      plain = described_class.new(on_submit: ->(text) { submitted << text })
+      Tuile::Screen.instance.content = plain
+      Tuile::Screen.instance.focused = plain
+      refute plain.content.handle_key(Tuile::Keys::PAGE_UP)
+    end
+
+    context 'with the slash palette open' do
+      let(:window) do
+        described_class.new(on_submit: ->(text) { submitted << text }, slash_menu: menu, conversation: conversation)
+      end
+
+      it 'pages the palette, not the transcript' do
+        conversation.view.scroll_top_row = 5
+        window.content.text = '/'
+        assert menu.visible?
+        press(Tuile::Keys::PAGE_DOWN)
+        assert_equal 5, conversation.view.scroll_top_row
+      end
+
+      it 'pages the transcript again once the palette is gone' do
+        conversation.view.scroll_top_row = 5
+        window.content.text = ''
+        refute menu.visible?
+        press(Tuile::Keys::PAGE_DOWN)
+        assert_equal 5 + half_page, conversation.view.scroll_top_row
+      end
+    end
+  end
 end

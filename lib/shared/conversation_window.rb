@@ -126,6 +126,17 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @return [Integer]
   def buffer_width = [@view.rect.width - 2, 1].max
 
+  # Pages the transcript up half a screen, clamped at the top.
+  #
+  # @return [void]
+  def scroll_half_page_up = @view.scroll_half_page_up
+
+  # Pages the transcript down half a screen; landing on the last row re-arms
+  # tailing, so streamed output follows the viewport again.
+  #
+  # @return [void]
+  def scroll_half_page_down = @view.scroll_half_page_down
+
   # Append one logical block to the pane: create a fresh region and assign
   # +text+ (prefixed with +indent+ spaces on its first line). Each
   # non-streaming event lands as exactly one such block.
