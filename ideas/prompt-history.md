@@ -1,9 +1,11 @@
 # Prompt history (Up/Down recall in the input window)
 
-Status: design settled, nothing implemented — but the upstream blocker is gone.
-[tuile#3](https://github.com/mvysny/tuile/issues/3) landed as
-`TextArea#caret_row` / `#row_count` (see *Solved* below), so this is now
-buildable entirely in `Shared::InputWindow::Area`.
+Status: **ready to implement**, nothing written yet. The upstream blocker is
+gone — [tuile#3](https://github.com/mvysny/tuile/issues/3) landed as
+`TextArea#caret_row` / `#row_count` (see *Solved* below) — and the three
+app-side questions it left are all decided (see *Settled before coding*). The
+work is a new `Shared::PromptHistory` plus a `handle_text_input_key` /
+`on_escape` / two-append change in `Shared::InputWindow::Area`.
 
 ## The ask
 
@@ -210,10 +212,10 @@ press Enter (which runs it, since `handle_key` tests the buffer's leading `/`,
 not the palette's visibility) or type a character — which fires `on_change`
 and opens the palette, correctly filtered.
 
-## Open before coding
+## Settled before coding
 
-Three raised, all app-side; none needs Tuile. **1 and 2 are now decided**; only
-3 (where the store lives) still carries a proposal.
+Three raised, all app-side; none needed Tuile. All three are now decided —
+nothing here blocks implementation.
 
 1. ~~What a recall returns when there's nothing to recall.~~ **Decided: decline
    the key — `return true if recall_older`, else fall through to `super`** (the
@@ -276,13 +278,44 @@ Three raised, all app-side; none needs Tuile. **1 and 2 are now decided**; only
 
    Submit then resets the position to the draft and clears it — so submitting
    while browsing discards the pending draft, as shells do.
-3. **Where the store lives.** Proposed: a small `Shared::PromptHistory` —
-   `#append` / `#older` / `#newer` / `#draft=` / `#reset`, no Tuile, no Pikuri —
-   composed by `Area` rather than a clutch of ivars on it. `Area` already
-   arbitrates the palette, Enter and submit; the list is a cohesive thing with
-   its own rules (append-only, consecutive-dedup, the pinned draft, clamping)
-   that unit-tests without a screen. The alternative (ivars in `Area`) is
-   fewer files but tests only through key presses.
+3. ~~Where the store lives.~~ **Decided: a `Shared::PromptHistory`** composed by
+   `Area`, not a clutch of ivars on it.
+
+   Note *why*, since "one class per thing" is not the rule — COP makes the
+   service layer optional and extracts only what earns it (shared / reused /
+   genuinely complex / needs to stand alone and be independently testable),
+   with "if a two-line helper does the job, don't manufacture a subclass" over
+   the top. This earns it on the last two. **Testability is decisive:** as ivars
+   on `Area`, every rule below is reachable only through key presses on a
+   mounted screen with a non-empty rect (`caret_row` / `row_count` need a width
+   to wrap against) — yet not one of those rules has anything to do with keys or
+   wrapping. Complexity backs it up: a cursor with two clamps, an append with a
+   dedup rule, a mutable slot pinned past the newest. The *reuse* clause is
+   weak here and doesn't need to carry anything: there is one `Area`, and it
+   already serves all three shells.
+
+   **The store owns the draft.** It is the pinned bottom entry in the agreed
+   model, and "Down stops at the draft" is only expressible where the cursor
+   lives. So the API is roughly:
+
+   ```ruby
+   history.append(str)   # frozen; consecutive dupes collapse; resets to draft
+   history.draft = str   # capture-on-leaving (Area calls this on the first Up)
+   history.older         # => String to show, or nil at the oldest
+   history.newer         # => String to show, or nil at the draft
+   history.at_draft?     # so Area knows whether the first Up should capture
+   ```
+
+   `nil` at the clamp is the whole point: it lands exactly on decision 1 —
+   `return true if recall_older` is truthy only when the store had something,
+   so an exhausted edge falls straight through to `super`. The store's clamp
+   and the widget's declining are then the same fact, said once.
+
+   No Tuile, no Pikuri, no thread rules to document (it touches no UI, and only
+   the UI thread ever calls it — the ordinary not-thread-safe default, so no
+   confinement tag). `lib/shared/prompt_history.rb`; no widget suffix, since it
+   subclasses and wraps nothing — same reasoning as `Shared::StatusFooterUpdater`,
+   same shape as `Code::TrustStore` / `Code::PrivacyStore`.
 
 (The two-call-site point above is not a question, just easy to miss: `#submit`
 carries turns *and* mid-turn injections, while `#submit_command` carries slash
