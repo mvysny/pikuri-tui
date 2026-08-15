@@ -66,8 +66,9 @@ there is nowhere up to go" — exactly what you see on screen, and what
 caret jump out of the middle of visibly-wrapped text; confusing UX, rejected.
 
 Multi-line entries are live behaviour, not future-proofing: Enter is rebound
-to submit, but a *pasted* line break arrives as `\n` and inserts
-(`text_area.rb:20`), so a buffer can hold hard breaks as well as wraps.
+to submit, but a *pasted* line break arrives as `\n` (`Keys::CTRL_J`, which
+`TextArea` accepts alongside `\r` precisely so a paste doesn't lose its
+newlines) and inserts, so a buffer can hold hard breaks as well as wraps.
 
 Recalling something taller than the 3 editable lines relies on the area
 scrolling to keep the caret (at the end) visible. That is `TextArea`'s job —
@@ -204,6 +205,40 @@ autocomplete-as-you-type; a recalled `/trifecta` sits inert until you either
 press Enter (which runs it, since `handle_key` tests the buffer's leading `/`,
 not the palette's visibility) or type a character — which fires `on_change`
 and opens the palette, correctly filtered.
+
+## Open before coding
+
+Three, all app-side; none needs Tuile.
+
+1. **What a recall returns when there's nothing to recall.** The sketch above
+   reads `return recall_older if key == UP_ARROW && caret_row.zero?` — so if
+   `recall_older` returned `false` at the oldest entry, the method returns
+   `false` *without reaching `super`*, and the key bubbles to the parent as
+   unhandled. That's the one shape we must not ship. Proposed: **the recall
+   methods always return `true`** — at the oldest, Up is a silent no-op, and at
+   the draft, so is Down. Deliberately *not* falling through to Tuile's edge
+   snap: having Up jump the caret to character 0 only once you've hit the end
+   of history is a lurch, and the snap is not behaviour anyone asked for here.
+   Consequence: the prompt loses the snap-to-start/end gesture entirely (both
+   edges are claimed) — accepted, ESC and Home/End cover it.
+2. **When the draft is snapshotted.** Not continuously from `on_change` — that
+   would let editing a *recalled* entry overwrite the draft, breaking the one
+   slot the strict model promises to preserve. Proposed: **capture on leaving
+   the draft**, i.e. the first Up while the position is at the draft copies the
+   buffer into it; nothing else ever writes it but a submit (which clears it).
+3. **Where the store lives.** Proposed: a small `Shared::PromptHistory` —
+   `#append` / `#older` / `#newer` / `#draft=` / `#reset`, no Tuile, no Pikuri —
+   composed by `Area` rather than a clutch of ivars on it. `Area` already
+   arbitrates the palette, Enter and submit; the list is a cohesive thing with
+   its own rules (append-only, consecutive-dedup, the pinned draft, clamping)
+   that unit-tests without a screen. The alternative (ivars in `Area`) is
+   fewer files but tests only through key presses.
+
+Also worth noting, not a question: **two call sites append**, not one —
+`Area#submit` (turns and mid-turn injections) *and* `Area#submit_command`
+(slash commands, which never reach `on_submit`). Missing the second would
+silently drop exactly the entries the *Ownership* section says we keep history
+for.
 
 ## Decided
 
