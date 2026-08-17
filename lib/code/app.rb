@@ -377,8 +377,10 @@ module Code
           read_only: @plan_mode
         )
         # Kept (not dropped) so the /<skill> slash commands can reach
-        # +schedule_load_skill+ — see #build_slash_commands.
-        @skill_ext = Pikuri::Skill::Extension.new(catalog: @skill_catalog)
+        # +schedule_load_skill+ and the activation gate — see #build_slash_commands.
+        # +root:+ arms that gate: it is what a `paths:` skill's globs are matched
+        # against when the model touches a file.
+        @skill_ext = Pikuri::Skill::Extension.new(catalog: @skill_catalog, root: project_root)
         c.add_extension @skill_ext
         c.add_extension Pikuri::Tasks::Extension.new
         c.add_extension Pikuri::Mcp::Extension.new(
