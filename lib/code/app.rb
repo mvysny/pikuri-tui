@@ -191,11 +191,19 @@ module Code
       # Test seam: the backend the agent boots on. Production uses the config's
       # first connection; a spec injects a fake_transport (see class header).
       @boot_transport = transport || @models.first.transport
+      # Built here rather than in the agent block because the palette's
+      # SkillActivationListener needs it (its activation gate decides what is
+      # listed) before the agent exists. +root:+ is what a `paths:` skill's
+      # globs are matched against when the model touches a file.
+      @skill_ext = Pikuri::Skill::Extension.new(catalog: @skill_catalog, root: project_root)
 
       build_components
       @log_ui.wire!
       @agent = default_build_agent
       @session.agent = @agent
+      # Seeds the /<skill-name> palette entries. After the agent build, because
+      # Skill::Extension#configure decides there whether the gate is armed.
+      @skill_activation.refresh
       @conversation_window.interloper = @agent.interloper
       # Seed the footer with the boot model (resolved from its transport);
       # Shared::StatusFooterUpdater#on_event takes over on every later switch.
@@ -252,8 +260,17 @@ module Code
         model_picker: @model_picker, logger: LOG
       )
 
+      base_commands = build_slash_commands
       @slash_menu = Shared::SlashMenuPopup.new(
-        screen: @screen, commands: build_slash_commands, conversation: @conversation_window
+        screen: @screen, commands: base_commands, conversation: @conversation_window
+      )
+      # Appends the /<skill-name> half and keeps it in step with the path gate;
+      # seeded by the #refresh in the constructor, once the agent exists.
+      @skill_activation = SkillActivationListener.new(
+        skill_extension: @skill_ext, slash_menu: @slash_menu,
+        conversation: @conversation_window, screen: @screen,
+        base: base_commands,
+        on_load: ->(name, rest) { @skill_ext.schedule_load_skill(name); @session.submit(rest) }
       )
       @input_window = Shared::InputWindow.new(
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
@@ -363,6 +380,9 @@ module Code
         # Keeps the footer's plan-mode badge in step with the shared flag
         # (the leader menu's 'p' toggle or the model's enter/exit tools).
         c.add_listener @plan_mode_listener
+        # Lists a `paths:`-gated skill's /<name> the moment a touched file
+        # brings it into play.
+        c.add_listener @skill_activation
         c.add_extension Pikuri::Workspace::Extension.new(filesystem: @filesystem, confirmer: confirmer, read_only: @plan_mode)
         c.add_tool Pikuri::Tool::CALCULATOR
         c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(brave_key: @config.search.brave_key,
@@ -376,11 +396,6 @@ module Code
           sandbox: @sandbox,
           read_only: @plan_mode
         )
-        # Kept (not dropped) so the /<skill> slash commands can reach
-        # +schedule_load_skill+ and the activation gate — see #build_slash_commands.
-        # +root:+ arms that gate: it is what a `paths:` skill's globs are matched
-        # against when the model touches a file.
-        @skill_ext = Pikuri::Skill::Extension.new(catalog: @skill_catalog, root: project_root)
         c.add_extension @skill_ext
         c.add_extension Pikuri::Tasks::Extension.new
         c.add_extension Pikuri::Mcp::Extension.new(
@@ -445,22 +460,26 @@ module Code
       menu.add('d', 'git diff') { @sidebar.open_diff }
       menu.add('p', 'plan mode') { toggle_plan_mode }
       menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
-      menu.add('c', 'clear conversation + context') { @session.clear_conversation }
+      menu.add('c', 'clear conversation + context') { clear_conversation }
       menu.add('q', 'quit') { quit }
       menu
     end
 
-    # The coding shell's slash commands — the {Shared::LeaderMenu} actions
-    # reachable by name: +/logs+, +/diff+ (the git-diff popup), +/plan+ (toggle),
-    # +/model+ (only with more than one connection, like the menu's +m+),
-    # +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+, the one with no menu
-    # counterpart: a report to read when you wonder, not an action worth a
+    # The coding shell's built-in slash commands — the {Shared::LeaderMenu}
+    # actions reachable by name: +/logs+, +/diff+ (the git-diff popup), +/plan+
+    # (toggle), +/model+ (only with more than one connection, like the menu's
+    # +m+), +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+, the one with no
+    # menu counterpart: a report to read when you wonder, not an action worth a
     # leader key. Its private leg is whatever the bin's startup question
-    # recorded ({PrivacyStore}), carried in on +filesystem+. Callbacks are lazy
-    # (they resolve
-    # +@log_ui+ / +@sidebar+ / +@plan_mode+ / +@session+ / +@agent+ / +quit+ at
-    # run time), so this is safe to build before the agent/sidebar; only the
-    # +/model+ *presence* is decided now, from {Shared::Model::Picker#multiple?}.
+    # recorded ({PrivacyStore}), carried in on +filesystem+.
+    #
+    # These lead the palette and reserve their names; {SkillActivationListener}
+    # appends the +/<skill-name>+ half and re-lists it as the path gate opens.
+    #
+    # Callbacks are lazy (they resolve +@log_ui+ / +@sidebar+ / +@plan_mode+ /
+    # +@session+ / +@agent+ / +quit+ at run time), so this is safe to build
+    # before the agent/sidebar; only the +/model+ *presence* is decided now,
+    # from {Shared::Model::Picker#multiple?}.
     #
     # @return [Array<Shared::SlashCommand>]
     def build_slash_commands
@@ -476,49 +495,19 @@ module Code
         commands << Shared::SlashCommand.new('/model', 'switch model', ->(_rest) { @model_picker.open(current: @agent.transport); nil })
       end
       commands.push(
-        Shared::SlashCommand.new('/clear', 'clear conversation + context', ->(_rest) { @session.clear_conversation; nil }),
+        Shared::SlashCommand.new('/clear', 'clear conversation + context', ->(_rest) { clear_conversation; nil }),
         Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
         Shared::SlashCommand.new('/quit', 'quits the app', quit_action)
       )
-      commands + skill_commands(commands.map(&:name))
     end
 
-    # One +/<skill-name>+ command per catalog skill (none for an empty catalog),
-    # mirroring Claude Code: the command loads that skill on the user's own
-    # initiative, then drives a turn on the rest of the line (blank → a bare
-    # load). A skill whose +/<name>+ collides with a built-in command
-    # (+reserved_names+) is skipped with a warn — the built-in verb wins, and the
-    # skill stays reachable by asking the agent to load it in a message.
+    # Clear the conversation, then re-list the palette — the clear re-hides
+    # every +paths:+-gated skill, so their +/<name>+ entries have to go with it.
     #
-    # @param reserved_names [Array<String>] the built-in command names to avoid.
-    # @return [Array<Shared::SlashCommand>]
-    def skill_commands(reserved_names)
-      @skill_catalog.list.filter_map do |skill|
-        name = "/#{skill.name}"
-        if reserved_names.include?(name)
-          LOG.warn("skill #{skill.name.inspect} shadows a built-in command; not registered as #{name}")
-          nil
-        else
-          Shared::SlashCommand.new(name, skill.description, skill_loader(skill.name))
-        end
-      end
-    end
-
-    # The callback for a +/<name>+ skill command: schedule the skill as a
-    # +:system+ block, *then* drive a turn on +rest+. Order matters — both ride
-    # the agent's interloper, so scheduling first lands the skill ahead of the
-    # message (a blank +rest+ is a bare load: the skill becomes the whole turn).
-    # Returns nil: the turn and its {Pikuri::Agent::Event::SystemInjected} block
-    # are the transcript record, so there is no palette echo.
-    #
-    # @param name [String] the catalog skill name (no leading slash).
-    # @return [Proc]
-    def skill_loader(name)
-      lambda do |rest|
-        @skill_ext.schedule_load_skill(name)
-        @session.submit(rest)
-        nil
-      end
+    # @return [void]
+    def clear_conversation
+      @session.clear_conversation
+      @skill_activation.refresh
     end
 
     # Stop the event loop, unwinding {#run} back to the bin's +ensure+ (which

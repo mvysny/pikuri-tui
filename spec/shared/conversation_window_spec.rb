@@ -149,9 +149,32 @@ RSpec.describe Shared::ConversationWindow do
     refute_includes rendered, 'x' * 5_000
   end
 
-  it 'renders SystemInjected (a host-loaded skill) as a dim ⊕ block' do
-    listener.on_event(Pikuri::Agent::Event::SystemInjected.new(content: '<skill>writing-rdoc</skill>'))
-    assert_includes rendered, '⊕ <skill>writing-rdoc</skill>'
+  it 'renders SystemInjected as a dim ⊕ block' do
+    listener.on_event(Pikuri::Agent::Event::SystemInjected.new(content: 'remember: be brief'))
+    assert_includes rendered, '⊕ remember: be brief'
+  end
+
+  it 'collapses a loaded skill body to its name instead of pasting the whole SKILL.md' do
+    body = Pikuri::Skill::Renderer.format_skill(
+      Pikuri::Skill::Catalog::Skill.new(name: 'writing-rdoc', description: 'd',
+                                        location: '/skills/writing-rdoc/SKILL.md',
+                                        body: "# Writing rdoc\n\nlots and lots of guidance\n")
+    )
+    listener.on_event(Pikuri::Agent::Event::SystemInjected.new(content: body))
+    assert_includes rendered, '⊕ loaded skill: writing-rdoc'
+    refute_includes rendered, 'lots and lots of guidance'
+  end
+
+  # The promoting host renders its own line, carrying the matched path this
+  # block has no room for — so pasting it too would be a noisier duplicate.
+  it 'drops a path-activation promotion block entirely' do
+    promotion = Pikuri::Skill::Renderer.format_promotion(
+      [Pikuri::Skill::Catalog::Skill.new(name: 'writing-rdoc', description: 'd',
+                                         location: '/skills/writing-rdoc/SKILL.md', body: '')]
+    )
+    listener.on_event(Pikuri::Agent::Event::SystemInjected.new(content: promotion))
+    refute_includes rendered, 'writing-rdoc'
+    refute_includes rendered, '⊕'
   end
 
   it 'renders FallbackNotice with the reason' do

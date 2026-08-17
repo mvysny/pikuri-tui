@@ -63,16 +63,22 @@ RSpec.describe Code::App do
                                                skill('plan', 'a skill that collides with /plan')]))
     end
 
+    def skill_commands(some_app = app) = some_app.instance_variable_get(:@skill_activation)
+
     it 'appends a /<name> per catalog skill, after the built-in commands, with the skill description as the hint' do
-      commands = app.send(:build_slash_commands)
+      commands = skill_commands.commands
       rdoc = commands.find { |c| c.name == '/writing-rdoc' }
       refute_nil rdoc
       assert_equal 'writing rdoc docs', rdoc.description
       assert_equal '/writing-rdoc', commands.map(&:name).last # after the built-ins
     end
 
+    it 'keeps the built-in commands out of the skill half' do
+      refute_includes app.send(:build_slash_commands).map(&:name), '/writing-rdoc'
+    end
+
     it 'lets a built-in command win a name collision: the skill is skipped, not a duplicate /plan' do
-      names = app.send(:build_slash_commands).map(&:name)
+      names = skill_commands.commands.map(&:name)
       assert_equal 1, names.count('/plan'), 'the /plan skill must not shadow or duplicate the built-in'
     end
 
@@ -86,10 +92,54 @@ RSpec.describe Code::App do
         define_method(:submit) { |msg| submitted << msg }
       end.new)
 
-      rdoc = app.send(:build_slash_commands).find { |c| c.name == '/writing-rdoc' }
+      rdoc = skill_commands.commands.find { |c| c.name == '/writing-rdoc' }
       assert_nil rdoc.callback.call('polish the docs') # no echo; the turn is the record
       assert_equal ['writing-rdoc'], loaded
       assert_equal ['polish the docs'], submitted
+    end
+
+    describe 'the paths: gate' do
+      let(:app) do
+        code_app(skill_catalog: StubCatalog.new([skill('writing-rdoc', 'writing rdoc docs', paths: ['**/*.rb']),
+                                                 skill('cop', 'component-oriented programming')]))
+      end
+
+      it 'withholds a gated skill until a touched file fires it' do
+        names = skill_commands.commands.map(&:name)
+        assert_includes names, '/cop'
+        refute_includes names, '/writing-rdoc'
+      end
+
+      it 'lists it the moment a read touches a matching file' do
+        touch('lib/code/app.rb')
+        assert_includes skill_commands.commands.map(&:name), '/writing-rdoc'
+      end
+
+      it 'says in the transcript which file fired it' do
+        touch('lib/code/app.rb')
+        assert_includes app.conversation_view.text.to_s,
+                        'skills available: writing-rdoc (matched lib/code/app.rb)'
+      end
+
+      it 'hides it again when the conversation is cleared' do
+        touch('lib/code/app.rb')
+        app.send(:clear_conversation)
+        refute_includes skill_commands.commands.map(&:name), '/writing-rdoc'
+      end
+
+      it 'never lists a skill schedule_load_skill would refuse' do
+        refute_includes skill_commands.commands.map(&:name), '/writing-rdoc'
+        assert_raises(KeyError) { app.instance_variable_get(:@skill_ext).schedule_load_skill('writing-rdoc') }
+      end
+
+      # Drive the promotion the way the agent does: the listener watches
+      # ToolCall arguments at before_tool_call, so a bare emit is the whole
+      # mechanism (no tool has to actually run).
+      def touch(path, some_app = app)
+        some_app.agent.instance_variable_get(:@listeners)
+                .emit(Pikuri::Agent::Event::ToolCall.new(name: 'read', arguments: { 'path' => path }))
+        pump_ui
+      end
     end
   end
 
@@ -349,9 +399,11 @@ RSpec.describe Code::App do
     def roots = []
   end
 
-  def skill(name, description) = Pikuri::Skill::Catalog::Skill.new(
-    name: name, description: description, location: "/skills/#{name}/SKILL.md", body: "# #{name}\n"
-  )
+  def skill(name, description, paths: Pikuri::Skill::PathMatcher::UNCONDITIONAL) =
+    Pikuri::Skill::Catalog::Skill.new(
+      name: name, description: description, location: "/skills/#{name}/SKILL.md", body: "# #{name}\n",
+      paths: paths
+    )
 
   # A Shared::Config carrying the given connections (defaults to one matching
   # code_app's default fake transport, so the footer resolves it). App derives

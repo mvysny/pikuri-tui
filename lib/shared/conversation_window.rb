@@ -488,9 +488,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
       in Pikuri::Agent::Event::SystemInjected(content:)
         @assistant.wipe
         @thinking.preserve
-        # A host-loaded skill (or other :system injection) landing mid-stream;
-        # dim with a ⊕ marker, mirroring Pikuri::Agent::Listener::Terminal.
-        @view.add_block(@view.theme.detail("⊕ #{content}"), indent: @indent)
+        render_system_injection(content)
       in Pikuri::Agent::Event::FallbackNotice(reason:)
         @assistant.wipe
         @thinking.preserve
@@ -505,6 +503,29 @@ class Shared::ConversationWindow < Tuile::Component::Window
         # Tokens / ContextCap: silent here. TokenLog handles them if the host
         # registered one.
       end
+    end
+
+    # Render a {Pikuri::Agent::Event::SystemInjected} body — dim, with a ⊕
+    # marker, mirroring +Pikuri::Agent::Listener::Terminal+ — collapsing the two
+    # skill-shaped ones:
+    #
+    #   ⊕ loaded skill: writing-rdoc      # was a whole SKILL.md body
+    #                                     # a promotion block renders nothing
+    #
+    # Both are XML-wrapped payloads sized for the model, and pasting either
+    # verbatim buries the transcript under a screenful the human didn't ask for.
+    # A promotion is dropped outright rather than summarized because the host
+    # that promoted it announces its own line — one carrying the matched path
+    # this block has no room for.
+    #
+    # @param content [String] the injected block.
+    # @return [void]
+    def render_system_injection(content)
+      return if content.include?('<available_skills>')
+
+      name = content[/\A<skill name="([^"]*)"/, 1]
+      text = name ? "loaded skill: #{name}" : content
+      @view.add_block(@view.theme.detail("⊕ #{text}"), indent: @indent)
     end
 
     # Render a {Pikuri::Agent::Event::ToolCall}. A registered formatter for
