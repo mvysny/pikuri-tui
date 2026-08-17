@@ -148,9 +148,15 @@ confirm_enabled = config.confirm
 # Skill catalog: project root + Dir.home as search bases (project beats
 # global). Catalog roots are folded into the workspace's readable set so
 # the skill tool's sidecar +read+ flow works.
-skill_catalog = Pikuri::Skill::Catalog::Bundled.new(
-  search_bases: [project_root, Dir.home]
-)
+bundle_bases = [project_root, Dir.home]
+skill_catalog = Pikuri::Skill::Catalog::Bundled.new(search_bases: bundle_bases)
+
+# Slash commands: the *human*-invoked half of the same surface, scanned from
+# .pikuri/commands / .claude/commands under those same bases. Never advertised
+# to the model, so they cost nothing in the system prompt; App turns each into
+# a palette entry. Their roots ride in readable: (never writable:) so the model
+# can read a file a command body points at.
+command_registry = Pikuri::Command::Registry.new(search_bases: bundle_bases)
 
 # The private-data declaration, sole input to the trifecta's private leg (see
 # Code::PrivacyStore). A question and not a --private flag because a forgotten
@@ -206,6 +212,7 @@ filesystem = if yolo
                 project_root:      project_root,
                 readable:          Pikuri::Code::ToolchainPaths.readable +
                                    skill_catalog.roots +
+                                   command_registry.roots +
                                    extra_readable,
                 writable:          extra_writable,
                 temp:              true,
@@ -323,6 +330,7 @@ begin
     filesystem: filesystem,
     sandbox: sandbox,
     skill_catalog: skill_catalog,
+    command_registry: command_registry,
     system_prompt: system_prompt,
     trusted_repo: trusted_repo
   )
@@ -334,6 +342,10 @@ begin
   unless skill_catalog.empty?
     names = skill_catalog.list.map(&:name).sort.join(', ')
     main_log.info("Loaded #{skill_catalog.list.size} skill(s): #{names}")
+  end
+  unless command_registry.empty?
+    names = command_registry.list.map { |cmd| "/#{cmd.name}#{cmd.refused? ? ' (unavailable)' : ''}" }
+    main_log.info("Loaded #{command_registry.list.size} command(s): #{names.sort.join(', ')}")
   end
   main_log.info(trust_notice) if trust_notice
   main_log.info(privacy_notice)

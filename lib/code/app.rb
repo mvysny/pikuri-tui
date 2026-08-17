@@ -153,6 +153,10 @@ module Code
     # @param skill_catalog [Pikuri::Skill::Catalog] the skill catalog whose
     #   roots the bin already folded into +filesystem.readable+; wired into the
     #   +Skill+ extension.
+    # @param command_registry [Pikuri::Command::Registry] the on-disk slash
+    #   commands, whose roots the bin folded into +filesystem.readable+ for the
+    #   same reason. Becomes one palette entry each, and one +Command+ extension
+    #   so +/trifecta+ counts their untrusted leg.
     # @param system_prompt [String] the fully-assembled coding system prompt —
     #   built in the bin because it reads AGENTS.md/CLAUDE.md and reflects the
     #   sandbox / writable-paths / yolo posture (all bin-local decisions).
@@ -167,13 +171,14 @@ module Code
     #   +Pikuri::Testing.fake_transport+ to run real turns against scripted
     #   HTTP — skipping the network / RubyLLM / MCP-verify cost. See the class
     #   header.
-    def initialize(config:, filesystem:, sandbox:, skill_catalog:, system_prompt:,
+    def initialize(config:, filesystem:, sandbox:, skill_catalog:, command_registry:, system_prompt:,
                    trusted_repo: false, markdown: true, transport: nil)
       @screen = Tuile::Screen.instance
       @config = config
       @filesystem = filesystem
       @sandbox = sandbox
       @skill_catalog = skill_catalog
+      @command_registry = command_registry
       @system_prompt = system_prompt
       @trusted_repo = trusted_repo
       @markdown = markdown
@@ -260,7 +265,15 @@ module Code
         model_picker: @model_picker, logger: LOG
       )
 
-      base_commands = build_slash_commands
+      # Precedence: built-in > file command > skill. Match built-ins first or a
+      # cloned repo shipping .claude/commands/plan.md captures the /plan that
+      # flips a safety gate.
+      built_ins = build_slash_commands
+      base_commands = built_ins + Shared::FileCommands.build(
+        registry: @command_registry, reserved: built_ins.map(&:name),
+        screen: @screen, logger: LOG,
+        on_expand: ->(text) { @session.submit(text) }
+      )
       @slash_menu = Shared::SlashMenuPopup.new(
         screen: @screen, commands: base_commands, conversation: @conversation_window
       )
@@ -397,6 +410,9 @@ module Code
           read_only: @plan_mode
         )
         c.add_extension @skill_ext
+        # Declaration only — commands register no tool and render no prompt, so
+        # without this /trifecta would miss their untrusted leg entirely.
+        c.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
         c.add_extension Pikuri::Tasks::Extension.new
         c.add_extension Pikuri::Mcp::Extension.new(
           registry: mcp_registry,

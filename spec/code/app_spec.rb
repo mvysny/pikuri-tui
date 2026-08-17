@@ -143,6 +143,55 @@ RSpec.describe Code::App do
     end
   end
 
+  # The three namespaces competing for one typed /name, resolved
+  # built-in > file command > skill (pikuri's Command::Registry states the
+  # order; the loser is warned, not silently duplicated).
+  describe 'slash-command precedence' do
+    around do |example|
+      Dir.mktmpdir('pikuri-tui-commands') do |dir|
+        FileUtils.mkdir_p(File.join(dir, '.claude/commands'))
+        %w[wh plan writing-rdoc].each do |name|
+          File.write(File.join(dir, '.claude/commands', "#{name}.md"), "A #{name} template.")
+        end
+        @commands_base = dir
+        example.run
+      end
+    end
+
+    let(:app) do
+      code_app(
+        command_registry: Pikuri::Command::Registry.new(search_bases: [@commands_base]),
+        skill_catalog: StubCatalog.new([skill('writing-rdoc', 'writing rdoc docs'),
+                                        skill('cop', 'component-oriented programming')])
+      )
+    end
+
+    def palette = app.instance_variable_get(:@skill_activation).commands.map(&:name)
+
+    it 'lists file commands after the built-ins and before the skills' do
+      assert_equal ['/logs', '/trifecta', '/diff', '/plan', '/clear', '/exit', '/quit',
+                    '/wh', '/writing-rdoc', '/cop'],
+                   palette
+    end
+
+    it 'lets the built-in /plan win over a same-named command file' do
+      assert_equal 1, palette.count('/plan')
+      assert_equal 'toggle plan mode', app.send(:build_slash_commands).find { |c| c.name == '/plan' }.description
+    end
+
+    it 'lets the command file win over a same-named skill' do
+      assert_equal 1, palette.count('/writing-rdoc')
+      refute_equal 'writing rdoc docs',
+                   app.instance_variable_get(:@skill_activation).commands
+                      .find { |c| c.name == '/writing-rdoc' }.description
+    end
+
+    it 'declares the command surface to /trifecta, so its untrusted leg is counted' do
+      assert app.agent.trifecta.render.include?('(commands)'),
+             'an unvouched command base contributes an untrusted row'
+    end
+  end
+
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
     assert_kind_of Tuile::Component::LogWindow, app.log_window
   end
@@ -376,6 +425,7 @@ RSpec.describe Code::App do
   # specs that never run a turn).
   def code_app(config: code_config, model: 'stub-model', api_base: 'http://x/v1', gate: nil,
                skill_catalog: Pikuri::Skill::Catalog::Bundled.new(search_bases: []),
+               command_registry: Pikuri::Command::Registry.new(search_bases: []),
                filesystem: Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd), &script)
     script ||= ->(llm) { llm.stream('ok') }
     transport = Pikuri::Testing.fake_transport(model: model, api_base: api_base, gate: gate, &script)
@@ -384,6 +434,7 @@ RSpec.describe Code::App do
       filesystem: filesystem,
       sandbox: Pikuri::Code::Bash::Sandbox::NONE,
       skill_catalog: skill_catalog,
+      command_registry: command_registry,
       system_prompt: 'test system prompt',
       transport: transport
     )
