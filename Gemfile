@@ -100,13 +100,19 @@ gem 'pikuri-code', path: '../pikuri', groups: %i[code computer]
 # +groups:+ so each shell activates it and chat does not.
 gem 'pikuri-subagents', path: '../pikuri', groups: %i[code computer]
 
+# Shared by the coding AND computer shells. pikuri-skills carries two surfaces
+# on one scan of .pikuri/… / .claude/…: the skill catalog (which only the
+# coding shell wires) and Pikuri::Command::Registry, the human-invoked slash
+# commands both shells list in their palette. Its sole dependency is
+# pikuri-core, so the computer shell pays a load-path line and nothing more.
+gem 'pikuri-skills', path: '../pikuri', groups: %i[code computer]
+
 # Coding-shell-only runtime: git_clone + toolchain paths (pikuri-code,
-# above), the in-context task list (pikuri-tasks), the skill catalog
-# (pikuri-skills), and MCP wiring (pikuri-mcp). The computer shell wires none
-# of these, so they stay off its load path.
+# above), the in-context task list (pikuri-tasks), and MCP wiring
+# (pikuri-mcp). The computer shell wires none of these, so they stay off its
+# load path.
 group :code do
   gem 'pikuri-tasks', path: '../pikuri'
-  gem 'pikuri-skills', path: '../pikuri'
   gem 'pikuri-mcp', path: '../pikuri'
 end
 

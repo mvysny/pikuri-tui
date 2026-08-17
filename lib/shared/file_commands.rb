@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'pikuri-skills'
-
 # Turns pikuri's on-disk slash commands — the +.md+ prompt templates under
 # +.pikuri/commands+ / +.claude/commands+ — into {Shared::SlashCommand}s the
 # palette can list and run:
@@ -29,6 +27,9 @@ require 'pikuri-skills'
 # otherwise take over +/plan+, which flips a safety gate. The loser is dropped
 # with a warn, and dropped is all it is — unlike a shadowed skill, nothing else
 # reaches it.
+#
+# Requires no pikuri gem: +registry+ is duck-typed, so the lean chat process
+# (which never loads pikuri-skills) can still eager-load this file.
 module Shared::FileCommands
   module_function
 

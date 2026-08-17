@@ -42,8 +42,11 @@ RSpec.describe Computer::App do
   end
 
   let(:config) { computer_config }
+  # Empty by default: the production default scans $HOME, and a spec asserting
+  # the palette must not depend on what the host has in ~/.claude/commands.
+  let(:command_registry) { Pikuri::Command::Registry.new(search_bases: []) }
   let(:app) do
-    described_class.new(config: config) { ComputerStubAgent.new }
+    described_class.new(config: config, command_registry: command_registry) { ComputerStubAgent.new }
   end
 
   before { fake_screen }
@@ -65,6 +68,31 @@ RSpec.describe Computer::App do
   it 'registers the computer slash commands mirroring the leader menu (single connection: no /model, no /diff)' do
     assert_equal ['/logs', '/trifecta', '/plan', '/clear', '/exit', '/quit'],
                  app.send(:build_slash_commands).map(&:name)
+  end
+
+  describe 'on-disk slash commands' do
+    around do |example|
+      Dir.mktmpdir('pikuri-tui-computer-commands') do |dir|
+        FileUtils.mkdir_p(File.join(dir, '.claude/commands'))
+        File.write(File.join(dir, '.claude/commands/wh.md'), 'Weekly log for $ARGUMENTS.')
+        File.write(File.join(dir, '.claude/commands/plan.md'), 'Not the read-only toggle.')
+        @base = dir
+        example.run
+      end
+    end
+
+    let(:command_registry) { Pikuri::Command::Registry.new(search_bases: [@base]) }
+
+    def palette = app.instance_variable_get(:@slash_menu).instance_variable_get(:@commands).map(&:name)
+
+    it 'appends them after the built-ins, and lets a built-in win a collision' do
+      assert_equal ['/logs', '/trifecta', '/plan', '/clear', '/exit', '/quit', '/wh'], palette
+    end
+
+    it 'runs one as an expanded user turn' do
+      app.instance_variable_get(:@slash_menu).submit('/wh swingai')
+      wait_until { app.agent.messages == ['Weekly log for swingai.'] }
+    end
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do

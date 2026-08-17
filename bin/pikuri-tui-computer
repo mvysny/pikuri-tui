@@ -27,8 +27,9 @@
 ENV['BUNDLE_GEMFILE'] ||= File.expand_path('../Gemfile', __dir__)
 
 # Activate :default + :computer — the computer shell needs pikuri-os +
-# pikuri-thunderbird (which pull in pikuri-workspace + pikuri-code) and
-# diff-lcs, but NOT the coding shell's tasks/skills/mcp gems. The explicit
+# pikuri-thunderbird (which pull in pikuri-workspace + pikuri-code), diff-lcs
+# and pikuri-skills (for its Command::Registry half only — no skill catalog is
+# wired here), but NOT the coding shell's tasks/mcp gems. The explicit
 # +Bundler.setup+ form (not +require 'bundler/setup'+, which activates every
 # group) keeps the :code and :test groups off this process's load path.
 require 'bundler'
@@ -47,6 +48,7 @@ require 'pikuri-core'
 require 'pikuri-os' # pulls in pikuri-workspace + pikuri-code
 require 'pikuri-thunderbird' # local mail + calendar tools + outbound hand-offs
 require 'pikuri-subagents' # the `agent` tool + RESEARCHER persona (web research)
+require 'pikuri-skills' # Command::Registry — the /name prompt templates (no skill catalog here)
 require 'pikuri-pdf' # PDF text extraction for the RESEARCHER's web_scrape + file read
 require 'pikuri_tui'
 
@@ -159,6 +161,10 @@ begin
   app = Computer::App.new(config: config, internet_enabled: internet_enabled, profile_dir: profile_dir)
 
   main_log.info("Working from #{app.project_root}")
+  unless app.command_registry.empty?
+    names = app.command_registry.list.map { |cmd| "/#{cmd.name}#{cmd.refused? ? ' (unavailable)' : ''}" }
+    main_log.info("Loaded #{app.command_registry.list.size} command(s): #{names.sort.join(', ')}")
+  end
   main_log.info('Local Thunderbird mail + calendar wired; drafts (reply / event) open in ' \
                 'Thunderbird for you to review and Send/confirm — pikuri sends nothing itself.')
   if internet_enabled

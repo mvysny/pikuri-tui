@@ -34,7 +34,7 @@ bash (provably passive bash commands auto-approve via pikuri's
 `Pikuri::Code::Bash::PassiveCommandDetector`, leaving the popup for mutations;
 read-only git additionally auto-approves once the user affirms a
 one-time, persisted git-config trust prompt — `Code::TrustStore`),
-sub-agent-only network tools, the skill / task / MCP /
+sub-agent-only network tools, the skill / command / task / MCP /
 sub-agent extensions, a plan-mode toggle (a read-only
 posture surfaced as a footer badge), and a second one-time,
 persisted startup question — does this project hold anything you'd
@@ -67,9 +67,12 @@ and renders `edit` / `write` diffs — all reusing the coding shell's
 command through one leader key (`Ctrl+K` → `Shared::LeaderMenu`); only
 `Ctrl+C` (cancel/quit) stays a direct shortcut. All three also carry
 `/trifecta`, which echoes pikuri's own lethal-trifecta report for the
-running wiring (`Shared::TrifectaRenderer`) — the one slash command with
-no leader-menu counterpart, since it is a read-it-when-you-wonder
-diagnostic rather than an action.
+running wiring (`Shared::TrifectaRenderer`) — the one built-in slash command
+with no leader-menu counterpart, since it is a read-it-when-you-wonder
+diagnostic rather than an action. The coding and computer shells additionally
+list pikuri's on-disk `/name` prompt templates (`.pikuri/commands` /
+`.claude/commands`, via `Shared::FileCommands`), and the coding shell one
+`/<skill-name>` per skill currently in play.
 
 The three shells keep their genuinely-divergent scaffolding (`App` /
 `Layout`) as deliberate parallel copies, not a common base (see
@@ -87,10 +90,13 @@ split across Bundler groups: `bin/pikuri-tui-chat` runs
 `Bundler.setup(:default, :code)`, and `bin/pikuri-tui-computer` runs
 `Bundler.setup(:default, :computer)` — so the heavier gems stay off the
 chat process's load path, and the coding-only gems
-(tasks/skills/mcp) stay off the computer process's. The shared
-heavier gems (`pikuri-workspace`/`pikuri-code`/`diff-lcs`/`pikuri-subagents`)
+(tasks/mcp) stay off the computer process's. The shared
+heavier gems (`pikuri-workspace`/`pikuri-code`/`diff-lcs`/`pikuri-subagents`/
+`pikuri-skills`)
 sit in both `:code` and `:computer` via `groups:` (the coding shell spawns
-several personas, the computer shell the RESEARCHER for web research);
+several personas, the computer shell the RESEARCHER for web research;
+`pikuri-skills` carries two surfaces on one scan, and the computer shell wires
+only the `Pikuri::Command::Registry` half — no skill catalog);
 `pikuri-os` and `pikuri-thunderbird` are `:computer`-only.
 `lib/pikuri_tui.rb` ignores both the `Code` and
 `Computer` subtrees entirely when the heavier gems aren't
@@ -161,6 +167,26 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   `<Role>-thread-confined` tag defers to; everything else about
   thread-safety (the mutable/not-thread-safe default, the vocabulary) is
   global and lives there, not here.
+
+- **One typed `/name`, three namespaces: built-in > file command >
+  skill.** Match built-ins first or a cloned repo shipping
+  `.claude/commands/plan.md` captures the `/plan` that flips plan mode
+  (pikuri's `Command::Registry` rdoc states the same order for the same
+  reason). Collisions are rare, so the loser is simply dropped with one
+  `LOG.warn` and only the winner appears in the palette — no disambiguating
+  suffix, no second entry. What that costs differs per loser and is accepted:
+  a shadowed *skill* stays reachable by asking the agent for it in plain
+  language, a shadowed *file command* is genuinely unreachable and the warn is
+  the whole remedy.
+
+  The skill half is additionally **gated**: a skill declaring `paths:` is not
+  in play until a `read`/`write`/`edit` touches a matching file, and pikuri
+  applies that gate at *every* invocation surface — `schedule_load_skill`
+  refuses a pending skill exactly as the `skill` tool does (`DECISIONS.md`
+  `D-skill-path-activation`, decision 7, which explicitly closed the operator
+  exemption). So the palette must not merely survive a gated skill, it must not
+  *list* one; `Code::SkillActivationListener` reads the activation and re-lists
+  as the gate opens (`Skill::Promoted`) and closes (`/clear`).
 
 - **Multi-window layouts beyond log + input — out of scope until
   there's a concrete need.** (Streaming and mid-loop input used
@@ -318,8 +344,20 @@ Zeitwerk over `lib/` and eager-loads it.
   and echoes the command + any outcome into the conversation pane via
   `#add_block` (never the agent context; an unknown command echoes a red
   "Command not found"). Driven by `Shared::InputWindow` (`#sync` /
-  `#handle_nav_key` / `#submit`); each `App` registers its own command set.
+  `#handle_nav_key` / `#submit`); each `App` registers its own command set, and
+  `#commands=` re-sets it mid-session (the coding shell's
+  `Code::SkillActivationListener` does, as the `paths:` gate opens and closes).
   Shared by all three shells.
+- `lib/shared/file_commands.rb` — `Shared::FileCommands`, maps
+  `Pikuri::Command::Registry`'s on-disk `.md` prompt templates
+  (`.pikuri/commands` / `.claude/commands`) onto `Shared::SlashCommand`s: each
+  expands its template against the rest of the typed line and drives it as an
+  ordinary *user* turn, a refused one (`allowed-tools:`, a `` !`cmd` ``
+  directive) stays listed as `(unavailable)` and answers with the reason, and a
+  name a built-in already took is dropped with a warn. Stateless module
+  (`.build`), duck-typed on the registry so it carries no pikuri require and
+  the lean chat process can still eager-load it. Used by the coding and
+  computer shells.
 - `lib/shared/trifecta_renderer.rb` — `Shared::TrifectaRenderer`, paints a
   `Pikuri::Trifecta::Report` for the conversation pane (advisory toned by
   verdict, map untoned) — what `/trifecta` echoes in all three shells;
@@ -358,8 +396,11 @@ Zeitwerk over `lib/` and eager-loads it.
   `ModelSwitched` listener. Exposes `#listener` (the transcript) /
   `#status_footer_updater` (the footer) for the host to compose into the
   agent's `ListenerList`, plus `#render_notice` (a dim, non-error transcript
-  line, sibling of `#render_turn_error`); a `SystemInjected` event (a host-loaded
-  skill) renders as a dim `⊕` block. `#scroll_half_page_up` /
+  line, sibling of `#render_turn_error`); a `SystemInjected` event renders as a
+  dim `⊕` block, except that the two skill-shaped payloads are collapsed — a
+  loaded `SKILL.md` body to `⊕ loaded skill: <name>`, a `paths:` promotion block
+  to nothing at all (the promoting host announces its own line, carrying the
+  matched path the block has no room for). `#scroll_half_page_up` /
   `#scroll_half_page_down` page the viewport for a host holding focus elsewhere
   (the prompt's PageUp/PageDown); paging back to the bottom re-arms tailing.
 - `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
@@ -379,18 +420,27 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/code/app.rb` — `Code::App`, the Tuile
   shell for `bin/pikuri-tui-code`; like `Chat::App` but adds the
   `Code::ConfirmerPopup`, the `Code::WorkspaceSidebar` (tasks + git changes +
-  diff popup), plan-mode toggle, and one `/<skill-name>` slash command per
-  `skill_catalog` entry (skipping a name that collides with a built-in command,
-  with a warn) that loads that skill then drives a turn on the rest of the line.
-  Like the other two shells it builds its
-  own agent (models, MCP registry, the six file/shell tools + task/skill/
-  sub-agent extensions — keeping the `Skill::Extension` reference for those
-  commands' `schedule_load_skill`) with an optional no-arg block overriding the build for
+  diff popup), plan-mode toggle, and the full three-namespace slash palette
+  (built-ins, then `Shared::FileCommands`, then the skill half
+  `Code::SkillActivationListener` keeps current). Like the other two shells it
+  builds its own agent (models, MCP registry, the six file/shell tools +
+  task/skill/command/sub-agent extensions — keeping the `Skill::Extension`
+  reference for `schedule_load_skill` and the activation gate) with an optional
+  no-arg block overriding the build for
   tests — but because the git-trust prompt / skill-catalog / CLI-flag-driven
   workspace can't be a pure post-screen graph, it takes the bin-built
-  `filesystem:` / `sandbox:` / `skill_catalog:` / `system_prompt:` /
+  `filesystem:` / `sandbox:` / `skill_catalog:` / `command_registry:` /
+  `system_prompt:` /
   `trusted_repo:` as constructor args (see the class header for the split).
   `#run` no longer closes the screen — the bin's `begin/ensure` owns teardown.
+- `lib/code/skill_activation_listener.rb` — `Code::SkillActivationListener`, a
+  `Pikuri::Agent::Listener::Base` mirroring pikuri's `paths:` activation gate
+  into the two places the human reads it: the palette's `/<skill-name>` half
+  (built from the `Skill::Extension`'s *activation*, not its catalog, so a
+  gated skill is unlisted until it fires — see the precedence rule in Scope
+  decisions) and a transcript notice naming the file that fired it. `#refresh`
+  re-lists (the host calls it after `clear_conversation`; a `Event::Reset` arm
+  would run *before* the activation is cleared). Coding-shell-only.
 - `lib/code/layout.rb` — `Code::Layout`, the
   coding shell's dual-column root: a 60/40 conversation-over-input left
   column beside a full-height `Code::WorkspaceSidebar` (collapsed when too
@@ -470,8 +520,11 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/computer/app.rb` — `Computer::App`, the Tuile shell for
   `bin/pikuri-tui-computer`; laid out like `Chat::App` (no sidebar) but carrying
   the coding shell's safety machinery (confirmer, plan mode, diff
-  formatters). Like `Chat::App`, it takes the loaded `config:` (plus the
-  `internet_enabled:` / `profile_dir:` flags) and builds its own agent —
+  formatters) and the `Shared::FileCommands` half of the palette (no skill
+  catalog is wired here, so there is no skill half and no `paths:` gate). Like
+  `Chat::App`, it takes the loaded `config:` (plus the
+  `internet_enabled:` / `profile_dir:` flags, and a `command_registry:` whose
+  production default scans the launch dir + `$HOME`) and builds its own agent —
   composing `Pikuri::Os::Extension` + `Pikuri::Thunderbird::Extension` + the
   quarantined web RESEARCHER — with an optional no-arg block overriding the
   build for tests. The `FullFsNoNet` sandbox (whose bwrap probe may raise) is
@@ -487,7 +540,8 @@ Zeitwerk over `lib/` and eager-loads it.
 - `bin/pikuri-tui-code` — boot script for the coding agent
   (`Bundler.setup(:default, :code)`): does the pre-screen boot sequencing App
   can't — CLI + `--readable`/`--writable` validation, project-root discovery +
-  `Dir.chdir`, config, the skill catalog + workspace + sandbox, the two
+  `Dir.chdir`, config, the skill catalog + command registry (whose roots both
+  ride in the workspace's `readable:`) + workspace + sandbox, the two
   interactive prompts — is this project private? (→ the workspace's
   `private:`, asked before the workspace exists) and the git-trust one
   (→ `trusted_repo`) — and the posture-reflecting
@@ -716,6 +770,7 @@ Zeitwerk over `lib/` and eager-loads it.
   `Shared::PromptHistory`, `Shared::StatusFooterUpdater`,
   `Shared::ConversationWindow`, `Shared::AgentSession`,
   `Shared::LeaderMenu`, `Shared::SlashMenuPopup`, `Shared::SlashCommand`,
+  `Shared::FileCommands`,
   `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the computer shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this

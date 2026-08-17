@@ -131,6 +131,10 @@ module Computer
     #   inspect how those tools were gated.
     attr_reader :confirmer
 
+    # @return [Pikuri::Command::Registry] the on-disk slash commands this shell
+    #   scanned; exposed so the bin can log what it loaded.
+    attr_reader :command_registry
+
     # @param config [Shared::Config] the resolved configuration; App derives
     #   the model list (one {Shared::Model::Choice} per +config.llms+ entry,
     #   the first the boot connection), reads the sandbox/confirm posture, and
@@ -148,18 +152,27 @@ module Computer
     #   never chdirs).
     # @param markdown [Boolean] forwarded to {Shared::ConversationWindow}'s
     #   +markdown:+ flag (default +true+).
+    # @param command_registry [Pikuri::Command::Registry] the on-disk slash
+    #   commands, one palette entry each. Defaults to a scan of the launch dir
+    #   and +$HOME+ — this shell has no containment to reason from, so neither
+    #   base is vouched for and +/trifecta+ grades them accordingly. A spec
+    #   passes an empty registry to keep the palette off the host's real
+    #   +~/.claude/commands+.
     # @yield optional test/override seam, called with no arguments. When
     #   given, App calls it in place of {#default_build_agent} — a spec
     #   returns a lightweight stand-in to skip the network / sandbox-probe
     #   cost of a real agent. Omitted in production.
     # @yieldreturn [Pikuri::Agent] the agent (or a duck-type) to install.
-    def initialize(config:, internet_enabled: true, profile_dir: nil, project_root: Dir.pwd, markdown: true, &build_agent)
+    def initialize(config:, internet_enabled: true, profile_dir: nil, project_root: Dir.pwd, markdown: true,
+                   command_registry: Pikuri::Command::Registry.new(search_bases: [Dir.pwd, Dir.home]),
+                   &build_agent)
       @screen = Tuile::Screen.instance
       @config = config
       @internet_enabled = internet_enabled
       @profile_dir = profile_dir
       @project_root = project_root
       @markdown = markdown
+      @command_registry = command_registry
       @token_log = Pikuri::Agent::Listener::TokenLog.new
       # The shared plan-mode (read-only) flag: the leader menu's +p+ toggle
       # and the model's enter/exit tools flip this one instance (threaded into
@@ -236,8 +249,17 @@ module Computer
         model_picker: @model_picker, logger: LOG
       )
 
+      # Precedence: built-in > file command. Match built-ins first or a command
+      # file shipped anywhere under $HOME captures the /plan that flips a
+      # safety gate.
+      built_ins = build_slash_commands
       @slash_menu = Shared::SlashMenuPopup.new(
-        screen: @screen, commands: build_slash_commands, conversation: @conversation_window
+        screen: @screen, conversation: @conversation_window,
+        commands: built_ins + Shared::FileCommands.build(
+          registry: @command_registry, reserved: built_ins.map(&:name),
+          screen: @screen, logger: LOG,
+          on_expand: ->(text) { @session.submit(text) }
+        )
       )
       @input_window = Shared::InputWindow.new(
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
@@ -361,6 +383,9 @@ module Computer
           allow_compose_mail: true,
           allow_create_calendar_event: true
         )
+        # Declaration only — commands register no tool and render no prompt, so
+        # without this /trifecta would miss their untrusted leg entirely.
+        c.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
         # Web research, on by default, but quarantined: the web tools go on as
         # sub-agent-only (add_sub_agent_tool), so the main agent never holds
         # them and keeps zero direct egress — it delegates via the `agent` tool
