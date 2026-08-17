@@ -132,7 +132,7 @@ module Computer
     attr_reader :confirmer
 
     # @return [Pikuri::Command::Registry] the on-disk slash commands this shell
-    #   scanned; exposed so the bin can log what it loaded.
+    #   scanned, refused ones included.
     attr_reader :command_registry
 
     # @param config [Shared::Config] the resolved configuration; App derives

@@ -40,11 +40,9 @@ module Code
   # deliberately over-fires, so a skill *will* appear for no visible reason, and
   # without the trigger, diagnosing it means guessing which glob matched.
   #
-  # {#refresh} is the reset half rather than a +Event::Reset+ arm, because
+  # {#refresh} is the reset half rather than a +Event::Reset+ arm:
   # +Agent#clear_conversation+ emits that event *before* it clears the
-  # activation — a listener reacting to it would recompute against the state it
-  # is about to leave. The host calls {#refresh} after +clear_conversation+
-  # returns instead, when everything has settled.
+  # activation, so the host refreshes once that call has returned.
   #
   # The extension is held rather than its +activation+, because
   # +Skill::Extension#configure+ may swap that object out for an
@@ -53,7 +51,7 @@ module Code
   # the swap; a captured reference would keep gating a palette nothing can
   # un-gate.
   #
-  # UI-thread-confined, except {#on_event}.
+  # UI-thread-confined, with exceptions.
   class SkillActivationListener < Pikuri::Agent::Listener::Base
     LOG = Pikuri.logger_for('code')
     private_constant :LOG
@@ -105,8 +103,9 @@ module Code
     end
 
     # Announces a promotion and re-lists the palette; ignores every other event.
-    # Fires on the agent's worker thread, so the palette mutation is marshaled
-    # onto the event-loop thread (the notice marshals itself).
+    # Safe from any thread — it fires on the agent's worker — because the
+    # palette mutation is marshaled onto the UI thread and the notice marshals
+    # itself.
     #
     # @param event [Pikuri::Agent::Event::Base] any agent event; only
     #   {Pikuri::Skill::Promoted} is acted on.

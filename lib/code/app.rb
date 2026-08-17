@@ -196,10 +196,9 @@ module Code
       # Test seam: the backend the agent boots on. Production uses the config's
       # first connection; a spec injects a fake_transport (see class header).
       @boot_transport = transport || @models.first.transport
-      # Built here rather than in the agent block because the palette's
-      # SkillActivationListener needs it (its activation gate decides what is
-      # listed) before the agent exists. +root:+ is what a `paths:` skill's
-      # globs are matched against when the model touches a file.
+      # Built here, not in the agent block: the palette's
+      # SkillActivationListener needs its gate before the agent exists.
+      # +root:+ is what a `paths:` skill's globs are matched against.
       @skill_ext = Pikuri::Skill::Extension.new(catalog: @skill_catalog, root: project_root)
 
       build_components
@@ -277,8 +276,6 @@ module Code
       @slash_menu = Shared::SlashMenuPopup.new(
         screen: @screen, commands: base_commands, conversation: @conversation_window
       )
-      # Appends the /<skill-name> half and keeps it in step with the path gate;
-      # seeded by the #refresh in the constructor, once the agent exists.
       @skill_activation = SkillActivationListener.new(
         skill_extension: @skill_ext, slash_menu: @slash_menu,
         conversation: @conversation_window, screen: @screen,
