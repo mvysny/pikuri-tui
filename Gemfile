@@ -5,14 +5,14 @@ source 'https://rubygems.org'
 ruby '>= 3.3'
 
 # Component-oriented terminal UI framework. The shared API has stabilized, so
-# we consume the released gem. The floor is 0.12.0: it carries the wrap fix
-# (tuile#2 — 0.10.0's word-wrapper ate a first-line indent, flattening every
-# indented block we paint: the /trifecta tree, the sub-agent transcript
-# indent) plus the List items/renderer API and the `Popup.open` factory
-# removal, both of which this tree's components are written against.
-# CO-DEVELOPMENT: tracking ../tuile master for the status-bar deletion.
-# Restore on release: gem 'tuile', '~> 0.13'
-gem 'tuile', path: '../tuile'
+# we consume the released gem. The floor is 0.13.0: it deletes the framework
+# status bar, so Shared::StatusBar draws our own bottom row and drives it from
+# Screen#on_focus_changed=, neither of which exists before 0.13.0. It also
+# carries everything the 0.12.0 floor was for — the wrap fix (tuile#2 —
+# 0.10.0's word-wrapper ate a first-line indent, flattening every indented
+# block we paint: the /trifecta tree, the sub-agent transcript indent), the
+# List items/renderer API and the `Popup.open` factory removal.
+gem 'tuile', '~> 0.13'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching
