@@ -7,10 +7,10 @@ require 'tuile'
 # The diagnostic-log subsystem shared by all three shells: the eager
 # +LogWindow+, its {Shared::Log::Popup}, the {Shared::Log::CountingIO} that
 # routes every pikuri / Tuile log line into that window, the unread-error
-# tally, and the +Ctrl+K+ leader-menu global shortcut whose status-bar hint
+# tally, and the +Ctrl+K+ leader-menu global shortcut whose status-bar segment
 # carries that tally. Wired in two phases:
 #
-#   log_ui = Shared::Log::UI.new(screen: screen)
+#   log_ui = Shared::Log::UI.new(screen: screen, status_bar: bar)
 #   log_ui.wire!                                  # early: route logs here (pre-agent)
 #   # ... build the agent and the leader menu ...
 #   log_ui.install_shortcut { leader_menu.open }  # late: Ctrl+K opens the menu
@@ -19,15 +19,20 @@ require 'tuile'
 # (its own {Shared::LeaderMenu}) and *when* the phases fire — wire early,
 # before the agent is built; install the shortcut once the menu exists.
 #
-# == Why registration lives here, not in the App
+# == Why the tally lives here, not in the App
 #
-# The error tally is surfaced *only* through the +Ctrl+K+ hint (it is the
-# single always-visible status-bar surface), and {Tuile::Screen} refreshes
-# a shortcut's hint by re-registering the binding in place. So bumping the
-# counter and refreshing the hint are the same act — {#on_error_logged} and
-# {#reset_error_count} both re-run {#install_shortcut}. That coupling is why
-# the +Ctrl+K+ registration belongs to this class and not to the App's
+# The error tally is surfaced *only* through the +:menu+ status-bar segment —
+# it is the single always-visible surface — so bumping the counter and
+# rewriting that segment are the same act ({#on_error_logged} and
+# {#reset_error_count} both call {#refresh_menu_segment}). That coupling is why
+# the +Ctrl+K+ binding belongs to this class and not to the App's
 # +register_shortcuts+ (which keeps the genuinely shell-agnostic +Ctrl+C+).
+#
+# The binding itself is now registered exactly *once*. Until Tuile 0.13 a
+# shortcut carried its own +hint:+ and the only way to change the text was to
+# re-register the binding, so a counter bump was expressed as a *dispatch*
+# mutation; the status bar is the app's own component now, so the counter
+# writes to it directly and the registry just runs the action.
 #
 # UI-thread-confined, with exceptions.
 class Shared::Log::UI
@@ -42,11 +47,15 @@ class Shared::Log::UI
   # @param screen [Tuile::Screen] the (already-installed) screen this app
   #   runs on. Used for the theme (hint colors), the event queue (marshaling),
   #   and the global-shortcut registry.
-  def initialize(screen:)
+  # @param status_bar [Shared::StatusBar] the shell's bottom row; this class
+  #   owns its +:menu+ segment and nothing else in it.
+  def initialize(screen:, status_bar:)
     @screen = screen
+    @status_bar = status_bar
     @error_count = 0
     @log_window = Tuile::Component::LogWindow.new('Log')
     @log_popup = Shared::Log::Popup.new(log_window: @log_window, on_dismiss: method(:reset_error_count))
+    refresh_menu_segment
   end
 
   # Routes every pikuri / Tuile log line — and any exception trapped
@@ -72,21 +81,15 @@ class Shared::Log::UI
     prior.replay_into(io) if prior.respond_to?(:replay_into)
   end
 
-  # (Re-)registers the +Ctrl+K+ leader-menu global shortcut with a
-  # status-bar hint that reflects the current error count. {Tuile::Screen}
-  # replaces the binding in place on re-register, so this is also how the
-  # hint stays in sync with the counter — {#on_error_logged} and
-  # {#reset_error_count} both call back here (without a block) after touching
-  # the count.
+  # Registers the +Ctrl+K+ leader-menu global shortcut. The status-bar text is
+  # not this method's business any more — {#refresh_menu_segment} owns the
+  # +:menu+ segment and is driven by the counter, so this runs once.
   #
-  # @yield the +Ctrl+K+ action — opening the App's {Shared::LeaderMenu}. Captured on
-  #   the first call (from the App's +register_shortcuts+) and reused on every
-  #   hint-refresh re-registration. Omit it to re-register with the remembered
-  #   block.
+  # @yield the +Ctrl+K+ action — opening the App's {Shared::LeaderMenu}.
   # @return [void]
   def install_shortcut(&open_menu)
     @open_menu = open_menu if open_menu
-    @screen.register_global_shortcut(Tuile::Keys::CTRL_K, hint: menu_hint, &@open_menu)
+    @screen.register_global_shortcut(Tuile::Keys::CTRL_K, &@open_menu)
   end
 
   # Opens the log popup (the leader menu's +l+ action). A no-op if it is
@@ -111,7 +114,7 @@ class Shared::Log::UI
   def on_error_logged(_line)
     @screen.event_queue.submit do
       @error_count += 1
-      install_shortcut
+      refresh_menu_segment
     end
   end
 
@@ -122,15 +125,23 @@ class Shared::Log::UI
   # @return [void]
   def reset_error_count
     @error_count = 0
-    install_shortcut
+    refresh_menu_segment
   end
 
-  # The status-bar hint advertised for +Ctrl+K+. The plain "menu" variant
-  # uses the theme's +hint_color+, matching the Tuile-supplied "q quit" /
-  # "q Close" styling; the warning variant uses the theme's +:error+ token to
-  # foreground the unread-error tally so the user notices something broke (and
-  # that the logs behind the menu are worth opening) without us writing log
-  # lines into the conversation pane.
+  # Writes the current {#menu_hint} into the status bar's +:menu+ segment.
+  # The sole writer of that segment, and the only thing a counter change has
+  # to do. All callers are on the event-loop thread.
+  #
+  # @return [void]
+  def refresh_menu_segment
+    @status_bar[:menu] = menu_hint
+  end
+
+  # The status-bar segment advertised for +Ctrl+K+. The plain "menu" variant
+  # uses the theme's +hint_color+; the warning variant uses the theme's
+  # +:error+ token to foreground the unread-error tally so the user notices
+  # something broke (and that the logs behind the menu are worth opening)
+  # without us writing log lines into the conversation pane.
   #
   # Pure read of the counter; all callers are on the event-loop thread.
   #

@@ -30,7 +30,7 @@ RSpec.describe Chat::App do
   end
 
   it 'mounts a Chat::Layout as the screen content with conversation + input panes' do
-    layout = app.screen.pane.content
+    layout = app.layout
     assert_kind_of Chat::Layout, layout
     assert_kind_of Tuile::Component::Window, layout.conversation
     assert_kind_of Tuile::Component::Window, layout.input
@@ -194,7 +194,7 @@ RSpec.describe Chat::App do
     assert_kind_of Shared::StatusFooterUpdater, status_footer_updater
     # The status is border chrome (footer_text), not a footer-slot
     # component, so the Window's own footer stays nil.
-    assert_nil app.screen.pane.content.conversation.footer
+    assert_nil app.layout.conversation.footer
   end
 
   it "hands the agent's interloper to the Shared::StatusFooterUpdater for the queued-count display" do
@@ -322,7 +322,7 @@ RSpec.describe Chat::App do
   end
 
   def status_bar_text(some_app = app)
-    some_app.screen.pane.status_bar.text.to_s
+    some_app.status_bar.text.to_s
   end
 
   # Dispatch Ctrl+C through the screen's real key handler (private in the

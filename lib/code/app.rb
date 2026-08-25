@@ -75,6 +75,17 @@ module Code
     #   runs on.
     attr_reader :screen
 
+    # The shell's pane layout. Not the screen's content component — that is a
+    # {Tuile::Component::Layout::Vertical} holding this plus {#status_bar},
+    # since Tuile reserves no row for a status line.
+    #
+    # @return [Code::Layout]
+    attr_reader :layout
+
+    # @return [Shared::StatusBar] the bottom row. Its +:cancel+ segment is
+    #   written here at registration; {Shared::Log::UI} owns +:menu+.
+    attr_reader :status_bar
+
     # @return [Shared::Config] the resolved configuration the bin loaded;
     #   drives the model list, the sandbox/confirm posture, the web-search
     #   provider keys, and the MCP registry {#default_build_agent} builds.
@@ -215,7 +226,12 @@ module Code
 
       @leader_menu = build_leader_menu
       @screen.on_error = method(:on_screen_error)
-      @screen.content = @layout
+      # Tuile draws no status bar and reserves no row, so the root is the
+      # shell layout plus our own bottom line (see Shared::StatusBar).
+      @root = Tuile::Component::Layout::Vertical.new
+      @root.add(@layout, Tuile::Component::Layout::Expand[1])
+      @root.add(@status_bar, Tuile::Component::Layout::Fixed[1])
+      @screen.content = @root
       # Focus the window, not the inner area: Tuile's Window→content focus
       # cascade re-points onto the input area so the caret lands there.
       @screen.focused = @input_window
@@ -242,7 +258,8 @@ module Code
 
     # @return [void]
     def build_components
-      @log_ui = Shared::Log::UI.new(screen: @screen)
+      @status_bar = Shared::StatusBar.new(%i[cancel menu])
+      @log_ui = Shared::Log::UI.new(screen: @screen, status_bar: @status_bar)
 
       # Per-tool diff formatters for the conversation pane: the edit / write
       # ToolCall renders as a before/after diff (the write side reads the
@@ -454,10 +471,9 @@ module Code
     #
     # @return [void]
     def register_shortcuts
-      @screen.register_global_shortcut(
-        Tuile::Keys::CTRL_C,
-        hint: "^C #{@screen.theme.error('cancel')}"
-      ) { @session.interrupt }
+      @screen.register_global_shortcut(Tuile::Keys::CTRL_C) { @session.interrupt }
+      # Written first, so it leads the strip; Shared::Log::UI owns :menu after it.
+      @status_bar[:cancel] = "^C #{@screen.theme.error('cancel')}"
       @log_ui.install_shortcut { @leader_menu.open }
     end
 

@@ -10,7 +10,9 @@ ruby '>= 3.3'
 # indented block we paint: the /trifecta tree, the sub-agent transcript
 # indent) plus the List items/renderer API and the `Popup.open` factory
 # removal, both of which this tree's components are written against.
-gem 'tuile', '~> 0.12'
+# CO-DEVELOPMENT: tracking ../tuile master for the status-bar deletion.
+# Restore on release: gem 'tuile', '~> 0.13'
+gem 'tuile', path: '../tuile'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching

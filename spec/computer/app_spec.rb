@@ -53,7 +53,7 @@ RSpec.describe Computer::App do
   after  { Tuile::Screen.close }
 
   it 'mounts a Computer::Layout as the screen content with conversation + input panes (no sidebar)' do
-    layout = app.screen.pane.content
+    layout = app.layout
     assert_kind_of Computer::Layout, layout
     assert_kind_of Tuile::Component::Window, layout.conversation
     assert_kind_of Tuile::Component::Window, layout.input
@@ -168,7 +168,7 @@ RSpec.describe Computer::App do
   it 'wires a Shared::StatusFooterUpdater that drives the conversation Window as border chrome (not a widget slot)' do
     app
     assert_kind_of Shared::StatusFooterUpdater, app.instance_variable_get(:@conversation_window).status_footer_updater
-    assert_nil app.screen.pane.content.conversation.footer
+    assert_nil app.layout.conversation.footer
   end
 
   it "hands the agent's interloper to the Shared::StatusFooterUpdater for the queued-count display" do
@@ -237,7 +237,7 @@ RSpec.describe Computer::App do
 
   describe 'leader menu (Ctrl+K)' do
     it 'advertises the ^K menu status-bar hint' do
-      assert_includes app.screen.pane.status_bar.text.to_s, '^K menu'
+      assert_includes app.status_bar.text.to_s, '^K menu'
     end
 
     it 'offers logs, plan mode, clear and quit for a single-model shell (no git diff)' do
@@ -322,7 +322,7 @@ RSpec.describe Computer::App do
   end
 
   def status_bar_text
-    app.screen.pane.status_bar.text.to_s
+    app.status_bar.text.to_s
   end
 
   # Dispatch Ctrl+C through the screen's real key handler (private in the

@@ -2,13 +2,14 @@
 
 RSpec.describe Shared::Log::UI do
   let(:screen) { Tuile::Screen.instance }
-  let(:log_ui) { described_class.new(screen: screen) }
+  let(:status_bar) { Shared::StatusBar.new(%i[cancel menu]) }
+  let(:log_ui) { described_class.new(screen: screen, status_bar: status_bar) }
 
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  # The status bar renders the hints of the registered global shortcuts.
-  def status_bar_text = screen.pane.status_bar.text.to_s
+  # Shared::Log::UI owns only the bar's :menu segment; nothing else writes here.
+  def status_bar_text = status_bar.text.to_s
 
   # Install the Ctrl+K shortcut (App's register_shortcuts seam) and wire the
   # counting sink so Tuile.logger routes through the Shared::Log::UI's Shared::Log::CountingIO.
