@@ -287,11 +287,11 @@ Zeitwerk over `lib/` and eager-loads it.
   its `Shared::Log::Popup`, the `Shared::Log::CountingIO` wiring (`#wire!` — the
   former per-`App` `wire_logging`, incl. the `Shared::Log::BufferingIO` boot-line
   replay), the unread-error tally, and the `Ctrl+K` leader shortcut whose
-  status-bar hint carries that tally. The `Ctrl+K` registration lives here
+  status-bar segment carries that tally. The `Ctrl+K` registration lives here
   (not in each `App`'s `register_shortcuts`, which keeps the shell-agnostic
-  `Ctrl+C`) because the tally is surfaced only through that hint and
-  `Tuile::Screen` refreshes a hint by re-registering — so bumping the
-  counter and refreshing the hint are one act. Each `App` supplies only
+  `Ctrl+C`) because the tally is surfaced only through that hint: it hands the
+  bar its `^K` render block at construction, so a counter bump is just a
+  `Shared::StatusBar#refresh`. Each `App` supplies only
   *what* `Ctrl+K` does via `#install_shortcut { @leader_menu.open }`, and
   drives the two phases: `#wire!` early (before the agent is built),
   `#install_shortcut` late (once the leader menu exists). Extracted from
@@ -371,6 +371,15 @@ Zeitwerk over `lib/` and eager-loads it.
   footer's model name — so the footer goes straight into the agent's
   `ListenerList` (no separate listener object; `#current_model=` owns the
   transport→display-name resolution the picker's name map feeds).
+- `lib/shared/status_bar.rb` — `Shared::StatusBar`, the bottom row
+  (`^C cancel  ^K menu`) as a `Label`: an unconditional `^C` half plus a `^K`
+  half supplied as a *block*, re-run on `#refresh` (what a bumped error tally
+  calls) and on a light/dark flip. Tuile draws no status bar and reserves no
+  row for one, so the row is the app's own component. Shared by all three
+  shells.
+- `lib/shared/root_layout.rb` — `Shared::RootLayout`, the screen's content
+  component in all three shells: the shell's own `Layout` (`Expand[1]`) stacked
+  over the `Shared::StatusBar` (`Fixed[1]`).
 - `lib/shared/agent_session.rb` — `Shared::AgentSession`, the turn-lifecycle
   engine all three shells compose: owns one agent's worker thread, the
   `@turn_in_progress` concurrency guard, mid-turn interloper injection +
@@ -769,6 +778,7 @@ Zeitwerk over `lib/` and eager-loads it.
   already living this way: `Shared::InputWindow`,
   `Shared::PromptHistory`, `Shared::StatusFooterUpdater`,
   `Shared::ConversationWindow`, `Shared::AgentSession`,
+  `Shared::StatusBar`, `Shared::RootLayout`,
   `Shared::LeaderMenu`, `Shared::SlashMenuPopup`, `Shared::SlashCommand`,
   `Shared::FileCommands`,
   `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and

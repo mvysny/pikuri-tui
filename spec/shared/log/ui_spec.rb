@@ -2,7 +2,7 @@
 
 RSpec.describe Shared::Log::UI do
   let(:screen) { Tuile::Screen.instance }
-  let(:status_bar) { Shared::StatusBar.new(%i[cancel menu]) }
+  let(:status_bar) { Shared::StatusBar.new }
   let(:log_ui) { described_class.new(screen: screen, status_bar: status_bar) }
 
   before { Tuile::Screen.fake }

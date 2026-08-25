@@ -7,7 +7,7 @@ require 'tuile'
 # The diagnostic-log subsystem shared by all three shells: the eager
 # +LogWindow+, its {Shared::Log::Popup}, the {Shared::Log::CountingIO} that
 # routes every pikuri / Tuile log line into that window, the unread-error
-# tally, and the +Ctrl+K+ leader-menu global shortcut whose status-bar segment
+# tally, and the +Ctrl+K+ leader-menu global shortcut whose status-bar hint
 # carries that tally. Wired in two phases:
 #
 #   log_ui = Shared::Log::UI.new(screen: screen, status_bar: bar)
@@ -21,18 +21,11 @@ require 'tuile'
 #
 # == Why the tally lives here, not in the App
 #
-# The error tally is surfaced *only* through the +:menu+ status-bar segment —
-# it is the single always-visible surface — so bumping the counter and
-# rewriting that segment are the same act ({#on_error_logged} and
-# {#reset_error_count} both call {#refresh_menu_segment}). That coupling is why
-# the +Ctrl+K+ binding belongs to this class and not to the App's
+# The error tally is surfaced *only* through the status bar's +^K+ hint — it is
+# the single always-visible surface — so the counter and the block that renders
+# it ({#menu_hint}, handed to the bar at construction) belong together. That
+# coupling is why the +Ctrl+K+ binding lives here and not in the App's
 # +register_shortcuts+ (which keeps the genuinely shell-agnostic +Ctrl+C+).
-#
-# The binding itself is now registered exactly *once*. Until Tuile 0.13 a
-# shortcut carried its own +hint:+ and the only way to change the text was to
-# re-register the binding, so a counter bump was expressed as a *dispatch*
-# mutation; the status bar is the app's own component now, so the counter
-# writes to it directly and the registry just runs the action.
 #
 # UI-thread-confined, with exceptions.
 class Shared::Log::UI
@@ -48,14 +41,14 @@ class Shared::Log::UI
   #   runs on. Used for the theme (hint colors), the event queue (marshaling),
   #   and the global-shortcut registry.
   # @param status_bar [Shared::StatusBar] the shell's bottom row; this class
-  #   owns its +:menu+ segment and nothing else in it.
+  #   supplies its +^K+ hint and nothing else on it.
   def initialize(screen:, status_bar:)
     @screen = screen
     @status_bar = status_bar
     @error_count = 0
     @log_window = Tuile::Component::LogWindow.new('Log')
     @log_popup = Shared::Log::Popup.new(log_window: @log_window, on_dismiss: method(:reset_error_count))
-    refresh_menu_segment
+    @status_bar.menu_hint(&method(:menu_hint))
   end
 
   # Routes every pikuri / Tuile log line — and any exception trapped
@@ -81,9 +74,8 @@ class Shared::Log::UI
     prior.replay_into(io) if prior.respond_to?(:replay_into)
   end
 
-  # Registers the +Ctrl+K+ leader-menu global shortcut. The status-bar text is
-  # not this method's business any more — {#refresh_menu_segment} owns the
-  # +:menu+ segment and is driven by the counter, so this runs once.
+  # Registers the +Ctrl+K+ leader-menu global shortcut, once. The hint text
+  # beside it is {#menu_hint}'s business, not this method's.
   #
   # @yield the +Ctrl+K+ action — opening the App's {Shared::LeaderMenu}.
   # @return [void]
@@ -114,7 +106,7 @@ class Shared::Log::UI
   def on_error_logged(_line)
     @screen.event_queue.submit do
       @error_count += 1
-      refresh_menu_segment
+      @status_bar.refresh
     end
   end
 
@@ -125,23 +117,14 @@ class Shared::Log::UI
   # @return [void]
   def reset_error_count
     @error_count = 0
-    refresh_menu_segment
+    @status_bar.refresh
   end
 
-  # Writes the current {#menu_hint} into the status bar's +:menu+ segment.
-  # The sole writer of that segment, and the only thing a counter change has
-  # to do. All callers are on the event-loop thread.
-  #
-  # @return [void]
-  def refresh_menu_segment
-    @status_bar[:menu] = menu_hint
-  end
-
-  # The status-bar segment advertised for +Ctrl+K+. The plain "menu" variant
-  # uses the theme's +hint_color+; the warning variant uses the theme's
-  # +:error+ token to foreground the unread-error tally so the user notices
-  # something broke (and that the logs behind the menu are worth opening)
-  # without us writing log lines into the conversation pane.
+  # The status bar's +^K+ hint. The plain "menu" variant uses the theme's
+  # +hint_color+; the warning variant uses +:error+ to foreground the unread
+  # tally so the user notices something broke (and that the logs behind the
+  # menu are worth opening) without us writing log lines into the
+  # conversation pane.
   #
   # Pure read of the counter; all callers are on the event-loop thread.
   #
