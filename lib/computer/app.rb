@@ -404,10 +404,7 @@ module Computer
         # this machine. The add_sub_agent_tool calls must precede the SubAgent
         # extension, whose configure validates the persona's tool_names.
         if @internet_enabled
-          c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(
-            brave_key: @config.search.brave_key,
-            exa_key: @config.search.exa_key
-          )
+          c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(**@config.search.to_h)
           c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
           c.add_sub_agent_tool Pikuri::Tool::FETCH
           c.add_extension Pikuri::SubAgent::Extension.new(

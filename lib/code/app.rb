@@ -405,8 +405,7 @@ module Code
         c.add_listener @skill_activation
         c.add_extension Pikuri::Workspace::Extension.new(filesystem: @filesystem, confirmer: confirmer, read_only: @plan_mode)
         c.add_tool Pikuri::Tool::CALCULATOR
-        c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(brave_key: @config.search.brave_key,
-                                                           exa_key: @config.search.exa_key)
+        c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(**@config.search.to_h)
         c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
         c.add_sub_agent_tool Pikuri::Tool::FETCH
         c.add_extension Pikuri::Code::Extension.new(

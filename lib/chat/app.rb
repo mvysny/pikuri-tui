@@ -264,7 +264,7 @@ module Chat
         c.add_listener rate_limited_listener
         c.add_listener @token_log
         c.add_listener status_footer_updater
-        c.add_tool Pikuri::Tool::WebSearch.build(brave_key: @config.search.brave_key, exa_key: @config.search.exa_key)
+        c.add_tool Pikuri::Tool::WebSearch.build(**@config.search.to_h)
         c.add_tool Pikuri::Tool::CALCULATOR
         c.add_tool Pikuri::Tool::WEB_SCRAPE
         c.add_tool Pikuri::Tool::FETCH

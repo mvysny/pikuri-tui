@@ -122,7 +122,12 @@ begin
   config = Shared::Config.load(
     overrides: { server: cli_server, model: cli_model, sandbox: cli_sandbox, confirm: cli_confirm }
   )
-rescue Shared::Config::Error => e
+  # Which engines web_search may use is pikuri's to validate — it owns the
+  # engine list and knows which of them need a key. Asked here so an unusable
+  # [search] selection is the same plain warn + exit as any other config
+  # error, not an ArgumentError from inside the agent wiring.
+  Pikuri::Tool::Search::Engines.resolve(**config.search.to_h)
+rescue Shared::Config::Error, ArgumentError => e
   warn "config error: #{e.message}"
   exit 2
 end

@@ -10,7 +10,7 @@ require 'tomlrb'
 #   config.llms          # every [[llm]], for the model picker
 #   config.sandbox       # coding/OS sandbox switch (flag > file > default)
 #
-# It holds the resolved model connections, the web-search provider keys,
+# It holds the resolved model connections, the web-search selection,
 # the coding shell's sandbox / confirm switches, and its MCP server list,
 # merged from the XDG config search path with the bins' CLI overrides on
 # top.
@@ -141,24 +141,41 @@ class Shared::Config
     def http? = !url.nil?
   end
 
-  # The web-search provider keys (chat wires +web_search+ as a main tool;
-  # the coding / computer shells wire it sub-agent-only). Both fields are +nil+
-  # when omitted; pikuri's search cascade then runs DuckDuckGo-only and the
-  # paid provider simply stays out.
+  # The web-search selection: which engines to search with, and the keys the
+  # paid ones need (chat wires +web_search+ as a main tool; the coding /
+  # computer shells wire it sub-agent-only). Every field is +nil+ when
+  # omitted, which leaves pikuri's own default — DuckDuckGo plus whichever
+  # keyed provider was configured.
   #
-  # These are secrets and get the same treatment as {Llm#api_key}: stored
+  # The keys are secrets and get the same treatment as {Llm#api_key}: stored
   # literally in this parent-only file (never an env var pikuri would
   # inherit into the sandboxed bash / stdio MCP subprocesses, never a CLI
   # flag visible in +ps+), outside the workspace the coding agent reads,
   # and flagged by a logged warning when the file has loose permissions.
+  #
   # Field names match +Pikuri::Tool::WebSearch.build+'s keyword arguments
-  # 1:1 — the bins pass them straight through (see the "Pikuri seam" note).
+  # 1:1, and both the bins and the shells rely on that: they splat
+  # +search.to_h+ straight into +build+ (and into
+  # +Pikuri::Tool::Search::Engines.resolve+ for the boot-time check). Keep the
+  # mirror exact — a field pikuri does not take is an unknown-keyword crash at
+  # wiring time (see the "Pikuri seam" note).
   #
   # @!attribute [r] brave_key
   #   @return [String, nil] Brave Search API key, or +nil+ when unset.
   # @!attribute [r] exa_key
   #   @return [String, nil] Exa API key, or +nil+ when unset.
-  Search = Data.define(:brave_key, :exa_key)
+  # @!attribute [r] engines
+  #   @return [Array<String>, nil] the engines to search with — any of
+  #     +duckduckgo+, +brave+, +exa+ — or +nil+ to let pikuri derive the set
+  #     from the keys. A *set*, not a preference order: pikuri shuffles per
+  #     query, so +["brave", "duckduckgo"]+ splits traffic between the two
+  #     rather than preferring Brave. Naming an engine whose key is absent is
+  #     an error pikuri raises; this class checks only the shape.
+  Search = Data.define(:brave_key, :exa_key, :engines) do
+    def initialize(brave_key: nil, exa_key: nil, engines: nil)
+      super(brave_key: brave_key, exa_key: exa_key, engines: engines&.freeze)
+    end
+  end
 
   # @return [String] display name of the synthetic default connection.
   DEFAULT_LLM_NAME = 'Local Qwen 3.6'
@@ -333,17 +350,26 @@ class Shared::Config
   end
 
   # Build the {Search} value object from the +[search]+ table (or +nil+
-  # when the section is absent — both keys then default to +nil+). Rejects
-  # unknown keys and non-string values.
+  # when the section is absent — every field then defaults to +nil+).
+  # Rejects unknown keys and values of the wrong type.
+  #
+  # Shape only: *which* engine names are valid, and which of them need a key,
+  # is pikuri's to say — the bins ask it at boot (see {Search#engines}), so
+  # this class stays on the Pikuri-free side of the seam and the engine list
+  # is not duplicated here to rot.
   def self.build_search(table)
     table ||= {}
-    unknown = table.keys - %w[brave_key exa_key]
+    unknown = table.keys - %w[brave_key exa_key engines]
     raise Error, "search: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
     %w[brave_key exa_key].each do |k|
       raise Error, "search.#{k} must be a string" if table[k] && !table[k].is_a?(String)
     end
+    engines = table['engines']
+    if engines && !(engines.is_a?(Array) && engines.all?(String))
+      raise Error, 'search.engines must be an array of strings, e.g. engines = ["brave"]'
+    end
 
-    Search.new(brave_key: table['brave_key'], exa_key: table['exa_key'])
+    Search.new(brave_key: table['brave_key'], exa_key: table['exa_key'], engines: engines)
   end
 
   def self.validate_code!(code)

@@ -127,14 +127,22 @@ model   = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
 # footer (omit it and the cap simply stays blank).
 # context_window = 1000000
 
-# Web-search provider keys. Used by the chat shell (web_search is a main
-# tool) and by the sub-agent-only research tools of the coding and computer shells.
-# Both fields are optional — set one,
-# both, or neither — and, like api_key, go in verbatim (keep this file
-# chmod 600). pikuri's search cascade decides what to do when a key is unset.
+# Web search. Used by the chat shell (web_search is a main tool) and by the
+# sub-agent-only research tools of the coding and computer shells. Every field
+# is optional, and the keys — like api_key — go in verbatim (keep this file
+# chmod 600).
+#
+# `engines` picks who gets searched, out of duckduckgo / brave / exa. Omit it
+# and you get DuckDuckGo plus whichever key you set. It is a *set*, not a
+# preference order: pikuri picks at random per query, so ["brave",
+# "duckduckgo"] splits traffic between the two rather than trying Brave first.
+# List `brave` alone to keep every query away from DuckDuckGo (and so from
+# Bing, which fulfils its web results). Naming an engine whose key you did not
+# set is refused at startup.
 [search]
 brave_key = "BSA..."   # Brave Search API key
 exa_key   = "..."      # Exa API key
+engines   = ["brave"]  # optional; default is duckduckgo + every keyed provider
 
 # Sandbox + confirmation settings. Applies to BOTH the coding shell
 # (bubblewrap sandbox around bash) and the computer assistant (network-severed
