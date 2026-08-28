@@ -497,7 +497,9 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/code/confirmer_popup.rb` —
   `Code::ConfirmerPopup`, a `Pikuri::Workspace::Confirmer`
   rendered as a modal Tuile popup instead of stdin; gates the
-  `Write` / `Bash` / `agent` tools with approve / edit / reject.
+  `Write` / `Bash` / `agent` tools with approve / edit / reject, painting a
+  request's `Confirmer::Change` through `Code::DiffRenderer` so a write is
+  reviewed as the same diff the transcript later shows.
 - `lib/code/trust_store.rb` —
   `Code::TrustStore`, the persisted set of git-config-trusted
   project roots that gate read-only-git auto-approval; asked at most once
@@ -620,8 +622,8 @@ Zeitwerk over `lib/` and eager-loads it.
   (several classes may share one — `Pikuri.logger_for` memoizes per
   name, so they share the `Logger` object): `'markdown'` (renderer /
   grayscale / streaming buffer), `'formatter'` (edit / write), plus
-  `'listener'`, `'git'`, `'log'`, `'config'`, and `'chat'` / `'code'` /
-  `'computer'` for the three `App`s. The bins are plain scripts, not classes, so when one
+  `'listener'`, `'git'`, `'log'`, `'config'`, `'confirmer'`, and `'chat'` /
+  `'code'` / `'computer'` for the three `App`s. The bins are plain scripts, not classes, so when one
   needs to log it keeps a local (`main_log = Pikuri.logger_for('main')` —
   the coding bin does, for project-root / skill / safety notices).
   `Shared::AgentSession` is the one exception to the own-your-`LOG`-constant

@@ -58,11 +58,26 @@ module Code
   # +Queue+ (not a bare ivar + flag) gives a memory-safe hand-off with no
   # busy-wait.
   #
+  # == The diff
+  #
+  # A {Write}/{Edit} request carries a
+  # {Pikuri::Workspace::Confirmer::Change} (path + old bytes + new bytes)
+  # and leaves rendering to the chrome. The {Dialog} paints it with
+  # {DiffRenderer} — the same two-tier ANSI diff the +edit+ / +write+ tool
+  # formatters paint into the transcript — so the change under review and
+  # the change once applied look identical:
+  #
+  #   OK to edit MACHINE.md (1 occurrence)?
+  #   - # Machine facts
+  #   + # Machine facts (updated)
+  #     ...
+  #   (y) approve   (n) reject   (r) reject w/ reason
+  #
   # == Sanitizing
   #
-  # +request.question+ and +request.detail+ are RAW LLM-composed bytes
-  # (see {Pikuri::Workspace::Confirmer::Request}). {#ask} runs them
-  # through {Pikuri::Sanitizer} once (off the UI thread — it is pure) —
+  # +request.question+, +request.detail+ and the change's bytes are RAW
+  # LLM-composed bytes (see {Pikuri::Workspace::Confirmer::Request}). {#ask}
+  # runs them through {Pikuri::Sanitizer} once (off the UI thread — it is pure) —
   # the same chrome-independent primitive +Confirmer::Terminal+ uses —
   # which (a) neutralizes the dangerous bytes for literal display (control
   # bytes → +\xNN+, bidi/zero-width → +\u{NNNN}+, tab → +\t+, newline
@@ -92,6 +107,15 @@ module Code
   # rejection). A destructive or network-reaching operation never runs
   # because the user looked away.
   class ConfirmerPopup < Pikuri::Workspace::Confirmer
+    LOG = Pikuri.logger_for('confirmer')
+    private_constant :LOG
+
+    # Cap on rendered diff lines, past which {DiffRenderer} appends its
+    # +… +N more lines+ tail — a whole-file rewrite must not turn the
+    # decision into a scroll marathon.
+    # @return [Integer]
+    DIFF_MAX_LINES = 500
+
     # @param screen [Tuile::Screen] the screen whose +event_queue+
     #   marshals popup construction to the UI thread. The same screen
     #   the host runs its event loop on.
@@ -116,12 +140,13 @@ module Code
     def ask(request:)
       question = Pikuri::Sanitizer.sanitize(request.question)
       detail   = request.detail ? Pikuri::Sanitizer.sanitize(request.detail) : nil
-      warnings = question.warnings + (detail ? detail.warnings : [])
+      change, change_warnings = sanitize_change(request.change)
+      warnings = question.warnings + (detail ? detail.warnings : []) + change_warnings
       clean    = warnings.empty?
       editable = request.editable && !request.detail.nil?
 
       case ask_decision(question: question, detail: detail, warnings: warnings,
-                        editable: editable, clean: clean)
+                        change: change, editable: editable, clean: clean)
       when :approve
         Approved.new(new_request_detail: request.detail)
       when :edit
@@ -134,6 +159,41 @@ module Code
     end
 
     private
+
+    # Neutralize a change's bytes for display, returning a {Change} carrying
+    # the sanitized old/new text alongside the warnings they raised.
+    #
+    # Old/new are diffed *after* sanitizing rather than the diff sanitized
+    # after the fact ({Pikuri::Workspace::Confirmer::Terminal} does the
+    # latter): {DiffRenderer} emits ANSI, which a later sanitize pass would
+    # escape into visible +\x1b+ noise. The mapping is per-character and
+    # newline-preserving, so the two orders align line for line.
+    #
+    # @param change [Pikuri::Workspace::Confirmer::Change, nil]
+    # @return [Array(Pikuri::Workspace::Confirmer::Change, nil),
+    #   Array<Pikuri::Sanitizer::Warning>] the display-safe change (+nil+ when
+    #   the request carried none) and its warnings.
+    def sanitize_change(change)
+      return [nil, []] if change.nil?
+
+      old = change.old ? Pikuri::Sanitizer.sanitize(displayable(change.old)) : nil
+      fresh = Pikuri::Sanitizer.sanitize(displayable(change.new))
+      [Change.new(path: change.path, old: old&.text, new: fresh.text),
+       (old ? old.warnings : []) + fresh.warnings]
+    end
+
+    # Force file bytes into valid UTF-8 for display.
+    #
+    # The file tools hand back BINARY strings ({Pikuri::Workspace::Edit}
+    # matches in LF space via +String#b+), and matching one against the
+    # sanitizer's UTF-8 regexp raises +Encoding::CompatibilityError+ the
+    # moment the file holds a non-ASCII byte.
+    #
+    # @param bytes [String] raw file content.
+    # @return [String] UTF-8 with undecodable bytes replaced by U+FFFD.
+    def displayable(bytes)
+      bytes.dup.force_encoding(Encoding::UTF_8).scrub
+    end
 
     # Open the decision popup and block until the user picks an outcome.
     #
@@ -204,19 +264,22 @@ module Code
       # @param question [Pikuri::Sanitizer::Result] the sanitized question.
       # @param detail [Pikuri::Sanitizer::Result, nil] the sanitized detail.
       # @param warnings [Array<Pikuri::Sanitizer::Warning>] the flagged
-      #   warnings across question + detail (empty when clean).
+      #   warnings across question + detail + change (empty when clean).
       # @param editable [Boolean] whether the request offers an edit path.
       # @param clean [Boolean] whether the payload passed the sanitizer
       #   (an editable+flagged request drops the bare-approve path).
       # @param channel [Queue] one-shot channel; the resolved outcome
       #   symbol is pushed exactly once (see {#close}).
-      def initialize(question:, detail:, warnings:, editable:, clean:, channel:)
+      # @param change [Pikuri::Workspace::Confirmer::Change, nil] the file
+      #   change to diff, its old/new text ALREADY sanitized; +nil+ for a
+      #   request that isn't a write.
+      def initialize(question:, detail:, warnings:, editable:, clean:, channel:, change: nil)
         @channel = channel
         @resolved = false
         @editable = editable
         @clean = clean
         window = Tuile::Component::Window.new('Confirm')
-        window.content = build_body(question, detail, warnings)
+        window.content = build_body(question, detail, warnings, change)
         # Near-fullscreen: the payload (a bash command, a diff) can be huge and
         # there's nothing to interact with underneath, so a half-screen box just
         # clips. 1-row top/bottom, 2-col left/right padding. Absolute Size reads
@@ -284,21 +347,25 @@ module Code
       # Build the body lines: sanitizer warnings (bold +:notice+ header +
       # one +:notice+ explanation each) when anything was flagged, then the
       # sanitized question (bold, default fg), the sanitized detail
-      # (+:detail+ tone, per line) when present, and the key cue. Colors come
-      # from the {Shared::AppTheme} on this popup's own +#screen+ (read at
-      # build time on the UI thread) so they track light/dark; lines are ANSI
-      # strings the +TextView+ re-parses via +StyledString.parse+.
+      # (+:detail+ tone, per line) when present, the change's diff when
+      # present, and the key cue. Colors come from the {Shared::AppTheme} on
+      # this popup's own +#screen+ (read at build time on the UI thread) so
+      # they track light/dark; lines are ANSI strings the +TextView+
+      # re-parses via +StyledString.parse+.
       #
       # A +TextView+ (not a +List+) so long lines word-wrap and scroll
-      # inside the popup instead of clipping. The popup is sized top-down
-      # (near-fullscreen; see {#initialize}), so the +TextView+ wraps to its
-      # own granted width — no pre-wrapping here.
+      # inside the popup instead of clipping — Tuile's content-focus cascade
+      # lands focus on it, so its scroll ladder works while the unclaimed
+      # +y+/+n+/+e+/+r+ bubble back up to {#handle_key}. The popup is sized
+      # top-down (near-fullscreen; see {#initialize}), so the +TextView+
+      # wraps to its own granted width — no pre-wrapping here.
       #
       # @param question [Pikuri::Sanitizer::Result]
       # @param detail [Pikuri::Sanitizer::Result, nil]
       # @param warnings [Array<Pikuri::Sanitizer::Warning>]
+      # @param change [Pikuri::Workspace::Confirmer::Change, nil]
       # @return [Tuile::Component::TextView] the sanitized body.
-      def build_body(question, detail, warnings)
+      def build_body(question, detail, warnings, change)
         theme = screen.theme
         lines = []
         unless warnings.empty?
@@ -308,12 +375,40 @@ module Code
         end
         lines << Tuile::StyledString.styled(question.text, bold: true).to_ansi
         detail&.text&.split("\n")&.each { |line| lines << theme.detail(line) }
+        diff = change ? render_diff(change, theme) : nil
+        lines << diff if diff
         lines << cue
 
         view = Tuile::Component::TextView.new
         view.text = lines.join("\n")
         view
       end
+
+      # Render +change+ as the transcript's two-tier ANSI diff, or +nil+ when
+      # +diff-lcs+ chokes on it — a cosmetic path, so it degrades to a
+      # diffless confirmation rather than raising into the event loop and
+      # stranding the worker blocked on the answer channel.
+      #
+      # @param change [Pikuri::Workspace::Confirmer::Change] sanitized text.
+      # @param theme [Tuile::Theme] supplies the four +:diff_*+ tones.
+      # @return [String, nil] ANSI diff body.
+      def render_diff(change, theme)
+        DiffRenderer.render(change.old.to_s, change.new, width: diff_width,
+                                                         palette: DiffToolFormatting.palette(theme),
+                                                         max_lines: DIFF_MAX_LINES)
+      rescue StandardError => e
+        LOG.error("diff render failed (#{e.class}: #{e.message}); confirming without a diff")
+        nil
+      end
+
+      # The width the diff's full-row background bars pad to: the popup's own
+      # box (see {#initialize}) less the +Window+'s two border columns and two
+      # more for the +TextView+'s scrollbar and margin. Derived from
+      # +screen.size+ rather than a rect, since the layout pass that grants
+      # one runs after construction.
+      #
+      # @return [Integer]
+      def diff_width = [screen.size.width - 8, 1].max
 
       # The key cue, tailored to the request. Editable+flagged omits +y+:
       # the payload was flagged, so authorship (edit) is forced.

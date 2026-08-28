@@ -9,8 +9,13 @@ RSpec.describe Code::ConfirmerPopup do
   def approved(detail) = Pikuri::Workspace::Confirmer::Approved.new(new_request_detail: detail)
   def rejected(reason = nil) = Pikuri::Workspace::Confirmer::Rejected.new(reason: reason)
 
-  def request(question: 'OK to run this?', detail: nil, editable: false)
-    Pikuri::Workspace::Confirmer::Request.new(question: question, detail: detail, editable: editable)
+  def request(question: 'OK to run this?', detail: nil, editable: false, change: nil)
+    Pikuri::Workspace::Confirmer::Request.new(question: question, detail: detail,
+                                              editable: editable, change: change)
+  end
+
+  def change(path: 'MACHINE.md', old: "one\ntwo\n", new: "one\nTWO\n")
+    Pikuri::Workspace::Confirmer::Change.new(path: path, old: old, new: new)
   end
 
   # Run +ask+ (or +confirm?+) on a worker and drive its popups from the
@@ -148,6 +153,46 @@ RSpec.describe Code::ConfirmerPopup do
     it 'is false on an ESC dismissal' do
       assert_equal false,
                    run(described_class.new(screen: screen), request, method: :confirm?) { decision(Tuile::Keys::ESC) }
+    end
+  end
+
+  describe '#ask — a Write / Edit request carrying a Change' do
+    # Drive one decision popup, handing the block its rendered body lines
+    # before answering +y+.
+    def body_of(req)
+      lines = nil
+      run(described_class.new(screen: screen), req) do
+        wait_until { screen.popups.last.is_a?(described_class::Dialog) }
+        lines = screen.popups.last.content.content.text.to_s.split("\n")
+        screen.popups.last.handle_key('y')
+      end
+      lines
+    end
+
+    it 'diffs old against new so the user sees the change, not just the headline' do
+      lines = body_of(request(question: 'OK to edit MACHINE.md (1 occurrence)?', change: change))
+      assert_includes lines, 'OK to edit MACHINE.md (1 occurrence)?'
+      assert_includes lines, '- two'
+      assert_includes lines, '+ TWO'
+    end
+
+    it 'shows a new file as all-additions (old is nil on create)' do
+      lines = body_of(request(question: 'OK to create new.md (8 bytes)?',
+                              change: change(old: nil, new: "fresh\n")))
+      assert_includes lines, '+ fresh'
+    end
+
+    it 'diffs BINARY file bytes carrying non-ASCII (the tools hand back String#b)' do
+      lines = body_of(request(change: change(old: "café\n".b, new: "cafés\n".b)))
+      assert_includes lines, '- café'
+      assert_includes lines, '+ cafés'
+    end
+
+    it 'neutralizes control bytes inside the diffed content' do
+      lines = body_of(request(change: change(old: "a\n", new: "a\rb\n"))).join("\n")
+      refute_includes lines, "\r"
+      assert_includes lines, '\\x0d'
+      assert_includes lines, 'Suspicious content detected'
     end
   end
 
