@@ -30,11 +30,11 @@ bundle install
 bin/pikuri-tui-chat
 ```
 
-Defaults to `http://localhost:8080` and model `unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M`. Override with `--server` and `--model`:
-
-```sh
-bin/pikuri-tui-chat --server http://localhost:8082 --model my-model
-```
+With no config file it talks to `http://localhost:8080` using model
+`unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M`. To point it anywhere else, write one
+`[[llm]]` table (see [Configuration](#configuration)) — there are no
+`--server` / `--model` flags. Configure several and switch between them at
+runtime from the `Ctrl+K` menu's model picker.
 
 ## Run the coding shell
 
@@ -44,8 +44,8 @@ bin/pikuri-tui-code
 
 Discovers the project root (VCS marker), `chdir`s to it, and roots the
 workspace + bubblewrap sandbox there. `--no-sandbox` / `--no-confirm` /
-`--yolo` relax the safety machinery (see `[code]` below); `--server` /
-`--model` override the connection.
+`--yolo` relax the safety machinery (see `[code]` below). The connection comes
+from `[[llm]]`, as in the chat shell.
 
 ## Run the computer assistant
 
@@ -70,20 +70,20 @@ same y/n confirmation as writes and bash. `--no-internet` drops the researcher
 start without it. `--no-sandbox` lifts the no-egress guarantee on `bash` (it
 can then reach the internet directly — use only in a throwaway environment);
 `--profile-dir` pins the Thunderbird profile (otherwise auto-discovered);
-`--no-confirm` / `--yolo` / `--server` / `--model` behave as in the other
-shells.
+`--no-confirm` / `--yolo` behave as in the other shells.
 
 ## Configuration
 
-Both shells read an optional TOML config file. It is looked up in this order,
-later layers overriding earlier ones, and command-line flags overriding all of
-them:
+All three shells read an optional TOML config file. It is looked up in this
+order, later layers overriding earlier ones:
 
 1. `/etc/xdg/pikuri/config.toml` (system-wide)
 2. `$XDG_CONFIG_HOME/pikuri/config.toml` (defaults to `~/.config/pikuri/config.toml`)
 
 With no file present, the built-in defaults apply (local llama.cpp on
-`http://localhost:8080`), so the config file is entirely optional.
+`http://localhost:8080`), so the config file is entirely optional — but it is
+the *only* way to name a connection: the safety switches (`--no-sandbox` /
+`--no-confirm` / `--yolo`) are the only flags that override it.
 
 There is deliberately **no project-local config** (e.g. `./.pikuri/`): a file
 inside a repo could be committed to git and is readable by the sandboxed

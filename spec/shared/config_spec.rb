@@ -65,14 +65,7 @@ describe Shared::Config do
     end
   end
 
-  describe 'CLI overrides (highest precedence)' do
-    it 'overrides the primary connection server/model, leaving the key untouched' do
-      c = load_bare(server: 'http://host:9', model: 'm2')
-      assert_equal 'http://host:9', c.primary_llm.server
-      assert_equal 'm2', c.primary_llm.model
-      assert_nil c.primary_llm.api_key
-    end
-
+  describe 'CLI overrides (the safety switches, highest precedence)' do
     it 'treats false sandbox/confirm overrides as real values (not "absent")' do
       c = load_bare(sandbox: false, confirm: false)
       refute c.sandbox

@@ -226,8 +226,9 @@ Zeitwerk over `lib/` and eager-loads it.
   source of truth for every UI accent all three shells paint.
 - `lib/shared/config.rb` — `Shared::Config`, the layered
   XDG-path TOML config all three shells load at boot (connections,
-  search selection, sandbox/confirm switches, MCP servers), CLI overrides on top,
-  hand-validated.
+  search selection, sandbox/confirm switches, MCP servers), hand-validated.
+  The safety switches are the only thing a CLI flag overrides — a connection
+  is file-only, with no `--server`/`--model` (see the class header).
 - `lib/shared/streamed_block.rb` — `Shared::StreamedBlock`, a
   `Tuile::Component::TextView::Region` + its streaming buffer as one unit:
   lazy-open on first `#append`, then `#finalize` (commit) / `#wipe` (drop

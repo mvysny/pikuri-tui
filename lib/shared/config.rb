@@ -5,7 +5,7 @@ require 'tomlrb'
 # Layered TOML configuration loaded once at boot by all three shells,
 # before the screen is up, and read from there on:
 #
-#   config = Shared::Config.load(overrides: { model: cli_model })
+#   config = Shared::Config.load(overrides: { sandbox: cli_sandbox })
 #   config.primary_llm   # the boot connection
 #   config.llms          # every [[llm]], for the model picker
 #   config.sandbox       # coding/OS sandbox switch (flag > file > default)
@@ -19,12 +19,22 @@ require 'tomlrb'
 #
 # Lowest to highest: built-in defaults → +/etc/xdg/pikuri/config.toml+
 # (each +$XDG_CONFIG_DIRS+ entry, earlier = higher) →
-# +$XDG_CONFIG_HOME/pikuri/config.toml+ (default +~/.config+) → CLI
-# overrides. Files merge deeply (tables key-by-key); arrays — the
+# +$XDG_CONFIG_HOME/pikuri/config.toml+ (default +~/.config+) → the CLI
+# safety switches. Files merge deeply (tables key-by-key); arrays — the
 # +[[llm]]+ list and the +[[code.mcp]]+ list — replace wholesale, nearest
-# file wins. CLI overrides sit on top of all of it. The +[search]+ table
-# merges key-by-key like any table, so a system file can supply
-# +brave_key+ while the user file adds +exa_key+.
+# file wins. The +[search]+ table merges key-by-key like any table, so a
+# system file can supply +brave_key+ while the user file adds +exa_key+.
+#
+# == No connection overrides
+#
+# +overrides:+ takes the safety switches and nothing else. Don't add a
+# +--server+ / +--model+ pair: an override lands on one {Llm}'s
+# +server+/+model+ but cannot rename it, so the picker offers that entry
+# under its configured {Llm#name} while talking to something else — a
+# mislabel no test catches, and one that outlives the flag, since
+# +Shared::Model::Picker+ builds its whole catalog from {#llms}. A model
+# identifier is long enough ({DEFAULT_MODEL}) that it wants writing down
+# once anyway, and the picker already covers switching at runtime.
 #
 # There is deliberately no project-local layer: a config file inside the
 # repo would be git-committable and readable by the sandboxed coding
@@ -195,14 +205,14 @@ class Shared::Config
 
   # Load and resolve the layered configuration.
   #
-  # @param overrides [Hash{Symbol => String, Boolean, nil}] CLI
-  #   overrides; +nil+ values are ignored (treated as "flag not given").
-  #   Recognized keys: +:server+, +:model+ (each overrides the field of
-  #   the primary {Llm}); +:sandbox+, +:confirm+ (override the coding
-  #   switches — pass +false+ for +--no-sandbox+ / +--no-confirm+ /
-  #   +--yolo+). There is no key override: a secret must never travel on
-  #   the command line (visible in +ps+ and shell history) — it comes
-  #   only from {Llm#api_key} in this file.
+  # @param overrides [Hash{Symbol => Boolean, nil}] CLI overrides; +nil+
+  #   values are ignored (treated as "flag not given"). The only recognized
+  #   keys are +:sandbox+ and +:confirm+, the coding/OS safety switches —
+  #   pass +false+ for +--no-sandbox+ / +--no-confirm+ / +--yolo+. Nothing
+  #   about a *connection* is overridable — no server, no model (see "No
+  #   connection overrides" above), and no key (a secret must never travel
+  #   on the command line, visible in +ps+ and shell history); those come
+  #   only from an {Llm} table in this file.
   # @param env [#[]] environment consulted for +XDG_CONFIG_HOME+ /
   #   +XDG_CONFIG_DIRS+. Defaults to +ENV+; injectable for tests.
   # @return [Config] the resolved configuration.
@@ -232,7 +242,7 @@ class Shared::Config
     check_unique!(mcp.map(&:id), 'code.mcp id')
 
     new(
-      llms:    apply_llm_overrides(llms, overrides),
+      llms:    llms,
       search:  build_search(merged['search']),
       sandbox: pick(overrides[:sandbox], code['sandbox'], DEFAULT_SANDBOX),
       confirm: pick(overrides[:confirm], code['confirm'], DEFAULT_CONFIRM),
@@ -534,19 +544,6 @@ class Shared::Config
     "Basic #{["#{username}:#{password}"].pack('m0')}"
   end
 
-  # Overlay the primary-connection CLI overrides. A +nil+ override keeps
-  # the loaded/default value. Only the first {Llm} is touched — it is the
-  # one the shells use today.
-  def self.apply_llm_overrides(llms, overrides)
-    return llms unless overrides[:server] || overrides[:model]
-
-    primary = llms.first.with(
-      server: overrides[:server] || llms.first.server,
-      model:  overrides[:model] || llms.first.model
-    )
-    [primary, *llms[1..]]
-  end
-
   def self.default_llm
     Llm.new(name: DEFAULT_LLM_NAME, server: DEFAULT_SERVER, model: DEFAULT_MODEL, api_key: nil,
             context_window: nil)
@@ -565,6 +562,6 @@ class Shared::Config
 
   private_class_method :candidate_paths, :warn_loose_perms, :holds_secret?, :parse_file, :deep_merge,
                        :validate_top!, :validate_code!, :build_llm, :build_mcp, :build_mcp_headers,
-                       :build_basic_auth, :build_mcp_env, :build_search, :apply_llm_overrides, :default_llm,
+                       :build_basic_auth, :build_mcp_env, :build_search, :default_llm,
                        :pick, :check_unique!, :non_empty_string?
 end

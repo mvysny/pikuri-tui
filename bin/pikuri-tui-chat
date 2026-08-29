@@ -37,19 +37,12 @@ require 'pikuri_tui'
 # (Pikuri.logger_for) default to $stderr; we override that with the buffer.
 Pikuri.log_io = Shared::Log::BufferingIO.new
 
-# CLI overrides start nil ("flag not given") so Shared::Config can tell
-# an explicit flag from an absent one; they override the selected
-# connection's fields on top of the config file. Built-in defaults live in
-# Shared::Config, the single source of truth shown in --help.
-cli_server = nil
-cli_model  = nil
-
+# No --server / --model: the connection comes from a [[llm]] table only —
+# see Shared::Config's "No connection overrides".
 parser = OptionParser.new do |opts|
   opts.banner = 'Usage: pikuri-tui-chat [options]'
   opts.separator ''
   opts.separator 'Options:'
-  opts.on('--server URL', "LLM server base URL (default: #{Shared::Config::DEFAULT_SERVER})") { |v| cli_server = v }
-  opts.on('--model NAME', "Model identifier (default: #{Shared::Config::DEFAULT_MODEL})") { |v| cli_model = v }
   opts.on('-h', '--help', 'Print this help and exit') do
     puts opts
     exit
@@ -64,13 +57,13 @@ rescue OptionParser::InvalidOption, OptionParser::MissingArgument => e
   exit 2
 end
 
-# Load the layered config (XDG search path) and overlay the CLI flags. There
-# is no --api-key flag: a key must never travel on the command line (visible
-# in ps / shell history) — it comes only from the config file. Boot-time,
-# before the screen is up, so a bad file is a plain warn + exit, not a
-# torn-down TUI.
+# Load the layered config (XDG search path). Every connection field — server,
+# model, api_key — comes from the file and only the file; a key must never
+# travel on the command line (visible in ps / shell history) anyway.
+# Boot-time, before the screen is up, so a bad file is a plain warn + exit,
+# not a torn-down TUI.
 begin
-  config = Shared::Config.load(overrides: { server: cli_server, model: cli_model })
+  config = Shared::Config.load
   # Which engines web_search may use is pikuri's to validate — it owns the
   # engine list and knows which of them need a key. Asked here so an unusable
   # [search] selection is the same plain warn + exit as any other config

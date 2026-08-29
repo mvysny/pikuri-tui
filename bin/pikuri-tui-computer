@@ -71,8 +71,9 @@ main_log = Pikuri.logger_for('main')
 # Built-in defaults live in Shared::Config, shown in --help.
 cli_sandbox = nil
 cli_confirm = nil
-cli_server  = nil
-cli_model   = nil
+
+# No --server / --model: the connection comes from a [[llm]] table only —
+# see Shared::Config's "No connection overrides".
 
 # Bin-local flags (not config-file concerns, so not routed through
 # Shared::Config): web research is ON by default — a "computer" reaches out —
@@ -96,8 +97,6 @@ parser = OptionParser.new do |opts|
     cli_sandbox = false
     cli_confirm = false
   end
-  opts.on('--server URL', "LLM server base URL (default: #{Shared::Config::DEFAULT_SERVER})") { |v| cli_server = v }
-  opts.on('--model NAME', "Model identifier (default: #{Shared::Config::DEFAULT_MODEL})") { |v| cli_model = v }
   opts.on('-h', '--help', 'Print this help and exit') do
     puts opts
     exit
@@ -114,14 +113,13 @@ end
 
 # Load the layered config (XDG search path only — there is no project-local
 # layer, so a secret-bearing config can never sit inside a tree the agent
-# reads). CLI flags overlay it; the sandbox/confirm flags force false. No
-# --api-key flag: a key must never travel on the command line. Boot-time,
+# reads). The only CLI overlay left is the safety pair, which can only force
+# false; the connection comes from the file alone (no --server / --model, and
+# never an --api-key: a key must not travel on the command line). Boot-time,
 # before the screen is up, so a bad file is a plain warn + exit rather than a
 # torn-down TUI.
 begin
-  config = Shared::Config.load(
-    overrides: { server: cli_server, model: cli_model, sandbox: cli_sandbox, confirm: cli_confirm }
-  )
+  config = Shared::Config.load(overrides: { sandbox: cli_sandbox, confirm: cli_confirm })
   # Which engines web_search may use is pikuri's to validate — it owns the
   # engine list and knows which of them need a key. Asked here so an unusable
   # [search] selection is the same plain warn + exit as any other config
