@@ -1,42 +1,3 @@
-PATH
-  remote: ../pikuri
-  specs:
-    pikuri-code (0.0.7)
-      pikuri-core (= 0.0.7)
-      pikuri-subagents (= 0.0.7)
-      pikuri-tasks (= 0.0.7)
-      pikuri-workspace (= 0.0.7)
-    pikuri-core (0.0.7)
-      faraday (~> 2.9)
-      nokogiri (~> 1.19)
-      rainbow (~> 3.1)
-      reverse_markdown (~> 3.0)
-      ruby-readability (~> 0.7)
-      ruby_llm (~> 1.16)
-      zeitwerk (~> 2.7)
-    pikuri-mcp (0.0.7)
-      mcp (~> 0.17)
-      pikuri-core (= 0.0.7)
-    pikuri-os (0.0.7)
-      pikuri-code (= 0.0.7)
-      pikuri-core (= 0.0.7)
-      pikuri-pdf (= 0.0.7)
-      pikuri-subagents (= 0.0.7)
-      pikuri-workspace (= 0.0.7)
-    pikuri-skills (0.0.7)
-      pikuri-core (= 0.0.7)
-    pikuri-subagents (0.0.7)
-      pikuri-core (= 0.0.7)
-      pikuri-workspace (= 0.0.7)
-    pikuri-tasks (0.0.7)
-      pikuri-core (= 0.0.7)
-    pikuri-thunderbird (0.0.7)
-      pikuri-core (= 0.0.7)
-      sqlite3 (~> 2.9)
-    pikuri-workspace (0.0.7)
-      pikuri-core (= 0.0.7)
-      reline (~> 0.6)
-
 GEM
   remote: https://rubygems.org/
   specs:
@@ -104,9 +65,44 @@ GEM
       hashery (~> 2.0)
       ruby-rc4
       ttfunk
-    pikuri-pdf (0.0.7)
+    pikuri-code (0.1.0)
+      pikuri-core (= 0.1.0)
+      pikuri-subagents (= 0.1.0)
+      pikuri-tasks (= 0.1.0)
+      pikuri-workspace (= 0.1.0)
+    pikuri-core (0.1.0)
+      faraday (~> 2.9)
+      nokogiri (~> 1.19)
+      rainbow (~> 3.1)
+      reverse_markdown (~> 3.0)
+      ruby-readability (~> 0.7)
+      ruby_llm (~> 1.16)
+      zeitwerk (~> 2.7)
+    pikuri-mcp (0.1.0)
+      mcp (~> 0.17)
+      pikuri-core (= 0.1.0)
+    pikuri-os (0.1.0)
+      pikuri-code (= 0.1.0)
+      pikuri-core (= 0.1.0)
+      pikuri-pdf (= 0.1.0)
+      pikuri-subagents (= 0.1.0)
+      pikuri-workspace (= 0.1.0)
+    pikuri-pdf (0.1.0)
       pdf-reader (~> 2.15)
-      pikuri-core (= 0.0.7)
+      pikuri-core (= 0.1.0)
+    pikuri-skills (0.1.0)
+      pikuri-core (= 0.1.0)
+    pikuri-subagents (0.1.0)
+      pikuri-core (= 0.1.0)
+      pikuri-workspace (= 0.1.0)
+    pikuri-tasks (0.1.0)
+      pikuri-core (= 0.1.0)
+    pikuri-thunderbird (0.1.0)
+      pikuri-core (= 0.1.0)
+      sqlite3 (~> 2.9)
+    pikuri-workspace (0.1.0)
+      pikuri-core (= 0.1.0)
+      reline (~> 0.6)
     prism (1.9.0)
     racc (1.8.1)
     rainbow (3.1.1)
@@ -179,16 +175,16 @@ DEPENDENCIES
   kramdown (~> 2.4)
   kramdown-parser-gfm (~> 1.1)
   minitest (~> 6.0)
-  pikuri-code!
-  pikuri-core!
-  pikuri-mcp!
-  pikuri-os!
-  pikuri-pdf (~> 0.0.7)
-  pikuri-skills!
-  pikuri-subagents!
-  pikuri-tasks!
-  pikuri-thunderbird!
-  pikuri-workspace!
+  pikuri-code (~> 0.1)
+  pikuri-core (~> 0.1)
+  pikuri-mcp (~> 0.1)
+  pikuri-os (~> 0.1)
+  pikuri-pdf (~> 0.1)
+  pikuri-skills (~> 0.1)
+  pikuri-subagents (~> 0.1)
+  pikuri-tasks (~> 0.1)
+  pikuri-thunderbird (~> 0.1)
+  pikuri-workspace (~> 0.1)
   rouge (>= 4.0, < 6)
   rspec-core (~> 3.13)
   tomlrb (~> 2.0)
@@ -231,16 +227,16 @@ CHECKSUMS
   nokogiri (1.19.4-x86_64-linux-gnu) sha256=379fae440b28915e3f19d752ce2dcf8465ed2b2fbefd2a7ca0dd497bc981a06a
   nokogiri (1.19.4-x86_64-linux-musl) sha256=17dfb7c1fa194ae02fbf7c51a7afc8d278045ab3fdacfd86f91d02d7b274470b
   pdf-reader (2.15.1) sha256=18c6a986a84a3117fa49f4279fc2de51f5d2399b71833df5d2bccd595c7068ce
-  pikuri-code (0.0.7)
-  pikuri-core (0.0.7)
-  pikuri-mcp (0.0.7)
-  pikuri-os (0.0.7)
-  pikuri-pdf (0.0.7) sha256=cc1ab8f04a64b0c3e7bbde1640aa18e4f1b69d10b9dba2afee0ae3f0333db83a
-  pikuri-skills (0.0.7)
-  pikuri-subagents (0.0.7)
-  pikuri-tasks (0.0.7)
-  pikuri-thunderbird (0.0.7)
-  pikuri-workspace (0.0.7)
+  pikuri-code (0.1.0) sha256=3bbe6d297d56e0d71cf7a3d7b6b072911f530b7c5ec8feaddece6583fa26d3a3
+  pikuri-core (0.1.0) sha256=bf314185e77e5c59cf3bd564f9bafc41cf42cc4df34a96857fe55dacebf0686a
+  pikuri-mcp (0.1.0) sha256=3f7aa245df1145988bd78e0049e84d1d1415da7bc8759938ed01b28f931562b9
+  pikuri-os (0.1.0) sha256=dab2fb1219467249b932da49d00d23d8103349c383986045ac30b2fa35a25a11
+  pikuri-pdf (0.1.0) sha256=ae817ce108c9b54c02a92b5bc24bb741e950372841e8ce4971f4221bc059b233
+  pikuri-skills (0.1.0) sha256=68cdeec5da57823ddb32467e37d7fd07913d39919aa99cdc9cb1dd858467562c
+  pikuri-subagents (0.1.0) sha256=5e232337d5b65b7a67d656ae44a301df9b78a28e0b1d6adc5670e68514041628
+  pikuri-tasks (0.1.0) sha256=ffccd7cdd057e5202be22f6c24c05e4584cc26ba723ed6c78661a0c37e40e5ec
+  pikuri-thunderbird (0.1.0) sha256=0b26b053431f975e3cc616ae63836a463639a4c66b4fd8c4618620b7af315506
+  pikuri-workspace (0.1.0) sha256=bb47c661f244c08c1f1d7a910ac2356e27562f51d0c4fe59648a090677abc1de
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
   racc (1.8.1) sha256=4a7f6929691dbec8b5209a0b373bc2614882b55fc5d2e447a21aaa691303d62f
   rainbow (3.1.1) sha256=039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a
