@@ -15,6 +15,14 @@ steps:
     commands:
       - ruby -v
 
+      # --- system deps ---
+      # ripgrep: pikuri-workspace's Search::Grep probes for `rg` in its
+      # constructor and raises when it's missing, so every spec that builds a
+      # real coding agent (spec/code/app_spec.rb) dies at Workspace::Extension
+      # without it. The ruby:3.3 image doesn't ship rg; ~4s from apt.
+      - DEBIAN_FRONTEND=noninteractive apt-get update -qq
+      - DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ripgrep
+
       # --- restore the gem cache from Hetzner Object Storage ---
       # Keyed on Gemfile.lock so it auto-busts when deps change. Skipped when
       # no credentials are present (e.g. a fork PR), so such builds still pass.

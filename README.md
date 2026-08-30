@@ -17,6 +17,9 @@ Pikuri owns the agent loop, tool execution, and LLM transport. This project owns
 - Ruby ≥ 3.3
 - A local LLM server (e.g. [llama.cpp](https://github.com/ggerganov/llama.cpp) `server`),
   or a cloud-based LLM server (Grok, Anthropic, ...)
+- [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) — the coding and
+  computer shells' `grep` tool refuses to start without it (`apt install ripgrep`).
+  The chat shell doesn't need it.
 
 ## Install
 
