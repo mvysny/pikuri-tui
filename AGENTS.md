@@ -480,7 +480,8 @@ Zeitwerk over `lib/` and eager-loads it.
   `#paintable_row` puts the columns back as blanks, the pair keeping every
   painted row exactly `rect.width` wide. Those two must stay in step, and that
   `paintable_row` override is the one place in this repo leaning on a private
-  Tuile method — a gutter option upstream would retire both. Exposes
+  Tuile method — the gutter option asked for in
+  [tuile#9](https://github.com/mvysny/tuile/issues/9) would retire both. Exposes
   `#listener` for the host to compose
   into the agent's `ListenerList`, plus `#render_notice` (a dim, non-error
   transcript line, sibling of `#render_turn_error`); a `SystemInjected` event renders as a
@@ -855,6 +856,23 @@ Zeitwerk over `lib/` and eager-loads it.
   that bar, delete outright. `ideas/` holds only *pending* thinking;
   anything worth keeping after the work lands moves to a durable home,
   and the transient container disappears.
+- **Three borderless workarounds are waiting on upstream tuile — check them
+  on every tuile bump.** Each is a local patch for something Tuile can't yet
+  express, and each says in its own rdoc what to delete. Nothing here is
+  broken; they are cleanup, not debt to fear.
+
+  | Issue | What we do instead | Retire by deleting |
+  |---|---|---|
+  | [tuile#9](https://github.com/mvysny/tuile/issues/9) — scrollbar gutter | narrow the wrap, re-pad before the glyph | `Shared::ConversationTextView`'s `SCROLLBAR_GUTTER`, `#wrap_width`, `#paintable_row` |
+  | [tuile#10](https://github.com/mvysny/tuile/issues/10) — the bar has no theme color (and no auto-hide) | sidebar panes drop the bar entirely; the conversation keeps a loud one | nothing yet — revisit `scrollbar_visibility` in `Code::TaskListPane` / `Code::GitSummaryPane` / `Shared::ConversationTextView` |
+  | [tuile#11](https://github.com/mvysny/tuile/issues/11) — a field ignores `bg_color` | override the (protected) `background` | `Shared::InputPane::Area#background`, replaced by `@area.bg_color = Tuile::Theme.ref(:pane_bg)` |
+
+  Only the tuile#9 pair is genuinely fragile — `#paintable_row` is *private*
+  upstream, and the two overrides must stay in step or every painted row comes
+  out the wrong width (there are specs pinning that). The other two ride
+  sanctioned seams and will keep working; they are just more code than the
+  feature deserves.
+
 - **Pikuri owns the loop and the tools; we own the UI shell.**
   When changing pikuri-tui, the question is "what does the user
   see, and where is focus?" — the agent loop is somebody else's

@@ -58,7 +58,10 @@ module Code
       @view = Tuile::Component::TextView.new
       # No scrollbar: nothing in the sidebar takes focus, so there is no key
       # that could drive one — inside a frame it read as chrome, but on the
-      # borderless tint a full-height inoperable bar is just noise.
+      # borderless tint a full-height inoperable bar is just noise (tuile#10,
+      # https://github.com/mvysny/tuile/issues/10, on why the bar is as loud
+      # as it is). Even a toned bar stays inoperable here, so this stays
+      # +:gone+ unless the pane becomes focusable.
       add(Shared::PaneCaptionLabel.new(CAPTION), Fixed[1])
       add(@view, Expand[1])
       @listener = Listener.new(pane: self, screen: screen)

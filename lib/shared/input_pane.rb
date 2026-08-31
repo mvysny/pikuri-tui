@@ -15,7 +15,8 @@ require 'tuile'
 # {Tuile::Component::AbstractStringField} paints its own "well"
 # (+active_bg_color+ focused, +input_bg_color+ otherwise), which would both
 # fight this pane's tint and flip the prompt's shade as focus moves, so
-# {Area#background} paints the inherited tint instead (see there).
+# {Area#background} paints the inherited tint instead (see there, and tuile#11
+# — https://github.com/mvysny/tuile/issues/11).
 #
 # The well is a permanent spatial anchor, not a focus cue. With nothing else in
 # these shells focusable (the popups are modal), the caret is the only focus
@@ -196,6 +197,14 @@ class Shared::InputPane < Tuile::Component::Layout
     #
     # +effective_bg_color+ resolves the {Tuile::Theme::Ref} the pane set, so
     # this tracks a light/dark flip and a re-derived tint with no hook.
+    #
+    # Overriding +background+ is a *sanctioned* seam (it is protected, not
+    # private), so unlike the {Shared::ConversationTextView} gutter this is not
+    # fragile — but tuile#11 (https://github.com/mvysny/tuile/issues/11) asks
+    # for an explicitly-set +bg_color+ to win over the well instead. If that
+    # lands, delete this method and set the ref on the {Area} itself:
+    #
+    #   @area.bg_color = Tuile::Theme.ref(:pane_bg)
     #
     # @param text [String] the row to render.
     # @return [Tuile::StyledString] +text+ on the inherited pane tint.

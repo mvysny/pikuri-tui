@@ -61,6 +61,10 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # chrome. Tuile has no gutter option, so {#wrap_width} and {#paintable_row}
   # add one here (see those two for the seam).
   #
+  # Filed upstream as tuile#9 — https://github.com/mvysny/tuile/issues/9. When
+  # that lands, this constant and both overrides go, replaced by whatever
+  # option it settles on.
+  #
   # @return [Integer]
   SCROLLBAR_GUTTER = 1
 
@@ -80,6 +84,12 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     @markdown = markdown
     @tool_formatters = tool_formatters
     self.auto_scroll = true
+    # Kept even though the bar is loud (it paints in the terminal's default
+    # foreground, and covers the whole track whenever the content fits — see
+    # tuile#10, https://github.com/mvysny/tuile/issues/10): unlike the coding
+    # shell's sidebar panes this one is genuinely scrollable, by the prompt's
+    # PageUp/PageDown. Revisit once that issue gives the bar a theme color or
+    # an auto-hide.
     self.scrollbar_visibility = :visible
     # The leaf listener this pane builds directly isn't a component, so it
     # takes the screen explicitly — this pane hands it its own inherited
@@ -257,8 +267,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # This overrides a *private* {Tuile::Component::TextView} method — the only
   # seam Tuile offers for a scrollbar gutter, and the reason the pairing with
   # {#wrap_width} is spelled out on both. If a tuile upgrade changes this
-  # method's shape, the gutter is what breaks; the durable fix is a gutter
-  # option upstream, at which point both overrides here should go.
+  # method's shape, the gutter is what breaks; the durable fix is the gutter
+  # option asked for in tuile#9 (https://github.com/mvysny/tuile/issues/9), at
+  # which point this override and {#wrap_width}'s both go.
   #
   # @param index [Integer] 0-based index into the wrapped rows.
   # @param row_in_viewport [Integer] 0-based row within the viewport.
