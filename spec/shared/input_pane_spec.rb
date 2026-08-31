@@ -25,18 +25,37 @@ RSpec.describe Shared::InputPane do
     assert_same window.area, screen.focused
   end
 
-  it 'lays the marker out at PAD, with the area one column past it' do
+  it 'hangs the marker off the left edge, with the area starting past it' do
     window.rect = Tuile::Rect.new(0, 0, 40, described_class::HEIGHT)
-    pad = described_class::PAD
-    # One blank tinted row above the editable rows, hence top == 1.
-    assert_equal Tuile::Rect.new(pad, 1, 2, 1), window.instance_variable_get(:@marker).rect
-    assert_equal Tuile::Rect.new(pad + 2, 1, 40 - (2 * pad) - 2, described_class::ROWS), window.area.rect
+    width = described_class::MARKER_WIDTH
+    # The marker owns one row at column 0; every row is editable.
+    assert_equal Tuile::Rect.new(0, 0, width, 1), window.instance_variable_get(:@marker).rect
+    assert_equal Tuile::Rect.new(width, 0, 40 - width - described_class::TRAILING_PAD, described_class::HEIGHT),
+                 window.area.rect
   end
 
-  it 'drops the blank margin rows rather than starving the area on a short pane' do
-    window.rect = Tuile::Rect.new(0, 0, 40, 1)
-    assert_equal 1, window.area.rect.height
-    assert_equal 0, window.area.rect.top
+  it 'leaves only the trailing pad unclaimed, so the buffer gets the rest' do
+    window.rect = Tuile::Rect.new(0, 0, 40, described_class::HEIGHT)
+    assert_equal 40 - described_class::MARKER_WIDTH - described_class::TRAILING_PAD, window.area.rect.width
+  end
+
+  it 'floors the area width at 0 on a pane too narrow for the marker and pad' do
+    window.rect = Tuile::Rect.new(0, 0, 2, described_class::HEIGHT)
+    assert_equal 0, window.area.rect.width
+  end
+
+  it 'paints the buffer on the inherited pane tint, not on a well of its own' do
+    screen = Tuile::Screen.instance
+    screen.content = window
+    window.rect = Tuile::Rect.new(0, 0, 40, described_class::HEIGHT)
+    tint = screen.theme[:pane_bg]
+    # Tuile's AbstractStringField would paint input_bg_color here, and
+    # active_bg_color once focused; the prompt must show the pane's tint in
+    # both states (a shade flip on focus is exactly what we removed).
+    assert(window.area.__send__(:background, 'hi').spans.all? { |span| span.style.bg == tint })
+    window.focus
+    assert(window.area.__send__(:background, 'hi').spans.all? { |span| span.style.bg == tint })
+    refute_equal screen.theme.active_bg_color, tint
   end
 
   it 'forwards Enter submissions from the framed input to on_submit, then clears' do

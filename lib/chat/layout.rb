@@ -9,15 +9,15 @@ module Chat
   #   │   conversation (terminal background)       │
   #   │                                            │
   #   ├── Local Qwen 3.6 · 25k/60k ────────────────┤  <- Shared::StatusRuleLabel
-  #   │   ❯ prompt (tinted :pane_bg)               │  <- Shared::InputPane
+  #   │ ❯ prompt (tinted :pane_bg)                 │  <- Shared::InputPane
   #   └────────────────────────────────────────────┘
   #
   # Nothing here is framed; what separates the two panes is the one-row status
   # rule and the prompt's own tint. The conversation is inset {CONTENT_INSET}
-  # columns from the left so its text lines up with the prompt's +❯+ marker,
-  # which sits {Shared::InputPane::PAD} columns in; the rule and the prompt well
-  # both span the full width, so the tinted block reads as a band across the
-  # bottom of the screen.
+  # columns from the left so its text lines up with the prompt's buffer, with
+  # the +❯+ hanging into the margin below it; the rule and the prompt well both
+  # span the full width, so the tinted block reads as a band across the bottom
+  # of the screen.
   #
   # Layout only — global keybindings (Ctrl+K, Ctrl+C) are installed by
   # {App} via {Tuile::Screen#register_global_shortcut}, which bypasses
@@ -32,12 +32,13 @@ module Chat
     INPUT_HEIGHT = Shared::InputPane::HEIGHT
 
     # Columns the conversation pane is inset from the left edge, matching
-    # {Shared::InputPane::PAD} so the transcript and the +❯+ marker share a
-    # left margin. The status rule and the prompt well are deliberately *not*
-    # inset — a full-bleed rule reads as a divider, an inset one as a caption.
+    # {Shared::InputPane::MARKER_WIDTH} so the transcript lines up with the
+    # prompt's *text* column, the +❯+ hanging into the margin below it. The
+    # status rule and the prompt well are deliberately *not* inset — a
+    # full-bleed rule reads as a divider, an inset one as a caption.
     #
     # @return [Integer]
-    CONTENT_INSET = Shared::InputPane::PAD
+    CONTENT_INSET = Shared::InputPane::MARKER_WIDTH
 
     # @param conversation [Shared::ConversationTextView] the transcript pane
     #   (top). Added as a child during construction; its rect is managed by

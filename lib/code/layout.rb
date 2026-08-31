@@ -12,7 +12,7 @@ module Code
   #   │  (terminal background)   │││ ○ port the tint │     the conversation is not
   #   │                          │││ Changes ────    │
   #   ├── Local Qwen · 25k/60k ──┴─┴─────────────────┤  <- Shared::StatusRuleLabel
-  #   │  ❯ prompt (tinted, full width)               │  <- Shared::InputPane
+  #   │ ❯ prompt (tinted, full width)                │  <- Shared::InputPane
   #   └──────────────────────────────────────────────┘
   #
   # Two deliberate departures from the framed layout this replaced. The
@@ -42,11 +42,11 @@ module Code
     INPUT_HEIGHT = Shared::InputPane::HEIGHT
 
     # Columns the conversation pane is inset from the left edge, matching
-    # {Shared::InputPane::PAD} so the transcript and the +❯+ marker share a
-    # left margin.
+    # {Shared::InputPane::MARKER_WIDTH} so the transcript lines up with the
+    # prompt's *text* column, the +❯+ hanging into the margin below it.
     #
     # @return [Integer]
-    CONTENT_INSET = Shared::InputPane::PAD
+    CONTENT_INSET = Shared::InputPane::MARKER_WIDTH
 
     # Fraction of the terminal width allotted to the sidebar column
     # (tasks + git). The conversation column gets the rest — a 60/40

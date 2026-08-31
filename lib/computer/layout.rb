@@ -23,11 +23,11 @@ module Computer
     INPUT_HEIGHT = Shared::InputPane::HEIGHT
 
     # Columns the conversation pane is inset from the left edge, matching
-    # {Shared::InputPane::PAD} so the transcript and the +❯+ marker share a
-    # left margin.
+    # {Shared::InputPane::MARKER_WIDTH} so the transcript lines up with the
+    # prompt's *text* column, the +❯+ hanging into the margin below it.
     #
     # @return [Integer]
-    CONTENT_INSET = Shared::InputPane::PAD
+    CONTENT_INSET = Shared::InputPane::MARKER_WIDTH
 
     # @param conversation [Shared::ConversationTextView] the transcript pane
     #   (top). Added as a child during construction; its rect is managed by

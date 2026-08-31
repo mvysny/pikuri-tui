@@ -339,13 +339,19 @@ Zeitwerk over `lib/` and eager-loads it.
   `PickerWindow` of app actions, each on one follow-up key. Shared by
   all three shells; each `App` registers its own action set.
 - `lib/shared/input_pane.rb` — `Shared::InputPane`, the prompt as a
-  borderless, permanently `:pane_bg`-tinted `Layout`: `PAD` columns of
-  padding, a static Talus `❯` marker, then a private nested `TextArea`
-  subclass that rebinds Enter to submit-and-clear (blank buffers are a
-  no-op), with a blank tinted row above and below so the tint reads as a
-  padded well. Tinted regardless of focus — the well is a spatial anchor,
-  not a focus cue, and with nothing else in these shells focusable the caret
-  is cue enough. A `Layout` cascades no focus, so `#focus` forwards onto the
+  borderless, permanently `:pane_bg`-tinted `Layout`: a static Talus `❯`
+  hanging off the very left edge, then a private nested `TextArea` subclass
+  that rebinds Enter to submit-and-clear (blank buffers are a no-op), running
+  to `TRAILING_PAD` columns short of the right edge. `MARKER_WIDTH` is the
+  buffer's column and so the transcript's inset — the two line up with the
+  `❯` in the margin below. Tinted regardless of focus, which takes an
+  override: Tuile's `AbstractStringField` paints its own well
+  (`active_bg_color` focused / `input_bg_color` otherwise), so `Area#background`
+  paints the inherited `effective_bg_color` instead — a second shade inside
+  the pane would read as the box we removed, and the pair would flip the
+  prompt's shade as focus moves. The well is a spatial anchor, not a focus
+  cue; with nothing else in these shells focusable the caret is cue enough. A
+  `Layout` cascades no focus, so `#focus` forwards onto the
   area itself. With an optional `slash_menu:` it also arbitrates slash-command
   entry (opens/filters the palette on change, runs a command on Enter for a
   leading-`/` buffer instead of submitting a turn, forwards Up/Down/ESC while

@@ -4,18 +4,23 @@ require 'tuile'
 
 # The bottom input pane: a borderless, permanently tinted well framing an
 # editable {Area} (Enter submits, blank buffers are a no-op), with a static
-# {MARKER} in front of it.
+# {MARKER} hanging off its left edge.
 #
-#                                              <- BLANK_ROWS
-#     ❯ what about lifetimes                   <- PAD, MARKER, then the Area
-#                                              <- BLANK_ROWS
+#   ❯ what about lifetimes                   <- MARKER, then the Area
+#                                            <- HEIGHT rows, all editable
 #
 # The whole rect paints +:pane_bg+ — this is a *secondary* surface, set off
 # against the untinted {Shared::ConversationTextView} above it — and it does so
-# regardless of focus: the well is a permanent spatial anchor, not a focus cue.
-# With nothing else in these shells focusable (the popups are modal), the caret
-# is the only focus cue needed, which is why this pane carries no counterpart
-# to the labeled chips a multi-pane borderless app would need.
+# regardless of focus. That takes an override: Tuile's
+# {Tuile::Component::AbstractStringField} paints its own "well"
+# (+active_bg_color+ focused, +input_bg_color+ otherwise), which would both
+# fight this pane's tint and flip the prompt's shade as focus moves, so
+# {Area#background} paints the inherited tint instead (see there).
+#
+# The well is a permanent spatial anchor, not a focus cue. With nothing else in
+# these shells focusable (the popups are modal), the caret is the only focus
+# cue needed, which is why this pane carries no counterpart to the labeled
+# chips a multi-pane borderless app would need.
 #
 # The host builds one, drops it into the layout, and focuses it — {#focus}
 # forwards to the private {Area}, since a {Tuile::Component::Layout} has no
@@ -42,37 +47,34 @@ require 'tuile'
 #
 # UI-thread-confined.
 class Shared::InputPane < Tuile::Component::Layout
-  # The static prompt marker drawn in front of the {Area}, in the theme's
-  # {Shared::AppTheme::TALUS} hint accent. One row only — a wrapped second line
-  # of the buffer sits under blank marker columns, so the marker reads as the
-  # prompt's start rather than a per-line bullet.
+  # The static prompt marker, drawn at the pane's very left edge in the
+  # theme's {Shared::AppTheme::TALUS} hint accent. One row only — a wrapped
+  # second line of the buffer sits under blank marker columns, so the marker
+  # reads as the prompt's start rather than a per-line bullet.
   #
   # @return [String]
   MARKER = '❯'
 
-  # Columns of tinted padding at each edge, so neither the marker nor the
-  # buffer butts against the terminal's side.
+  # Columns the marker owns: the glyph plus the space after it. The buffer
+  # starts at this column, so it doubles as the prompt's *text* column — which
+  # is what each shell's `Layout` insets the transcript by, lining the two up
+  # with the marker hanging into the margin.
   #
   # @return [Integer]
-  PAD = 2
+  MARKER_WIDTH = 2
 
-  # Blank tinted rows above and below the editable rows, which is what makes
-  # the tint read as a padded well rather than a stripe. Dropped when the pane
-  # is too short to afford them.
+  # Columns of tinted padding at the right edge, so a full line doesn't butt
+  # against the terminal's side. There is deliberately none on the left: the
+  # marker sits flush, and the buffer's own left margin is {MARKER_WIDTH}.
   #
   # @return [Integer]
-  BLANK_ROWS = 1
+  TRAILING_PAD = 2
 
-  # Total rows the pane asks its layout for: {ROWS} editable rows plus a
-  # {BLANK_ROWS} margin top and bottom.
+  # Rows the pane asks its layout for; all of them editable — the buffer
+  # scrolls within them once a message runs longer.
   #
   # @return [Integer]
-  HEIGHT = 5
-
-  # Editable rows — the buffer scrolls within them once a message runs longer.
-  #
-  # @return [Integer]
-  ROWS = HEIGHT - (2 * BLANK_ROWS)
+  HEIGHT = 3
 
   # @param on_submit [Proc, Method] one-arg callable invoked with the
   #   buffer text when the user presses Enter on a non-blank line; handed
@@ -110,11 +112,11 @@ class Shared::InputPane < Tuile::Component::Layout
   # @return [void]
   def focus = @area.focus
 
-  # Lays the marker and the editable area out inside the tinted well: a
-  # {BLANK_ROWS} margin top and bottom (dropped when the pane is too short for
-  # it), {PAD} columns at each side, the marker then a space, then the area.
-  # The base {Tuile::Component#repaint} fills whatever the two children don't
-  # cover with {#bg_color} — which is exactly what paints the padding.
+  # Lays the marker and the editable area out across the tinted well: the
+  # marker on the first row at the very left edge, the area filling the rest
+  # bar {TRAILING_PAD} columns. The base {Tuile::Component#repaint} fills
+  # whatever the two children don't cover with {#bg_color} — which is what
+  # paints the trailing pad and the rows under the marker.
   #
   # @param new_rect [Tuile::Rect]
   # @return [void]
@@ -122,13 +124,9 @@ class Shared::InputPane < Tuile::Component::Layout
     super
     return if rect.empty?
 
-    margin = rect.height > (2 * BLANK_ROWS) ? BLANK_ROWS : 0
-    top = rect.top + margin
-    height = rect.height - (2 * margin)
-    marker_width = MARKER.length + 1
-    @marker.rect = Tuile::Rect.new(rect.left + PAD, top, marker_width, 1)
-    @area.rect = Tuile::Rect.new(rect.left + PAD + marker_width, top,
-                                 [rect.width - (2 * PAD) - marker_width, 0].max, height)
+    @marker.rect = Tuile::Rect.new(rect.left, rect.top, MARKER_WIDTH, 1)
+    @area.rect = Tuile::Rect.new(rect.left + MARKER_WIDTH, rect.top,
+                                 [rect.width - MARKER_WIDTH - TRAILING_PAD, 0].max, rect.height)
   end
 
   # The editable content: a {Tuile::Component::TextArea} that rebinds Enter
@@ -186,6 +184,24 @@ class Shared::InputPane < Tuile::Component::Layout
     end
 
     protected
+
+    # Paint the buffer on the *pane's* tint rather than on a well of the
+    # field's own. {Tuile::Component::AbstractStringField} defaults to
+    # +active_bg_color+ when focused and +input_bg_color+ otherwise; both are
+    # wrong here. This prompt is not a field sitting in a form — it is the
+    # whole tinted secondary surface, so a second shade inside it reads as a
+    # box we deliberately removed, and the focused/unfocused pair would make
+    # the prompt flip shade as focus moves (which, with the prompt as the only
+    # focus target, would just be flicker around a modal popup).
+    #
+    # +effective_bg_color+ resolves the {Tuile::Theme::Ref} the pane set, so
+    # this tracks a light/dark flip and a re-derived tint with no hook.
+    #
+    # @param text [String] the row to render.
+    # @return [Tuile::StyledString] +text+ on the inherited pane tint.
+    def background(text)
+      Tuile::StyledString.styled(text, bg: effective_bg_color)
+    end
 
     # Claim Up/Down for history recall, but only in the first/last row and only
     # when the store has something to give. Anything else — an exhausted edge

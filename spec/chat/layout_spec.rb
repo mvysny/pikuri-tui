@@ -19,11 +19,13 @@ RSpec.describe Chat::Layout do
     assert_equal Tuile::Rect.new(0, top_h + 1, 80, described_class::INPUT_HEIGHT), input.rect
   end
 
-  it 'insets the conversation to the prompt marker column, and nothing else' do
+  it 'insets the conversation to the prompt text column, and nothing else' do
     layout.rect = Tuile::Rect.new(0, 0, 80, 24)
-    # The transcript's left edge lines up with the ❯; the rule and the prompt
-    # well run full width so the tint reads as a band.
-    assert_equal Shared::InputPane::PAD, conversation.rect.left
+    # The transcript's left edge lines up with the prompt's buffer (the ❯
+    # hangs into the margin below it); the rule and the prompt well run full
+    # width so the tint reads as a band.
+    assert_equal Shared::InputPane::MARKER_WIDTH, conversation.rect.left
+    assert_equal input.area.rect.left, conversation.rect.left
     assert_equal 0, status_rule.rect.left
     assert_equal 0, input.rect.left
     assert_equal 80, status_rule.rect.width
