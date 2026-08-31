@@ -27,7 +27,7 @@ module Code
     #   fed by {GitWatcher}; the popup only shows/hides it. Its parent is set
     #   to +self+ here — do not re-parent it elsewhere.
     def initialize(diff_window:)
-      super(content: diff_window, size: Tuile::Fraction::FULL)
+      super(content: diff_window, declared_size: Tuile::Fraction::FULL)
     end
   end
 end

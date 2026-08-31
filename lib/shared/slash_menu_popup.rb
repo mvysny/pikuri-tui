@@ -41,8 +41,8 @@ require 'tuile'
 #
 # Geometry is owned by {#reposition} (the Tuile hook called on open and on
 # every layout pass, so it tracks SIGWINCH): full screen width less one column
-# each edge, {HEIGHT} tall, its bottom edge just above the {#anchor} input. The
-# base {Tuile::Component::Popup} default +size+ is unused — reposition assigns
+# each edge, {HEIGHT} tall, its bottom edge just above the {#anchor} input.
+# {Tuile::Component::Overlay} declares no size of its own — reposition assigns
 # the rect outright.
 #
 # {#submit} resolves the command *before* the caller clears the buffer (the

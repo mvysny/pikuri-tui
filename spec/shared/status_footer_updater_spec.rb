@@ -265,7 +265,10 @@ RSpec.describe Shared::StatusFooterUpdater do
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
 
     Tuile::Screen.instance.theme = Tuile::Theme::LIGHT
-    window.on_theme_changed # Screen#theme= fires this tree-wide; here we drive it directly
+    # Screen#theme= fires this tree-wide; here we drive it directly. The hook is
+    # protected plumbing since tuile 0.14 (D_hook_visibility), so reach it the
+    # way Tuile's own fan-out does.
+    window.__send__(:on_theme_changed)
     assert(footer_text.spans.all? { |span| span.style.fg == Tuile::Theme::LIGHT.hint_color })
   end
 

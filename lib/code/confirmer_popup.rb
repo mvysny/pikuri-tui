@@ -285,7 +285,7 @@ module Code
         # clips. 1-row top/bottom, 2-col left/right padding. Absolute Size reads
         # this popup's own inherited +#screen+ size (available pre-+super+).
         super(content: window,
-              size: Tuile::Size.new(screen.size.width - 4, screen.size.height - 2))
+              declared_size: Tuile::Size.new(screen.size.width - 4, screen.size.height - 2))
       end
 
       # Maps a key to an outcome and resolves. +y+/+yes+ approve (dropped
@@ -455,7 +455,7 @@ module Code
         window.content = @field
         # Wide box, rows tall + the Window's top/bottom border rows. The
         # width reads this popup's own inherited +#screen+ size.
-        super(content: window, size: Tuile::Size.new(screen.size.width * 4 / 5, rows + 2))
+        super(content: window, declared_size: Tuile::Size.new(screen.size.width * 4 / 5, rows + 2))
       end
 
       # Opens the popup and moves focus onto the field so keystrokes edit

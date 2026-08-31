@@ -25,8 +25,10 @@ RSpec.describe Shared::SlashMenuPopup do
     Tuile::Screen.instance.buffer.region_text(list.rect).map(&:strip).reject(&:empty?)
   end
 
-  it 'stands up as a non-modal, borderless Popup wrapping a List directly' do
-    assert_kind_of Tuile::Component::Popup, menu
+  it 'stands up as a non-modal, borderless Overlay wrapping a List directly' do
+    # An Overlay, not a Popup: since tuile 0.14 Popup *is* the modal one, and
+    # ListDropdown hangs off the bare Overlay instead.
+    assert_kind_of Tuile::Component::Overlay, menu
     refute menu.modal?
     assert_kind_of Tuile::Component::List, list
     refute menu.visible?
