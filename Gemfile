@@ -129,6 +129,10 @@ group :computer do
 end
 
 group :test do
+  # Runs the Rakefile's `check` task — the cross-repo standard entry
+  # point (`bundle exec rake check`; also the default task).
+  gem 'rake', '~> 13.3'
+
   # Test runner. We use the rspec-core describe/it harness but write
   # assertions in minitest style — see CLAUDE.md. Matches pikuri's
   # convention so the two codebases read side-by-side.

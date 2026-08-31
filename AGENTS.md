@@ -721,16 +721,19 @@ Zeitwerk over `lib/` and eager-loads it.
   queue, so the worker's UI work runs where production runs it. Use them
   together; a spec that only presses keys and asserts needs neither (an
   on-UI-thread submit still runs inline).
-- **Run the suite with `bundle exec rspec`.** Always go through
-  Bundler — never plain `rspec`. `spec_helper` pulls in the whole
-  `:code` group, and only the Bundler environment resolves those to
-  the versions this project's `Gemfile.lock` pins; plain `rspec` picks
-  whichever pikuri gems happen to be installed system-wide and can
-  silently test against a stale set. The same holds double when a
-  pikuri gem is temporarily switched back to a local path dependency
-  (`path: '../pikuri'`) to develop the two sides together — then plain
-  `rspec` fails outright on the first path-only gem
-  (`require 'pikuri-mcp'`).
+- **Run the full check with `bundle exec rake check`** (also the
+  `default` task — bare `bundle exec rake` is the same thing). That is
+  the cross-repo standard entry point, the exact command CI runs; here
+  it wraps the whole spec suite. For a targeted run use
+  `bundle exec rspec spec/...` — but always go through Bundler, never
+  plain `rspec`. `spec_helper` pulls in the whole `:code` group, and
+  only the Bundler environment resolves those to the versions this
+  project's `Gemfile.lock` pins; plain `rspec` picks whichever pikuri
+  gems happen to be installed system-wide and can silently test against
+  a stale set. The same holds double when a pikuri gem is temporarily
+  switched back to a local path dependency (`path: '../pikuri'`) to
+  develop the two sides together — then plain `rspec` fails outright on
+  the first path-only gem (`require 'pikuri-mcp'`).
 
 ## Working on this codebase
 
