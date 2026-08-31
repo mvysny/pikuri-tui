@@ -5,8 +5,8 @@ require 'pikuri-core'
 require 'tuile'
 
 module Computer
-  # The Tuile shell behind +bin/pikuri-tui-computer+: the framed conversation
-  # pane, the framed input pane, the eager diagnostic +LogWindow+
+  # The Tuile shell behind +bin/pikuri-tui-computer+: the borderless
+  # conversation pane, the status rule, the tinted prompt, the eager diagnostic +LogWindow+
   # (popup-visible via the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+
   # menu / +Ctrl+C+ cancel status-bar hints, and the agent loop on a worker
   # thread.
@@ -14,7 +14,7 @@ module Computer
   # Laid out like {Chat::App} — one conversation Window over an input strip,
   # NO sidebar — but it carries the coding shell's safety machinery because
   # the agent's file/bash tools mutate the real host: a {Code::ConfirmerPopup}
-  # gates +write+ / +bash+, plan mode surfaces as a footer badge
+  # gates +write+ / +bash+, plan mode surfaces as a status-rule badge
   # ({Code::PlanModeListener} + a leader-menu +p+ toggle), and +edit+ / +write+
   # render as diffs. It reuses the +Code::*+ adapters directly rather than
   # re-copying them (see {Computer} for the duplicate-only-the-shell
@@ -37,8 +37,8 @@ module Computer
   # network / sandbox-probe cost of a real agent. Given a block, App calls it
   # (with no arguments) in place of {#default_build_agent}. The block takes no
   # arguments because the agent's collaborators (the conversation listener,
-  # the footer, the confirmer, the plan-mode listener) are App's own objects,
-  # reached through the {Shared::ConversationWindow} and App ivars directly.
+  # the status rule, the confirmer, the plan-mode listener) are App's own objects,
+  # reached through the {Shared::ConversationTextView} and App ivars directly.
   #
   # == The bwrap probe runs here, on the production path
   #
@@ -105,8 +105,8 @@ module Computer
 
     # @return [Tuile::Component::TextView] the conversation transcript
     #   pane. Exposed primarily for tests; production code should reach
-    #   it through the {Shared::ConversationWindow::Listener}.
-    def conversation_view = @conversation_window.view
+    #   it through the {Shared::ConversationTextView::Listener}.
+    attr_reader :conversation
 
     # @return [Pathname] the whole-host workspace anchor — the filesystem's
     #   normalized project root (relative-path base + bash chdir target). The
@@ -119,19 +119,18 @@ module Computer
     def log_window = @log_ui.log_window
 
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
-    #   log, App-owned and fed into the conversation-window
-    #   {Shared::StatusFooterUpdater}. {#default_build_agent} registers this
+    #   log, App-owned and fed into the {Shared::StatusRuleLabel}. {#default_build_agent} registers this
     #   same instance in the agent's +ListenerList+.
     attr_reader :token_log
 
-    # @return [Shared::StatusFooterUpdater] the footer, which doubles as the
+    # @return [Shared::StatusRuleLabel] the status rule, which doubles as the
     #   model-name listener. {#default_build_agent} registers it in the
     #   agent's +ListenerList+ so +ModelSwitched+ events reach it.
-    def status_footer_updater = @conversation_window.status_footer_updater
+    attr_reader :status_rule
 
-    # @return [Code::PlanModeListener] the footer plan-mode-badge listener,
+    # @return [Code::PlanModeListener] the status rule's plan-mode-badge listener,
     #   registered by {#default_build_agent} so +Pikuri::Code::PlanModeChanged+
-    #   events reach the footer. Dormant until a plan-mode transition fires
+    #   events reach the status rule. Dormant until a plan-mode transition fires
     #   (via {#toggle_plan_mode} or the model's enter/exit tools).
     attr_reader :plan_mode_listener
 
@@ -159,7 +158,7 @@ module Computer
     #   (relative-path base + bash chdir target), shown in the conversation
     #   window title. Default +Dir.pwd+ (the launch dir; the computer shell
     #   never chdirs).
-    # @param markdown [Boolean] forwarded to {Shared::ConversationWindow}'s
+    # @param markdown [Boolean] forwarded to {Shared::ConversationTextView}'s
     #   +markdown:+ flag (default +true+).
     # @param command_registry [Pikuri::Command::Registry] the on-disk slash
     #   commands, one palette entry each. Defaults to a scan of the launch dir
@@ -199,17 +198,17 @@ module Computer
       builder = build_agent || method(:default_build_agent)
       @agent = builder.call
       @session.agent = @agent
-      @conversation_window.interloper = @agent.interloper
-      # Seed the footer with the boot model (resolved from its transport);
-      # Shared::StatusFooterUpdater#on_event takes over on every later switch.
-      @conversation_window.current_model = @agent.transport
+      @status_rule.interloper = @agent.interloper
+      # Seed the status rule with the boot model (resolved from its transport);
+      # Shared::StatusRuleLabel#on_event takes over on every later switch.
+      @status_rule.current_model = @agent.transport
 
       @leader_menu = build_leader_menu
       @screen.on_error = method(:on_screen_error)
       @screen.content = Shared::RootLayout.new(@layout, @status_bar)
       # Focus the window, not the inner area: Tuile's Window→content focus
       # cascade re-points onto the input area so the caret lands there.
-      @screen.focused = @input_window
+      @input.focus
       register_shortcuts
     end
 
@@ -229,6 +228,9 @@ module Computer
 
     # @return [void]
     def build_components
+      # Fold the terminal's reported background into the theme before any
+      # component below bakes a derived hairline into its text.
+      Shared::AppTheme.install(@screen)
       @status_bar = Shared::StatusBar.new
       @log_ui = Shared::Log::UI.new(screen: @screen, status_bar: @status_bar)
 
@@ -249,13 +251,18 @@ module Computer
         'write' => Code::WriteFormatter.new(filesystem: @filesystem)
       }
 
-      @conversation_window = Shared::ConversationWindow.new(
-        token_log: @token_log, title: "Computer — #{@filesystem.project_root}",
-        markdown: @markdown, tool_formatters: @tool_formatters, model_names: @model_picker.names
+      @conversation = Shared::ConversationTextView.new(
+        markdown: @markdown, tool_formatters: @tool_formatters
+      )
+      # The filesystem root was the conversation window's border caption before
+      # the frames went away; the rule's leading segment reads it just as well.
+      @status_rule = Shared::StatusRuleLabel.new(
+        token_log: @token_log, names: @model_picker.names,
+        context: "Computer — #{@filesystem.project_root}"
       )
 
       @session = Shared::AgentSession.new(
-        screen: @screen, conversation_window: @conversation_window,
+        screen: @screen, conversation: @conversation, status_rule: @status_rule,
         model_picker: @model_picker, logger: LOG
       )
 
@@ -264,24 +271,25 @@ module Computer
       # safety gate.
       built_ins = build_slash_commands
       @slash_menu = Shared::SlashMenuPopup.new(
-        screen: @screen, conversation: @conversation_window,
+        screen: @screen, conversation: @conversation,
         commands: built_ins + Shared::FileCommands.build(
           registry: @command_registry, reserved: built_ins.map(&:name),
           screen: @screen, logger: LOG,
           on_expand: ->(text) { @session.submit(text) }
         )
       )
-      @input_window = Shared::InputWindow.new(
+      @input = Shared::InputPane.new(
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
-        conversation: @conversation_window
+        conversation: @conversation
       )
 
       @confirmer = Code::ConfirmerPopup.new(screen: @screen)
-      @plan_mode_listener = Code::PlanModeListener.new(footer: @conversation_window.status_footer_updater, screen: @screen)
+      @plan_mode_listener = Code::PlanModeListener.new(status_rule: @status_rule, screen: @screen)
 
       @layout = Layout.new(
-        conversation: @conversation_window,
-        input: @input_window
+        conversation: @conversation,
+        status_rule: @status_rule,
+        input: @input
       )
     end
 
@@ -290,7 +298,7 @@ module Computer
     # online/offline posture block keyed to +internet_enabled+), and the
     # desktop tool surface. The production factory, called unless the
     # constructor was handed an override block. Wires the conversation listener
-    # (rate-limited to 15 fps), {#token_log}, {#status_footer_updater}, and
+    # (rate-limited to 15 fps), {#token_log}, {#status_rule}, and
     # {#plan_mode_listener} into the agent's +ListenerList+ — all reached
     # through App's own objects, so nothing has to be passed in.
     #
@@ -312,8 +320,7 @@ module Computer
     #
     # @return [Pikuri::Agent] the wired agent.
     def default_build_agent
-      listener = @conversation_window.listener
-      status_footer_updater = @conversation_window.status_footer_updater
+      listener = @conversation.listener
 
       Pikuri::Extractors::PDF.register
 
@@ -345,7 +352,7 @@ module Computer
       system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
 
       # Coalesce streaming delta chunks at 15 fps before they reach the
-      # Markdown-rendering Shared::ConversationWindow (see Chat::App for the
+      # Markdown-rendering Shared::ConversationTextView (see Chat::App for the
       # rationale). flush_pending_on_non_delta: false because the bookend
       # Assistant / Thinking events re-render the authoritative final content.
       rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
@@ -365,9 +372,9 @@ module Computer
       ) do |c|
         c.add_listener rate_limited_listener
         c.add_listener @token_log
-        # Keeps the footer's model name in step with leader-menu model switches.
-        c.add_listener status_footer_updater
-        # Keeps the footer's plan-mode badge in step with the shared flag
+        # Keeps the status rule's model name in step with leader-menu model switches.
+        c.add_listener @status_rule
+        # Keeps the status rule's plan-mode badge in step with the shared flag
         # (the leader menu's 'p' toggle or the model's enter/exit tools).
         c.add_listener @plan_mode_listener
         c.add_tool Pikuri::Tool::CALCULATOR
@@ -380,7 +387,7 @@ module Computer
           confirmer: confirmer,
           sandbox: sandbox,
           # Threaded into both sub-extensions (Workspace gates Edit/Write, Code
-          # wires the plan-mode tools + the PlanModeChanged event the footer
+          # wires the plan-mode tools + the PlanModeChanged event the status rule
           # badge tracks), the same flag the leader-menu 'p' toggle flips.
           read_only: @plan_mode
         )
@@ -417,7 +424,7 @@ module Computer
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
     # cursor-owner suppression that would otherwise let the focused
-    # {Shared::InputWindow} swallow them, and both surface a hint in the status
+    # {Shared::InputPane} swallow them, and both surface a hint in the status
     # bar (which is why Ctrl+K is registered via {Shared::Log::UI#install_shortcut} —
     # its hint mutates as errors accrue).
     #
@@ -504,7 +511,7 @@ module Computer
 
     # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
     # enter if off, exit if on. Runs on the UI thread (global-shortcut
-    # dispatch); the flag is thread-safe, and the footer badge updates
+    # dispatch); the flag is thread-safe, and the status-rule badge updates
     # through {Code::PlanModeListener} off the +PlanModeChanged+ event the
     # flip emits, so this stays a one-liner and the model-flip path
     # renders the same way. Idempotent transitions

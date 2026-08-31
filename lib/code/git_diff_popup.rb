@@ -5,7 +5,7 @@ require 'tuile'
 module Code
   # {Tuile::Component::Popup} wrapping the long-lived {GitDiffWindow} —
   # the full, scrollable working-tree diff, rendered into the same two-tier
-  # inline form as the edit / write tool calls. The sidebar's {GitSummaryWindow}
+  # inline form as the edit / write tool calls. The sidebar's {GitSummaryPane}
   # shows only a per-file +"+N -N"+ tally; the actual hunks are too wide for a
   # 40%-width sidebar, so they live here, shown near-fullscreen from the leader
   # menu's +d+ entry instead.

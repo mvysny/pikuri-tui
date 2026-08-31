@@ -7,14 +7,14 @@ RSpec.describe Code::WorkspaceSidebar do
   after  { Tuile::Screen.close }
 
   it 'exposes the task-pane listener for the agent ListenerList' do
-    assert_kind_of Code::TaskListWindow::Listener, sidebar.task_listener
+    assert_kind_of Code::TaskListPane::Listener, sidebar.task_listener
   end
 
   describe 'layout' do
     it 'stacks a fixed-height task pane over the git changes pane' do
       sidebar.rect = Tuile::Rect.new(0, 0, 30, 20)
-      tasks = sidebar.instance_variable_get(:@task_list_window)
-      changes = sidebar.git_summary_window
+      tasks = sidebar.instance_variable_get(:@task_pane)
+      changes = sidebar.git_summary_pane
 
       assert_equal Tuile::Rect.new(0, 0, 30, described_class::TASK_HEIGHT), tasks.rect
       assert_equal described_class::TASK_HEIGHT, changes.rect.top
@@ -24,8 +24,8 @@ RSpec.describe Code::WorkspaceSidebar do
 
     it 'leaves both panes empty when handed an empty rect (collapsed sidebar)' do
       sidebar.rect = Tuile::Rect.new(0, 0, 0, 0)
-      assert sidebar.instance_variable_get(:@task_list_window).rect.empty?
-      assert sidebar.git_summary_window.rect.empty?
+      assert sidebar.instance_variable_get(:@task_pane).rect.empty?
+      assert sidebar.git_summary_pane.rect.empty?
     end
   end
 
@@ -50,7 +50,7 @@ RSpec.describe Code::WorkspaceSidebar do
     # wire without starting the poll thread.
     def emit(snapshot) = sidebar.git_watcher.send(:emit, snapshot)
 
-    def summary_text = sidebar.git_summary_window.view.text.to_s
+    def summary_text = sidebar.git_summary_pane.view.text.to_s
     def diff_text = sidebar.git_diff_window.view.text.to_s
 
     it 'projects an emitted snapshot onto the two git panes' do

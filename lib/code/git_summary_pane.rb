@@ -4,27 +4,30 @@ require 'pikuri-core'
 require 'tuile'
 
 module Code
-  # The sidebar "Changes" pane: a {Tuile::Component::Window} that renders a git
-  # change summary - one +"XY path  +A -D"+ line per changed file, the label
-  # toned by change kind (new green, deleted red, modified yellow) and the +/-
-  # markers green/red, a degraded notice when git failed, a placeholder when the
-  # tree is clean. A {GitWatcher::Snapshot} arrives through {#snapshot=} (produced
-  # by the {GitWatcher} service); the window owns rendering, the service owns
-  # polling and data - the data-in split (see the `cop` skill).
+  # The sidebar "Changes" pane: a borderless
+  # {Tuile::Component::Layout::Vertical} stacking a {Shared::PaneCaptionLabel}
+  # over a git change summary it renders itself - one +"XY path  +A -D"+ line
+  # per changed file, the label toned by change kind (new green, deleted red,
+  # modified yellow) and the +/- markers green/red, a degraded notice when git
+  # failed, a placeholder when the tree is clean. A {GitWatcher::Snapshot}
+  # arrives through {#snapshot=} (produced by the {GitWatcher} service); the
+  # pane owns rendering, the service owns polling and data - the data-in split
+  # (see the `cop` skill).
   #
-  #   pane = Code::GitSummaryWindow.new
+  #   pane = Code::GitSummaryPane.new
   #   pane.snapshot = Code::GitWatcher::Snapshot.new(
   #     changes: [Code::GitWatcher::Change.new(code: 'M', path: 'a.rb', added: 2, deleted: 1)],
   #     diff_text: '…', error: nil)
-  #   # => frames "M a.rb  +2 -1"  (themed)
+  #   # => renders "M a.rb  +2 -1"  (themed) under a "Changes" caption
   #
-  # A domain component built by subclassing the generic {Tuile::Component::Window}
-  # and rendering into its own content view: the coding shell's git-changes pane
-  # is one unit, not a render-only view hand-framed by its host.
+  # A domain component built by subclassing a generic Tuile container and
+  # rendering into its own content view: the coding shell's git-changes pane is
+  # one unit, not a render-only view hand-captioned by its host. Sits on the
+  # sidebar's +:pane_bg+ tint, inherited from {WorkspaceSidebar}.
   #
   # UI-thread-confined (the {WorkspaceSidebar} subscription marshals {#snapshot=}
   # onto the UI thread before calling it).
-  class GitSummaryWindow < Tuile::Component::Window
+  class GitSummaryPane < Tuile::Component::Layout::Vertical
     # Shown when the working tree matches HEAD. Toned +:detail+ as placeholder chrome.
     #
     # @return [String]
@@ -35,16 +38,23 @@ module Code
     # @return [String]
     UNTRACKED_CODE = '??'
 
-    # Frames a fresh scrollable text view captioned "Changes".
+    # The pane's caption row.
+    #
+    # @return [String]
+    CAPTION = 'Changes'
+
+    # Stacks a "Changes" caption row over a fresh scrollable text view.
     def initialize
-      super('Changes')
+      super()
       @view = Tuile::Component::TextView.new
-      self.content = @view
-      self.scrollbar = true
+      # No scrollbar — see the note in {TaskListPane}: nothing in the sidebar
+      # takes focus, so a bar here would be inoperable decoration.
+      add(Shared::PaneCaptionLabel.new(CAPTION), Fixed[1])
+      add(@view, Expand[1])
     end
 
-    # @return [Tuile::Component::TextView] the framed content view; exposed for
-    #   tests, production drives it through {#snapshot=}.
+    # @return [Tuile::Component::TextView] the content view under the caption;
+    #   exposed for tests, production drives it through {#snapshot=}.
     attr_reader :view
 
     # Rewrite the pane from a git snapshot: the degraded notice when git failed,

@@ -7,7 +7,7 @@ require 'tuile'
 #
 #   Shared::Markdown::Grayscale.recolor(rendered_ansi, fg: theme[:thinking])
 #
-# Used by {Shared::ConversationWindow} on the thinking-pane path so
+# Used by {Shared::ConversationTextView} on the thinking-pane path so
 # reasoning reads as visually distinct from the assistant's final answer —
 # one gray tone, structure intact, without giving up Markdown legibility.
 #

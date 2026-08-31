@@ -4,7 +4,7 @@ RSpec.describe Computer::App do
   # Minimal +Pikuri::Agent+ stand-in — same shape as the chat / code specs'.
   # App only reaches for +run_loop+ (from the worker thread), +cancellable+
   # (from {Shared::AgentSession#interrupt}), +interloper+ (mid-turn queueing +
-  # the Shared::StatusFooterUpdater handoff), +transport+ / +clear_conversation+.
+  # the Shared::StatusRuleLabel handoff), +transport+ / +clear_conversation+.
   # Anything else stays untouched, so we don't pay the network / sandbox-probe
   # cost in a unit spec. Named +ComputerStubAgent+, not +StubAgent+: three
   # spec files declaring +class StubAgent+ define one shared top-level constant,
@@ -55,8 +55,9 @@ RSpec.describe Computer::App do
   it 'mounts a Computer::Layout as the screen content with conversation + input panes (no sidebar)' do
     layout = app.layout
     assert_kind_of Computer::Layout, layout
-    assert_kind_of Tuile::Component::Window, layout.conversation
-    assert_kind_of Tuile::Component::Window, layout.input
+    assert_kind_of Shared::ConversationTextView, layout.conversation
+    assert_kind_of Shared::StatusRuleLabel, layout.status_rule
+    assert_kind_of Shared::InputPane, layout.input
     refute_respond_to layout, :tasks
     refute_respond_to layout, :git
   end
@@ -165,15 +166,15 @@ RSpec.describe Computer::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'wires a Shared::StatusFooterUpdater that drives the conversation Window as border chrome (not a widget slot)' do
+  it 'wires a Shared::StatusRuleLabel as the layout row between the panes' do
     app
-    assert_kind_of Shared::StatusFooterUpdater, app.instance_variable_get(:@conversation_window).status_footer_updater
-    assert_nil app.layout.conversation.footer
+    assert_kind_of Shared::StatusRuleLabel, app.status_rule
+    assert_same app.status_rule, app.layout.status_rule
   end
 
-  it "hands the agent's interloper to the Shared::StatusFooterUpdater for the queued-count display" do
+  it "hands the agent's interloper to the Shared::StatusRuleLabel for the queued-count display" do
     app
-    assert_same app.agent.interloper, app.instance_variable_get(:@conversation_window).status_footer_updater.interloper
+    assert_same app.agent.interloper, app.status_rule.interloper
   end
 
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do
@@ -197,7 +198,7 @@ RSpec.describe Computer::App do
     end
 
     it 'seeds the footer with the boot model display name' do
-      footer = picker_app.instance_variable_get(:@conversation_window).status_footer_updater
+      footer = picker_app.status_rule
       assert_equal 'Local', footer.current_model
     end
 

@@ -5,7 +5,7 @@
 # +Pikuri::Agent#run_loop+'s +transport:+.
 #
 #   choice = Shared::Model::Choice.from_llm(config_llm)  # one per [[llm]]
-#   choice.name       # → "Local Qwen 3.6", shown in the picker and footer
+#   choice.name       # → "Local Qwen 3.6", shown in the picker and status rule
 #   choice.transport  # → the transport a switch to this entry uses
 #
 # The transport is opaque to the UI — the App stashes it as the "pending"
@@ -14,7 +14,7 @@
 #
 # @!attribute [r] name
 #   @return [String] the connection's display name (e.g. +"Local Qwen 3.6"+),
-#     shown in the picker and (after a switch lands) in the footer.
+#     shown in the picker and (after a switch lands) in the status rule.
 # @!attribute [r] transport
 #   @return [Pikuri::Agent::ChatTransport] the transport selecting this
 #     entry switches to.
@@ -26,7 +26,7 @@ Shared::Model::Choice = Data.define(:name, :transport) do
   # name +unsloth/Qwen3.6-…+, differing only by +server+) — so every
   # "which connection is this?" comparison keys on the +[model, api_base]+
   # pair instead. Used by the shells' model picker (its active-entry
-  # marker) and footer (id → display-name resolution), off both our own
+  # marker) and status rule (id → display-name resolution), off both our own
   # {#transport} and the +to:+ transport a landed
   # {Pikuri::Agent::Event::ModelSwitched} carries.
   #

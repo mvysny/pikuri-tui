@@ -108,7 +108,7 @@ class Shared::Config
   #     connection, or +nil+ to let pikuri auto-detect it (its llama.cpp
   #     +/props+ probe, which yields +nil+ for a non-llama server). Set it
   #     for a cloud model the probe can't reach — e.g. a 2M-window model on
-  #     x.ai — so the footer shows a real +used/cap+. Rides the connection's
+  #     x.ai — so the status rule shows a real +used/cap+. Rides the connection's
   #     +Pikuri::Agent::ChatTransport+, so it is correct per-model across a
   #     model switch.
   Llm = Data.define(:name, :server, :model, :api_key, :context_window)

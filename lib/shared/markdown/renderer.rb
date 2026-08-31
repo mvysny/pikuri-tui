@@ -6,7 +6,7 @@ require 'tuile'
 
 # Turns a Markdown string into ANSI for the conversation pane — the single
 # entry point every pikuri-tui Markdown render goes through, one-shot
-# ({Shared::ConversationWindow#render_markdown}) or per-delta (the
+# ({Shared::ConversationTextView#render_markdown}) or per-delta (the
 # +render:+ callable a {Shared::Markdown::StreamingBuffer} is built with):
 #
 #   ansi = Shared::Markdown::Renderer.render(md, width: 80, dark: true)
@@ -71,7 +71,7 @@ module Shared::Markdown::Renderer
   #   (callers that want hard lines should +#split("\n")+ the result).
   # @raise [StandardError] whatever kramdown parsing or {Shared::Markdown::AnsiConverter}
   #   raises. Callers handle this — both the streaming buffer and
-  #   {Shared::ConversationWindow#render_markdown} catch and degrade.
+  #   {Shared::ConversationTextView#render_markdown} catch and degrade.
   def render(source, width:, dark: true)
     patched = fix_table_separators(source)
     doc = Kramdown::Document.new(patched, input: 'GFM', hard_wrap: false, width: width, dark: dark)

@@ -32,8 +32,9 @@ RSpec.describe Chat::App do
   it 'mounts a Chat::Layout as the screen content with conversation + input panes' do
     layout = app.layout
     assert_kind_of Chat::Layout, layout
-    assert_kind_of Tuile::Component::Window, layout.conversation
-    assert_kind_of Tuile::Component::Window, layout.input
+    assert_kind_of Shared::ConversationTextView, layout.conversation
+    assert_kind_of Shared::StatusRuleLabel, layout.status_rule
+    assert_kind_of Shared::InputPane, layout.input
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
@@ -80,9 +81,9 @@ RSpec.describe Chat::App do
     turn_app = build_app { |llm| llm.stream('Hello ', 'from ', 'the ', 'fake') }
     turn_app.session.submit('hi')
     wait_until { !turn_app.session.turn_in_progress? }
-    wait_until { turn_app.conversation_view.text.to_s.include?('Hello from the fake') }
+    wait_until { turn_app.conversation.text.to_s.include?('Hello from the fake') }
 
-    assert_includes turn_app.conversation_view.text.to_s, 'Hello from the fake'
+    assert_includes turn_app.conversation.text.to_s, 'Hello from the fake'
   end
 
   describe 'leader menu (Ctrl+K)' do
@@ -189,21 +190,21 @@ RSpec.describe Chat::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'wires a Shared::StatusFooterUpdater that drives the conversation Window as border chrome (token status + spinner)' do
+  it 'wires a Shared::StatusRuleLabel as the layout row between the panes' do
     app
-    assert_kind_of Shared::StatusFooterUpdater, status_footer_updater
-    # The status is border chrome (footer_text), not a footer-slot
-    # component, so the Window's own footer stays nil.
-    assert_nil app.layout.conversation.footer
+    assert_kind_of Shared::StatusRuleLabel, app.status_rule
+    # It is the layout's own row between the two panes, not chrome hung off
+    # another component.
+    assert_same app.status_rule, app.layout.status_rule
   end
 
-  it "hands the agent's interloper to the Shared::StatusFooterUpdater for the queued-count display" do
+  it "hands the agent's interloper to the Shared::StatusRuleLabel for the queued-count display" do
     app
-    assert_same app.agent.interloper, status_footer_updater.interloper
+    assert_same app.agent.interloper, app.status_rule.interloper
   end
 
-  it 'feeds the Shared::StatusFooterUpdater from the App-owned TokenLog' do
-    footer = status_footer_updater
+  it 'feeds the Shared::StatusRuleLabel from the App-owned TokenLog' do
+    footer = app.status_rule
     assert_same app.token_log, footer.instance_variable_get(:@token_log)
   end
 
@@ -214,15 +215,15 @@ RSpec.describe Chat::App do
     assert_includes rendered, 'pikuri-side message'
   end
 
-  it 'forwards markdown: true (the default) to the Shared::ConversationWindow' do
+  it 'forwards markdown: true (the default) to the Shared::ConversationTextView' do
     app
-    window = app.instance_variable_get(:@conversation_window)
+    window = app.conversation
     assert_equal true, window.instance_variable_get(:@markdown)
   end
 
-  it 'forwards markdown: false to the Shared::ConversationWindow when wired off' do
+  it 'forwards markdown: false to the Shared::ConversationTextView when wired off' do
     explicit_app = build_app(markdown: false)
-    window = explicit_app.instance_variable_get(:@conversation_window)
+    window = explicit_app.conversation
     assert_equal false, window.instance_variable_get(:@markdown)
   end
 
@@ -238,7 +239,7 @@ RSpec.describe Chat::App do
     let(:picker_app) { build_app(config: chat_config(llms: llms), model: 'm1') }
 
     it 'seeds the footer with the boot model display name' do
-      footer = status_footer_updater(picker_app)
+      footer = picker_app.status_rule
       assert_equal 'Local', footer.current_model
     end
 
@@ -272,17 +273,11 @@ RSpec.describe Chat::App do
       pair = [llm('Local Qwen', 'qwen3', server: 'http://localhost:8080'),
               llm('Remote Qwen', 'qwen3', server: 'http://mavi-fw:8080')]
       app = build_app(config: chat_config(llms: pair), model: 'qwen3', api_base: 'http://mavi-fw:8080/v1')
-      assert_equal 'Remote Qwen', status_footer_updater(app).current_model
+      assert_equal 'Remote Qwen', app.status_rule.current_model
     end
   end
 
   private
-
-  # The conversation window owns the footer now (Chat::ConversationWindow),
-  # so reach the Shared::StatusFooterUpdater through it rather than a former App ivar.
-  def status_footer_updater(some_app = app)
-    some_app.instance_variable_get(:@conversation_window).status_footer_updater
-  end
 
   # A Shared::Config carrying the given connections (defaults to one matching
   # build_app's default fake transport, so the footer resolves it). App

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Code::TaskListWindow do
+RSpec.describe Code::TaskListPane do
   let(:window)   { described_class.new }
   let(:listener) { window.listener }
 
@@ -12,19 +12,25 @@ RSpec.describe Code::TaskListWindow do
   def changed(*items) = Pikuri::Tasks::ListChanged.new(items: items)
   def item(id, content, status) = Pikuri::Tasks::Item.new(id: id, content: content, status: status)
 
-  it 'stands up as a titled "Tasks" Tuile Window framing a text view' do
-    assert_kind_of Tuile::Component::Window, window
-    assert_equal 'Tasks', window.caption.to_s
+  it 'stands up as a borderless "Tasks" caption row over a text view' do
+    assert_kind_of Tuile::Component::Layout::Vertical, window
+    caption = window.children.first
+    assert_kind_of Shared::PaneCaptionLabel, caption
+    assert_equal described_class::CAPTION, caption.caption
     assert_kind_of Tuile::Component::TextView, window.view
   end
 
+  it 'sets no background of its own — it inherits the sidebar tint' do
+    assert_nil window.bg_color
+  end
+
   it 'owns a thin Listener bound to itself' do
-    assert_kind_of Code::TaskListWindow::Listener, listener
+    assert_kind_of Code::TaskListPane::Listener, listener
   end
 
   it 'shows a placeholder before any tasks exist' do
     listener.on_event(changed)
-    assert_includes rendered, Code::TaskListWindow::PLACEHOLDER
+    assert_includes rendered, Code::TaskListPane::PLACEHOLDER
   end
 
   it 'renders one line per task with its content' do
@@ -40,9 +46,9 @@ RSpec.describe Code::TaskListWindow do
                         item(2, 'busy', 'in_progress'),
                         item(3, 'done', 'completed')
                       ))
-    assert_includes rendered, "#{Code::TaskListWindow::GLYPHS['pending']} pend"
-    assert_includes rendered, "#{Code::TaskListWindow::GLYPHS['in_progress']} busy"
-    assert_includes rendered, "#{Code::TaskListWindow::GLYPHS['completed']} done"
+    assert_includes rendered, "#{Code::TaskListPane::GLYPHS['pending']} pend"
+    assert_includes rendered, "#{Code::TaskListPane::GLYPHS['in_progress']} busy"
+    assert_includes rendered, "#{Code::TaskListPane::GLYPHS['completed']} done"
   end
 
   it 'rewrites the whole pane from the latest snapshot (last-wins, not append)' do
@@ -57,7 +63,7 @@ RSpec.describe Code::TaskListWindow do
     listener.on_event(changed(item(1, 'lonely', 'pending')))
     listener.on_event(changed)
     refute_includes rendered, 'lonely'
-    assert_includes rendered, Code::TaskListWindow::PLACEHOLDER
+    assert_includes rendered, Code::TaskListPane::PLACEHOLDER
   end
 
   it 'ignores non-ListChanged events' do

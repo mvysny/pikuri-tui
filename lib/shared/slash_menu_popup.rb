@@ -11,7 +11,7 @@ require 'tuile'
 #    /quit   quits the app
 #    <name>  <description>
 #
-# Driven entirely by the {Shared::InputWindow} that owns it — the popup never
+# Driven entirely by the {Shared::InputPane} that owns it — the popup never
 # takes focus (the caret stays in the field). The window wires three verbs:
 #
 #   menu = Shared::SlashMenuPopup.new(
@@ -46,11 +46,11 @@ require 'tuile'
 # the rect outright.
 #
 # {#submit} resolves the command *before* the caller clears the buffer (the
-# {Shared::InputWindow} calls submit first, then wipes the field), so the
+# {Shared::InputPane} calls submit first, then wipes the field), so the
 # highlighted row is still valid: a partial +"/di"+ with +/diff+ highlighted
 # runs +/diff+. The callback runs one tick later (via the event queue) so a
 # command that opens its own popup (+/diff+) doesn't stack under this one
-# closing. The outcome echo is a plain {Shared::ConversationWindow#add_block} —
+# closing. The outcome echo is a plain {Shared::ConversationTextView#add_block} —
 # it never reaches the agent's message history.
 #
 # UI-thread-confined.
@@ -64,7 +64,7 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
   HEIGHT = 10
 
   # The input window the palette floats above; its rect gives the bottom edge
-  # to anchor to. Set by the {Shared::InputWindow} that owns this popup. When
+  # to anchor to. Set by the {Shared::InputPane} that owns this popup. When
   # nil (bare use / tests) the palette anchors to the screen bottom.
   # @return [Tuile::Component::Window, nil]
   attr_accessor :anchor
@@ -72,7 +72,7 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
   # @param screen [Tuile::Screen] mounts the popup, defers callbacks, resolves
   #   the theme and screen size.
   # @param commands [Array<Shared::SlashCommand>] the full catalog.
-  # @param conversation [Shared::ConversationWindow] where command echoes and
+  # @param conversation [Shared::ConversationTextView] where command echoes and
   #   outcomes are written (never the agent context).
   def initialize(screen:, commands:, conversation:)
     # Set before +super+: {Tuile::Component::Popup#initialize} calls {#reposition},

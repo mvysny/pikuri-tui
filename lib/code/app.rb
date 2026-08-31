@@ -5,8 +5,8 @@ require 'pikuri-core'
 require 'tuile'
 
 module Code
-  # The Tuile shell behind +bin/pikuri-tui-code+: the framed conversation
-  # pane, the framed input pane, the tasks + git sidebar
+  # The Tuile shell behind +bin/pikuri-tui-code+: the borderless conversation
+  # pane, the status rule, the tinted full-width prompt, the tasks + git sidebar
   # ({WorkspaceSidebar}), the eager diagnostic +LogWindow+ (popup-visible via
   # the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+ menu / +Ctrl+C+ cancel
   # status-bar hints, and the agent loop on a worker thread.
@@ -14,7 +14,7 @@ module Code
   # A parallel copy of {Chat::App} (see {Code} for the duplicate-don't-share
   # rationale), plus the coding-shell surface: a {ConfirmerPopup} gating
   # +write+ / +bash+, the {WorkspaceSidebar} (tasks + git changes + diff
-  # popup), plan mode (a footer badge via {PlanModeListener} + a leader-menu
+  # popup), plan mode (a status-rule badge via {PlanModeListener} + a leader-menu
   # +p+ toggle), and +edit+ / +write+ diffs.
   #
   # == Construction: App owns the agent
@@ -31,9 +31,9 @@ module Code
   # a scripted-HTTP backend, skipping the network / RubyLLM / MCP-verify cost.
   # Production omits it and boots on the config's first connection. Only the
   # transport is injectable because the agent's collaborators (the conversation
-  # listener, the confirmer, the task listener, the footer, the plan-mode
+  # listener, the confirmer, the task listener, the status rule, the plan-mode
   # listener) are App's own objects, reached through the
-  # {Shared::ConversationWindow} / {WorkspaceSidebar} and App ivars directly.
+  # {Shared::ConversationTextView} / {WorkspaceSidebar} and App ivars directly.
   #
   # == What the bin still owns (why this isn't just +config:+)
   #
@@ -101,8 +101,8 @@ module Code
 
     # @return [Tuile::Component::TextView] the conversation transcript
     #   pane. Exposed primarily for tests; production code should reach
-    #   it through the {Shared::ConversationWindow::Listener}.
-    def conversation_view = @conversation_window.view
+    #   it through the {Shared::ConversationTextView::Listener}.
+    attr_reader :conversation
 
     # @return [Pathname] the workspace root — the passed filesystem's
     #   normalized project root (writable ceiling + bash chdir target + the
@@ -110,7 +110,7 @@ module Code
     #   shell is rooted.
     def project_root = @filesystem.project_root
 
-    # @return [TaskListWindow::Listener] the task-pane listener (owned by
+    # @return [TaskListPane::Listener] the task-pane listener (owned by
     #   the {WorkspaceSidebar}'s task pane); {#default_build_agent} wires it
     #   into the agent's +ListenerList+.
     def task_listener = @sidebar.task_listener
@@ -125,19 +125,18 @@ module Code
     def log_window = @log_ui.log_window
 
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
-    #   log, App-owned and fed into the conversation-window
-    #   {Shared::StatusFooterUpdater}. {#default_build_agent} registers this
+    #   log, App-owned and fed into the {Shared::StatusRuleLabel}. {#default_build_agent} registers this
     #   same instance in the agent's +ListenerList+.
     attr_reader :token_log
 
-    # @return [Shared::StatusFooterUpdater] the footer, which doubles as the
+    # @return [Shared::StatusRuleLabel] the status rule, which doubles as the
     #   model-name listener. {#default_build_agent} registers it in the
     #   agent's +ListenerList+ so +ModelSwitched+ events reach it.
-    def status_footer_updater = @conversation_window.status_footer_updater
+    attr_reader :status_rule
 
-    # @return [PlanModeListener] the footer plan-mode-badge listener,
+    # @return [PlanModeListener] the status rule's plan-mode-badge listener,
     #   registered by {#default_build_agent} so +Pikuri::Code::PlanModeChanged+
-    #   events reach the footer. Dormant until a plan-mode transition fires
+    #   events reach the status rule. Dormant until a plan-mode transition fires
     #   (via {#toggle_plan_mode} or the model's enter/exit tools).
     attr_reader :plan_mode_listener
 
@@ -172,7 +171,7 @@ module Code
     # @param trusted_repo [Boolean] whether read-only git auto-approves — the
     #   result of the bin's interactive, persisted git-trust prompt. Flips the
     #   +PassiveCommandDetector+'s +allow_git:+. Default +false+.
-    # @param markdown [Boolean] forwarded to {Shared::ConversationWindow}'s
+    # @param markdown [Boolean] forwarded to {Shared::ConversationTextView}'s
     #   +markdown:+ flag (default +true+).
     # @param transport [Pikuri::Agent::ChatTransport, nil] test seam: the
     #   backend to build the real agent on. Omit in production (boots on the
@@ -217,17 +216,17 @@ module Code
       # Seeds the /<skill-name> palette entries. After the agent build, because
       # Skill::Extension#configure decides there whether the gate is armed.
       @skill_activation.refresh
-      @conversation_window.interloper = @agent.interloper
-      # Seed the footer with the boot model (resolved from its transport);
-      # Shared::StatusFooterUpdater#on_event takes over on every later switch.
-      @conversation_window.current_model = @agent.transport
+      @status_rule.interloper = @agent.interloper
+      # Seed the status rule with the boot model (resolved from its transport);
+      # Shared::StatusRuleLabel#on_event takes over on every later switch.
+      @status_rule.current_model = @agent.transport
 
       @leader_menu = build_leader_menu
       @screen.on_error = method(:on_screen_error)
       @screen.content = Shared::RootLayout.new(@layout, @status_bar)
       # Focus the window, not the inner area: Tuile's Window→content focus
       # cascade re-points onto the input area so the caret lands there.
-      @screen.focused = @input_window
+      @input.focus
       register_shortcuts
     end
 
@@ -251,6 +250,9 @@ module Code
 
     # @return [void]
     def build_components
+      # Fold the terminal's reported background into the theme before any
+      # component below bakes a derived hairline into its text.
+      Shared::AppTheme.install(@screen)
       @status_bar = Shared::StatusBar.new
       @log_ui = Shared::Log::UI.new(screen: @screen, status_bar: @status_bar)
 
@@ -264,13 +266,20 @@ module Code
         'write' => WriteFormatter.new(filesystem: @filesystem)
       }
 
-      @conversation_window = Shared::ConversationWindow.new(
-        token_log: @token_log, title: @filesystem.project_root.to_s, markdown: @markdown,
-        tool_formatters: @tool_formatters, model_names: @model_picker.names
+      @conversation = Shared::ConversationTextView.new(
+        markdown: @markdown, tool_formatters: @tool_formatters
+      )
+      # The project root was the conversation window's border caption before
+      # the frames went away; it reads just as well as the rule's leading
+      # segment, and it is the one thing about this shell a glance should
+      # answer first.
+      @status_rule = Shared::StatusRuleLabel.new(
+        token_log: @token_log, names: @model_picker.names,
+        context: @filesystem.project_root.to_s
       )
 
       @session = Shared::AgentSession.new(
-        screen: @screen, conversation_window: @conversation_window,
+        screen: @screen, conversation: @conversation, status_rule: @status_rule,
         model_picker: @model_picker, logger: LOG
       )
 
@@ -284,17 +293,17 @@ module Code
         on_expand: ->(text) { @session.submit(text) }
       )
       @slash_menu = Shared::SlashMenuPopup.new(
-        screen: @screen, commands: base_commands, conversation: @conversation_window
+        screen: @screen, commands: base_commands, conversation: @conversation
       )
       @skill_activation = SkillActivationListener.new(
         skill_extension: @skill_ext, slash_menu: @slash_menu,
-        conversation: @conversation_window, screen: @screen,
+        conversation: @conversation, screen: @screen,
         base: base_commands,
         on_load: ->(name, rest) { @skill_ext.schedule_load_skill(name); @session.submit(rest) }
       )
-      @input_window = Shared::InputWindow.new(
+      @input = Shared::InputPane.new(
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
-        conversation: @conversation_window
+        conversation: @conversation
       )
 
       # The tasks + git sidebar as one box: it owns its tasks-over-git split,
@@ -303,11 +312,12 @@ module Code
       @sidebar = WorkspaceSidebar.new
 
       @confirmer = ConfirmerPopup.new(screen: @screen)
-      @plan_mode_listener = PlanModeListener.new(footer: @conversation_window.status_footer_updater, screen: @screen)
+      @plan_mode_listener = PlanModeListener.new(status_rule: @status_rule, screen: @screen)
 
       @layout = Layout.new(
-        conversation: @conversation_window,
-        input: @input_window,
+        conversation: @conversation,
+        status_rule: @status_rule,
+        input: @input,
         sidebar: @sidebar
       )
     end
@@ -317,7 +327,7 @@ module Code
     # full coding tool surface. The production factory, called unless the
     # constructor was handed an override block. Wires the conversation listener
     # (rate-limited to 15 fps), {#token_log}, the sidebar {#task_listener},
-    # {#status_footer_updater}, and {#plan_mode_listener} into the agent's
+    # {#status_rule}, and {#plan_mode_listener} into the agent's
     # +ListenerList+ — all reached through App's own objects, so nothing has to
     # be passed in.
     #
@@ -340,8 +350,7 @@ module Code
     #
     # @return [Pikuri::Agent] the wired agent.
     def default_build_agent
-      listener = @conversation_window.listener
-      status_footer_updater = @conversation_window.status_footer_updater
+      listener = @conversation.listener
       task_listener = @sidebar.task_listener
 
       Pikuri::Extractors::PDF.register
@@ -371,7 +380,7 @@ module Code
       mcp_registry = Pikuri::Mcp::Registry.new(entries: mcp_entries)
 
       # Coalesce streaming delta chunks at 15 fps before they reach the
-      # Markdown-rendering Shared::ConversationWindow (see Chat::App for the
+      # Markdown-rendering Shared::ConversationTextView (see Chat::App for the
       # rationale). flush_pending_on_non_delta: false because the bookend
       # Assistant / Thinking events re-render the authoritative final content.
       rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
@@ -395,9 +404,9 @@ module Code
         # Not rate-limited — task mutations are rare and each snapshot is
         # authoritative.
         c.add_listener task_listener
-        # Keeps the footer's model name in step with leader-menu model switches.
-        c.add_listener status_footer_updater
-        # Keeps the footer's plan-mode badge in step with the shared flag
+        # Keeps the status rule's model name in step with leader-menu model switches.
+        c.add_listener @status_rule
+        # Keeps the status rule's plan-mode badge in step with the shared flag
         # (the leader menu's 'p' toggle or the model's enter/exit tools).
         c.add_listener @plan_mode_listener
         # Lists a `paths:`-gated skill's /<name> the moment a touched file
@@ -440,7 +449,7 @@ module Code
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
     # cursor-owner suppression that would otherwise let the focused
-    # {Shared::InputWindow} swallow them, and both surface a hint in the status bar
+    # {Shared::InputPane} swallow them, and both surface a hint in the status bar
     # (which is why Ctrl+K is registered via {Shared::Log::UI#install_shortcut} —
     # its hint mutates as errors accrue).
     #
@@ -542,7 +551,7 @@ module Code
 
     # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
     # enter if off, exit if on. Runs on the UI thread (global-shortcut
-    # dispatch); the flag is thread-safe, and the footer badge updates
+    # dispatch); the flag is thread-safe, and the status-rule badge updates
     # through {PlanModeListener} off the +PlanModeChanged+ event the flip
     # emits, so this stays a one-liner and the model-flip path renders the
     # same way. Idempotent transitions

@@ -4,15 +4,15 @@ require 'pikuri-core'
 require 'tuile'
 
 module Code
-  # The sidebar's task pane as one cohesive domain component: a
-  # {Tuile::Component::Window} captioned "Tasks" that renders a task list into
-  # its own content view - a status glyph per item, a placeholder when empty,
-  # per-status tone - exposing the UI verb {#items=}. The pikuri seam lives in
-  # the nested {Listener}, which translates the agent's
+  # The sidebar's task pane as one cohesive domain component: a borderless
+  # {Tuile::Component::Layout::Vertical} stacking a {Shared::PaneCaptionLabel}
+  # over a task list it renders itself - a status glyph per item, a placeholder
+  # when empty, per-status tone - exposing the UI verb {#items=}. The pikuri
+  # seam lives in the nested {Listener}, which translates the agent's
   # {Pikuri::Tasks::ListChanged} stream into {#items=} calls; {WorkspaceSidebar}
-  # composes the window and folds {#listener} into the agent's +ListenerList+:
+  # composes the pane and folds {#listener} into the agent's +ListenerList+:
   #
-  #   tasks = Code::TaskListWindow.new
+  #   tasks = Code::TaskListPane.new
   #   config.add_listener(tasks.listener)   # into the agent's ListenerList
   #   # …later, on the UI thread:
   #   tasks.items = list                    # rewrites the pane
@@ -21,11 +21,14 @@ module Code
   # given snapshot (last-wins - a batch +task_create+ emits one event per item,
   # each carrying the full list, and the final one leaves the pane correct).
   #
+  # Sits on the sidebar's +:pane_bg+ tint, inherited from {WorkspaceSidebar} —
+  # this pane sets no background of its own.
+  #
   # Coding-shell-only — the chat / computer shells carry no sidebar.
   #
   # UI-thread-confined (the nested {Listener} marshals the stream onto the UI
   # thread before calling {#items=}).
-  class TaskListWindow < Tuile::Component::Window
+  class TaskListPane < Tuile::Component::Layout::Vertical
     # Shown in the (otherwise empty) pane before the agent has created any
     # tasks. Painted in the +:detail+ tone so it reads as placeholder chrome,
     # not a task.
@@ -42,19 +45,27 @@ module Code
       'completed'   => '✓'
     }.freeze
 
-    # Frames a fresh scrollable text view captioned "Tasks" and builds the
-    # nested {Listener} bound to +self+, reaching for the installed
+    # The pane's caption row.
+    #
+    # @return [String]
+    CAPTION = 'Tasks'
+
+    # Stacks a "Tasks" caption row over a fresh scrollable text view and builds
+    # the nested {Listener} bound to +self+, reaching for the installed
     # +Tuile::Screen+ singleton (fake-able in tests) for its +event_queue+.
     def initialize
-      super('Tasks')
+      super()
       @view = Tuile::Component::TextView.new
-      self.content = @view
-      self.scrollbar = true
+      # No scrollbar: nothing in the sidebar takes focus, so there is no key
+      # that could drive one — inside a frame it read as chrome, but on the
+      # borderless tint a full-height inoperable bar is just noise.
+      add(Shared::PaneCaptionLabel.new(CAPTION), Fixed[1])
+      add(@view, Expand[1])
       @listener = Listener.new(pane: self, screen: screen)
     end
 
-    # @return [Tuile::Component::TextView] the framed content view; exposed for
-    #   tests, production drives it through {#items=} / {#listener}.
+    # @return [Tuile::Component::TextView] the content view under the caption;
+    #   exposed for tests, production drives it through {#items=} / {#listener}.
     attr_reader :view
 
     # @return [Listener] the task-stream adapter; fold it into the agent's
@@ -96,15 +107,15 @@ module Code
     end
 
     # Translates the agent's {Pikuri::Tasks::ListChanged} stream into
-    # {TaskListWindow#items=} calls; ignores every other event. Fires on the
+    # {TaskListPane#items=} calls; ignores every other event. Fires on the
     # agent's worker thread and marshals the rewrite onto the event-loop thread
     # via +screen.event_queue.submit+ (the queue is FIFO, so a batch's events
     # still land in order and the last snapshot wins). The companion to
-    # {Shared::ConversationWindow::Listener} — same marshaling, a tiny slice of
+    # {Shared::ConversationTextView::Listener} — same marshaling, a tiny slice of
     # the stream, and NOT rate-limited (task mutations are rare and each snapshot
     # is authoritative).
     class Listener < Pikuri::Agent::Listener::Base
-      # @param pane [TaskListWindow] the pane to drive. Lifetime owned by the
+      # @param pane [TaskListPane] the pane to drive. Lifetime owned by the
       #   pane; the listener neither constructs nor destroys it.
       # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals
       #   the rewrite back from the worker thread. Passed explicitly so the

@@ -16,12 +16,12 @@ require 'tuile'
 # It owns the {Shared::Model::Choice} list, the {Shared::Model::Choice.key} → display-name map,
 # and the *pending* transport (a pick not yet applied). It does NOT own the
 # *current* model — that authority stays with pikuri
-# (+Pikuri::Agent#transport+) and the footer (moved on-land by
-# {Shared::StatusFooterUpdater}), so a failed switch never advertises a model it never
+# (+Pikuri::Agent#transport+) and the status rule (moved on-land by
+# {Shared::StatusRuleLabel}), so a failed switch never advertises a model it never
 # reached. The picker only records the user's request; the
 # {Shared::AgentSession} that owns the turn drains it via {#take_pending} at
 # the top of each turn and hands it to the next +run_loop+, and the
-# footer moves only once the switch lands. This is why {#open} takes the
+# status rule moves only once the switch lands. This is why {#open} takes the
 # current transport as an argument rather than holding an +Pikuri::Agent+
 # reference: the picker is a catalog + a request slot, not a source of
 # truth.
@@ -43,7 +43,7 @@ class Shared::Model::Picker
 
   # @return [Hash{Array(String, String) => String}] the {Shared::Model::Choice.key}
   #   ([model, api_base]) → display-name map, for wiring into
-  #   {Shared::StatusFooterUpdater}'s +names:+ so a transport it's handed
+  #   {Shared::StatusRuleLabel}'s +names:+ so a transport it's handed
   #   (the boot model, or a landed {Pikuri::Agent::Event::ModelSwitched})
   #   resolves to a friendly name.
   attr_reader :names
@@ -58,7 +58,7 @@ class Shared::Model::Picker
   # connections sharing a model id on different servers don't both flag)
   # marked with a +●+. Picking stashes that connection's transport as the
   # pending switch, applied at the top of the next +run_loop+ (see
-  # {#take_pending}); the footer moves only once the switch lands. ESC /
+  # {#take_pending}); the status rule moves only once the switch lands. ESC /
   # +q+ dismiss without changing anything.
   #
   # Hotkeys cover the first nine entries (+PickerWindow+ keys are single

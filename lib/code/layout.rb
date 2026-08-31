@@ -3,23 +3,30 @@
 require 'tuile'
 
 module Code
-  # Dual-column root layout for {App}. Unlike {Chat::Layout}'s simple
-  # top/bottom split, the coding shell devotes the right edge to a
-  # {WorkspaceSidebar}:
+  # Dual-column root layout for {App}, borderless throughout. Unlike
+  # {Chat::Layout}'s simple stack, the coding shell devotes the right of its
+  # *upper* region to a {WorkspaceSidebar}:
   #
-  #   +-- conversation -----+-- sidebar --+
-  #   |                     |  (tasks over |
-  #   |                     |   changes)   |
-  #   +-- input ------------+             |
-  #   |                     |             |
-  #   +---------------------+-------------+
+  #   ┌──────────────────────────┬─┬─────────────────┐
+  #   │  conversation            │││ Tasks ──────    │  <- sidebar is tinted,
+  #   │  (terminal background)   │││ ○ port the tint │     the conversation is not
+  #   │                          │││ Changes ────    │
+  #   ├── Local Qwen · 25k/60k ──┴─┴─────────────────┤  <- Shared::StatusRuleLabel
+  #   │  ❯ prompt (tinted, full width)               │  <- Shared::InputPane
+  #   └──────────────────────────────────────────────┘
   #
-  # The screen splits left/right by {SIDEBAR_FRACTION}: the left column
-  # is the conversation pane over a fixed-height input strip (the same
-  # stacking {Chat::Layout} uses, but only as wide as the left column);
-  # the right column is the full-height {WorkspaceSidebar}, which owns its
-  # own tasks-over-git split. A parallel copy / extension of {Chat::Layout}
-  # (see {Code} for why the coding shell duplicates rather than shares).
+  # Two deliberate departures from the framed layout this replaced. The
+  # **prompt spans the full width**: it is the shell's one focus target and had
+  # no business being squeezed into the conversation column, and running it
+  # edge to edge is what lets a single status rule serve the whole app instead
+  # of one per column. And the **sidebar is separated by a one-cell +│+
+  # column** ({#separator}) rather than by two abutting frames — the rule
+  # underneath it terminates it from below, so its tint needs no border of its
+  # own.
+  #
+  # The upper region splits left/right by {SIDEBAR_FRACTION}. A parallel copy /
+  # extension of {Chat::Layout} (see {Code} for why the coding shell duplicates
+  # rather than shares).
   #
   # Layout only — global keybindings (Ctrl+K, Ctrl+C) are installed
   # by {App} via {Tuile::Screen#register_global_shortcut}, which bypasses
@@ -29,11 +36,17 @@ module Code
   #
   # UI-thread-confined.
   class Layout < Tuile::Component::Layout
-    # Number of rows the bottom input pane occupies: 3 lines of editable
-    # text + 2 rows of {Tuile::Component::Window} frame.
+    # Rows the bottom input pane occupies.
     #
     # @return [Integer]
-    INPUT_HEIGHT = 5
+    INPUT_HEIGHT = Shared::InputPane::HEIGHT
+
+    # Columns the conversation pane is inset from the left edge, matching
+    # {Shared::InputPane::PAD} so the transcript and the +❯+ marker share a
+    # left margin.
+    #
+    # @return [Integer]
+    CONTENT_INSET = Shared::InputPane::PAD
 
     # Fraction of the terminal width allotted to the sidebar column
     # (tasks + git). The conversation column gets the rest — a 60/40
@@ -43,7 +56,7 @@ module Code
     SIDEBAR_FRACTION = 0.4
 
     # Below this sidebar width the column is too narrow to read, so the
-    # layout collapses it (width 0, both sidebar windows invisible) and
+    # layout collapses it (width 0, sidebar and separator both invisible) and
     # gives the whole width to the conversation column.
     #
     # @return [Integer]
@@ -55,40 +68,57 @@ module Code
     # @return [Integer]
     MIN_CONVERSATION_WIDTH = 24
 
-    # @param conversation [Tuile::Component::Window] the framed
-    #   conversation pane (top-left). Added as a child during
-    #   construction; its rect is managed by {#rect=}.
-    # @param input [Tuile::Component::Window] the framed input pane
-    #   (bottom-left). Same lifecycle as +conversation+.
-    # @param sidebar [WorkspaceSidebar] the full-height sidebar column
-    #   (right), which owns its own tasks-over-git split. Same lifecycle.
-    def initialize(conversation:, input:, sidebar:)
+    # @param conversation [Shared::ConversationTextView] the transcript pane
+    #   (top-left). Added as a child during construction; its rect is managed
+    #   by {#rect=}.
+    # @param status_rule [Shared::StatusRuleLabel] the full-width rule under
+    #   both columns, carrying the agent status readout. Same lifecycle.
+    # @param input [Shared::InputPane] the full-width tinted prompt well
+    #   (bottom). Same lifecycle.
+    # @param sidebar [WorkspaceSidebar] the tasks-over-changes column
+    #   (top-right), which owns its own split. Same lifecycle.
+    def initialize(conversation:, status_rule:, input:, sidebar:)
       super()
       @conversation = conversation
+      @status_rule = status_rule
       @input = input
       @sidebar = sidebar
+      # The one-cell │ column between the conversation and the sidebar. Its
+      # text is rebuilt to the row height by #rect=, its tone by
+      # #on_theme_changed — both are baked into the label's text.
+      @separator = Tuile::Component::Label.new
+      @separator.bg_color = Tuile::Theme.ref(:pane_bg)
       add(conversation)
-      add(input)
+      add(@separator)
       add(sidebar)
+      add(status_rule)
+      add(input)
     end
 
-    # @return [Tuile::Component::Window]
+    # @return [Shared::ConversationTextView]
     attr_reader :conversation
 
-    # @return [Tuile::Component::Window]
+    # @return [Shared::StatusRuleLabel]
+    attr_reader :status_rule
+
+    # @return [Shared::InputPane]
     attr_reader :input
 
     # @return [WorkspaceSidebar]
     attr_reader :sidebar
 
-    # Re-positions the three panes whenever the layout's own rect changes.
-    # The width splits into a conversation column and a sidebar column
-    # ({#sidebar_width}); the conversation column stacks the conversation pane
-    # over a fixed {INPUT_HEIGHT} input strip; the sidebar takes the full
-    # height of its column and splits itself. When the terminal is too narrow
-    # for a readable sidebar, {#sidebar_width} returns +0+ and the sidebar
-    # takes an empty rect ({Tuile::Component} treats a zero-area rect as
-    # invisible), leaving the conversation column full width.
+    # @return [Tuile::Component::Label] the +│+ column between the conversation
+    #   and the sidebar; exposed for tests.
+    attr_reader :separator
+
+    # Re-positions the five pieces whenever the layout's own rect changes. The
+    # bottom {INPUT_HEIGHT} rows go to the prompt and the row above them to the
+    # status rule, both full width; what is left splits into a conversation
+    # column and a sidebar column ({#sidebar_width}) with the {#separator}
+    # between them. When the terminal is too narrow for a readable sidebar,
+    # {#sidebar_width} returns +0+ and both the sidebar and the separator take
+    # empty rects ({Tuile::Component} treats a zero-area rect as invisible),
+    # leaving the conversation full width.
     #
     # @param new_rect [Tuile::Rect]
     # @return [void]
@@ -96,18 +126,43 @@ module Code
       super
       return if rect.empty?
 
+      input_h = [INPUT_HEIGHT, rect.height].min
+      rule_h = rect.height > input_h ? 1 : 0
+      top_h = rect.height - input_h - rule_h
+
       right_w = sidebar_width(rect.width)
-      left_w  = rect.width - right_w
+      gap_w = right_w.positive? ? 1 : 0
+      left_w = rect.width - right_w - gap_w
 
-      top_h    = [rect.height - INPUT_HEIGHT, 0].max
-      bottom_h = rect.height - top_h
-      @conversation.rect = Tuile::Rect.new(rect.left, rect.top, left_w, top_h)
-      @input.rect = Tuile::Rect.new(rect.left, rect.top + top_h, left_w, bottom_h)
+      @conversation.rect = Tuile::Rect.new(rect.left + CONTENT_INSET, rect.top,
+                                           [left_w - CONTENT_INSET, 0].max, top_h)
+      @separator.rect = Tuile::Rect.new(rect.left + left_w, rect.top, gap_w, top_h)
+      @sidebar.rect = Tuile::Rect.new(rect.left + left_w + gap_w, rect.top, right_w, top_h)
+      @status_rule.rect = Tuile::Rect.new(rect.left, rect.top + top_h, rect.width, rule_h)
+      @input.rect = Tuile::Rect.new(rect.left, rect.top + top_h + rule_h, rect.width, input_h)
+      rebuild_separator
+    end
 
-      @sidebar.rect = Tuile::Rect.new(rect.left + left_w, rect.top, right_w, rect.height)
+    protected
+
+    # Re-tones the separator column, whose color is baked into its text.
+    #
+    # @return [void]
+    def on_theme_changed
+      super
+      rebuild_separator
     end
 
     private
+
+    # Rebuilds the separator column: one +:pane_frame+ +│+ per row of the upper
+    # region. A collapsed sidebar leaves it empty.
+    #
+    # @return [void]
+    def rebuild_separator
+      column = Array.new(@separator.rect.height, '│').join("\n")
+      @separator.text = Tuile::StyledString.styled(column, fg: screen.theme[:pane_frame])
+    end
 
     # The sidebar column width for a given total width: {SIDEBAR_FRACTION}
     # of it, collapsed to +0+ when either the sidebar would fall below

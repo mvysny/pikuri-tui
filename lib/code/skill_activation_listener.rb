@@ -36,7 +36,7 @@ module Code
   # activation is what keeps the two in step.
   #
   # The matched path is why the notice is rendered from the event rather than
-  # left to the injected block {Shared::ConversationWindow} drops: activation
+  # left to the injected block {Shared::ConversationTextView} drops: activation
   # deliberately over-fires, so a skill *will* appear for no visible reason, and
   # without the trigger, diagnosing it means guessing which glob matched.
   #
@@ -59,7 +59,7 @@ module Code
     # @param skill_extension [Pikuri::Skill::Extension] source of both the
     #   catalog and the activation gate deciding what is in play right now.
     # @param slash_menu [Shared::SlashMenuPopup] the palette to keep current.
-    # @param conversation [Shared::ConversationWindow] where a promotion is
+    # @param conversation [Shared::ConversationTextView] where a promotion is
     #   announced.
     # @param screen [Tuile::Screen] whose +event_queue+ marshals a promotion
     #   back onto the event-loop thread.

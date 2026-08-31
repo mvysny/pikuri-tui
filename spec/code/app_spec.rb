@@ -16,14 +16,15 @@ RSpec.describe Code::App do
   it 'mounts a Code::Layout as the screen content with its panes and sidebar' do
     layout = app.layout
     assert_kind_of Code::Layout, layout
-    assert_kind_of Tuile::Component::Window, layout.conversation
-    assert_kind_of Tuile::Component::Window, layout.input
+    assert_kind_of Shared::ConversationTextView, layout.conversation
+    assert_kind_of Shared::StatusRuleLabel, layout.status_rule
+    assert_kind_of Shared::InputPane, layout.input
     assert_kind_of Code::WorkspaceSidebar, layout.sidebar
     assert_same layout.sidebar, app.sidebar
   end
 
   it 'exposes the task-pane listener at #task_listener' do
-    assert_kind_of Code::TaskListWindow::Listener, app.task_listener
+    assert_kind_of Code::TaskListPane::Listener, app.task_listener
   end
 
   it 'focuses the input TextArea on boot so the user can start typing immediately' do
@@ -117,7 +118,7 @@ RSpec.describe Code::App do
 
       it 'says in the transcript which file fired it' do
         touch('lib/code/app.rb')
-        assert_includes app.conversation_view.text.to_s,
+        assert_includes app.conversation.text.to_s,
                         'skills available: writing-rdoc (matched lib/code/app.rb)'
       end
 
@@ -232,9 +233,9 @@ RSpec.describe Code::App do
     turn_app = code_app { |llm| llm.stream('Patch ', 'applied.') }
     turn_app.session.submit('do it')
     wait_until { !turn_app.session.turn_in_progress? }
-    wait_until { turn_app.conversation_view.text.to_s.include?('Patch applied.') }
+    wait_until { turn_app.conversation.text.to_s.include?('Patch applied.') }
 
-    assert_includes turn_app.conversation_view.text.to_s, 'Patch applied.'
+    assert_includes turn_app.conversation.text.to_s, 'Patch applied.'
   end
 
   it 'cancels the in-flight turn when Ctrl+C arrives mid-turn' do
@@ -289,15 +290,15 @@ RSpec.describe Code::App do
     refute_includes status_bar_text, '⚠'
   end
 
-  it 'wires a Shared::StatusFooterUpdater that drives the conversation Window as border chrome (not a widget slot)' do
+  it 'wires a Shared::StatusRuleLabel as the layout row between the panes' do
     app
-    assert_kind_of Shared::StatusFooterUpdater, app.instance_variable_get(:@conversation_window).status_footer_updater
-    assert_nil app.layout.conversation.footer
+    assert_kind_of Shared::StatusRuleLabel, app.status_rule
+    assert_same app.status_rule, app.layout.status_rule
   end
 
-  it "hands the agent's interloper to the Shared::StatusFooterUpdater for the queued-count display" do
+  it "hands the agent's interloper to the Shared::StatusRuleLabel for the queued-count display" do
     app
-    assert_same app.agent.interloper, app.instance_variable_get(:@conversation_window).status_footer_updater.interloper
+    assert_same app.agent.interloper, app.status_rule.interloper
   end
 
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do
@@ -319,7 +320,7 @@ RSpec.describe Code::App do
     let(:picker_app) { code_app(config: code_config(llms: llms), model: 'm1') }
 
     it 'seeds the footer with the boot model display name' do
-      footer = picker_app.instance_variable_get(:@conversation_window).status_footer_updater
+      footer = picker_app.status_rule
       assert_equal 'Local', footer.current_model
     end
 

@@ -5,8 +5,8 @@ require 'pikuri-core'
 require 'tuile'
 
 module Chat
-  # The Tuile shell behind +bin/pikuri-tui-chat+: builds the framed conversation
-  # pane, the framed input pane, the eager diagnostic +LogWindow+
+  # The Tuile shell behind +bin/pikuri-tui-chat+: builds the borderless
+  # conversation pane, the status rule, the tinted prompt, the eager diagnostic +LogWindow+
   # (popup-visible via the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+ menu /
   # +Ctrl+C+ cancel global-shortcut hints
   # in the screen-wide status bar, and wires the agent's loop onto a worker
@@ -21,8 +21,8 @@ module Chat
   # and its listeners are the shell's identity and live here.
   #
   # Construction is linear, not cyclic: App builds the components (the
-  # {Shared::ConversationWindow} owns the {Shared::ConversationWindow::Listener}
-  # and {Shared::StatusFooterUpdater}), *then* builds the agent against those
+  # {Shared::ConversationTextView} owns the {Shared::ConversationTextView::Listener}
+  # and {Shared::StatusRuleLabel}), *then* builds the agent against those
   # listeners.
   #
   # The optional +transport:+ is a **test seam**, not production ceremony: a
@@ -31,7 +31,7 @@ module Chat
   # scripted-HTTP backend instead of a live server. Production omits it and
   # boots on the config's first connection ({#config}'s first +llm+). Only the
   # transport is injectable because the agent's collaborators (the conversation
-  # listener, the footer, the tools) are App's own objects — swapping the
+  # listener, the status rule, the tools) are App's own objects — swapping the
   # backend is all a test needs to exercise the wiring without the network.
   #
   # == Screen ownership
@@ -87,10 +87,10 @@ module Chat
     #   tests.
     attr_reader :session
 
-    # @return [Tuile::Component::TextView] the conversation transcript
+    # @return [Shared::ConversationTextView] the conversation transcript
     #   pane. Exposed primarily for tests; production code should reach
-    #   it through the {Shared::ConversationWindow::Listener}.
-    def conversation_view = @conversation_window.view
+    #   it through the {Shared::ConversationTextView::Listener}.
+    attr_reader :conversation
 
     # @return [Tuile::Component::LogWindow] the eager-constructed
     #   diagnostic window (owned by the {Shared::Log::UI}). Exposed for tests and for
@@ -98,22 +98,23 @@ module Chat
     def log_window = @log_ui.log_window
 
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
-    #   log, App-owned and fed into the conversation-window
-    #   {Shared::StatusFooterUpdater}. {#default_build_agent} registers this
-    #   same instance in the agent's +ListenerList+ so it receives +Tokens+
-    #   events; a test override block that wants token stats must do the same.
+    #   log, App-owned and fed into the {Shared::StatusRuleLabel}.
+    #   {#default_build_agent} registers this same instance in the agent's
+    #   +ListenerList+ so it receives +Tokens+ events; a test override block
+    #   that wants token stats must do the same.
     attr_reader :token_log
 
-    # @return [Shared::StatusFooterUpdater] the footer, which doubles as the
-    #   model-name listener. {#default_build_agent} registers it in the
-    #   agent's +ListenerList+ so +ModelSwitched+ events reach it.
-    def status_footer_updater = @conversation_window.status_footer_updater
+    # @return [Shared::StatusRuleLabel] the status rule between the
+    #   conversation and the prompt, which doubles as the model-name listener.
+    #   {#default_build_agent} registers it in the agent's +ListenerList+ so
+    #   +ModelSwitched+ events reach it.
+    attr_reader :status_rule
 
     # @param config [Shared::Config] the resolved configuration; App derives
     #   the model list (one {Shared::Model::Choice} per +config.llms+ entry,
     #   the first the boot connection) and reads the web-search provider keys
     #   from it when building the agent.
-    # @param markdown [Boolean] forwarded to {Shared::ConversationWindow}'s
+    # @param markdown [Boolean] forwarded to {Shared::ConversationTextView}'s
     #   +markdown:+ flag (default +true+). When +false+, the
     #   conversation pane skips +TTY::Markdown+ and the streaming path
     #   uses {Shared::Markdown::PassthroughBuffer} — appropriate for back-ends whose
@@ -138,17 +139,17 @@ module Chat
       @log_ui.wire!
       @agent = default_build_agent
       @session.agent = @agent
-      @conversation_window.interloper = @agent.interloper
-      # Seed the footer with the boot model (resolved from its transport);
-      # Shared::StatusFooterUpdater#on_event takes over on every later switch.
-      @conversation_window.current_model = @agent.transport
+      @status_rule.interloper = @agent.interloper
+      # Seed the rule with the boot model (resolved from its transport);
+      # Shared::StatusRuleLabel#on_event takes over on every later switch.
+      @status_rule.current_model = @agent.transport
 
       @leader_menu = build_leader_menu
       @screen.on_error = method(:on_screen_error)
       @screen.content = Shared::RootLayout.new(@layout, @status_bar)
-      # Focus the window, not the inner area: Tuile's Window→content focus
-      # cascade re-points onto the input area so the caret lands there.
-      @screen.focused = @input_window
+      # The prompt is the shell's only focus target; Shared::InputPane#focus
+      # forwards onto its private editable area.
+      @input.focus
       register_shortcuts
     end
 
@@ -169,29 +170,32 @@ module Chat
 
     # @return [void]
     def build_components
+      # Fold the terminal's reported background into the theme before any
+      # component below bakes a derived hairline into its text.
+      Shared::AppTheme.install(@screen)
       @status_bar = Shared::StatusBar.new
       @log_ui = Shared::Log::UI.new(screen: @screen, status_bar: @status_bar)
 
-      @conversation_window = Shared::ConversationWindow.new(
-        token_log: @token_log, markdown: @markdown, model_names: @model_picker.names
-      )
+      @conversation = Shared::ConversationTextView.new(markdown: @markdown)
+      @status_rule = Shared::StatusRuleLabel.new(token_log: @token_log, names: @model_picker.names)
 
       @session = Shared::AgentSession.new(
-        screen: @screen, conversation_window: @conversation_window,
+        screen: @screen, conversation: @conversation, status_rule: @status_rule,
         model_picker: @model_picker, logger: LOG
       )
 
       @slash_menu = Shared::SlashMenuPopup.new(
-        screen: @screen, commands: build_slash_commands, conversation: @conversation_window
+        screen: @screen, commands: build_slash_commands, conversation: @conversation
       )
-      @input_window = Shared::InputWindow.new(
+      @input = Shared::InputPane.new(
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
-        conversation: @conversation_window
+        conversation: @conversation
       )
 
       @layout = Layout.new(
-        conversation: @conversation_window,
-        input: @input_window
+        conversation: @conversation,
+        status_rule: @status_rule,
+        input: @input
       )
     end
 
@@ -227,14 +231,13 @@ module Chat
     # test injected a fake), the +pikuri-chat+ system prompt (dated), and the
     # web-search / calculator / scrape / fetch tool set. Registers the
     # conversation listener (rate-limited to 15 fps), {#token_log}, and the
-    # {#status_footer_updater} into the agent's +ListenerList+ — all reached
-    # through the {Shared::ConversationWindow} this App owns, so nothing has to
+    # {#status_rule} into the agent's +ListenerList+ — all reached
+    # through the {Shared::ConversationTextView} this App owns, so nothing has to
     # be passed in.
     #
     # @return [Pikuri::Agent] the wired agent.
     def default_build_agent
-      listener = @conversation_window.listener
-      status_footer_updater = @conversation_window.status_footer_updater
+      listener = @conversation.listener
 
       Pikuri::Extractors::PDF.register
 
@@ -242,7 +245,7 @@ module Chat
       system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
 
       # Coalesce streaming delta chunks at 15 fps before they reach the
-      # Markdown-rendering Shared::ConversationWindow: a fast llama.cpp can
+      # Markdown-rendering Shared::ConversationTextView: a fast llama.cpp can
       # emit dozens of deltas per second and re-rendering Markdown on every
       # one is wasted work the user can't perceive. flush_pending_on_non_delta:
       # false because the Assistant / Thinking bookend events re-render the
@@ -263,7 +266,7 @@ module Chat
       ) do |c|
         c.add_listener rate_limited_listener
         c.add_listener @token_log
-        c.add_listener status_footer_updater
+        c.add_listener @status_rule
         c.add_tool Pikuri::Tool::WebSearch.build(**@config.search.to_h)
         c.add_tool Pikuri::Tool::CALCULATOR
         c.add_tool Pikuri::Tool::WEB_SCRAPE
@@ -273,7 +276,7 @@ module Chat
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
     # cursor-owner suppression that would otherwise let the focused
-    # {Shared::InputWindow} swallow them, and both surface a hint in the screen's
+    # {Shared::InputPane} swallow them, and both surface a hint in the screen's
     # status bar (which is why Ctrl+K is registered via
     # {Shared::Log::UI#install_shortcut} — its hint mutates as errors accrue).
     #

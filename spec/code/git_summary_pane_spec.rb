@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Code::GitSummaryWindow do
+RSpec.describe Code::GitSummaryPane do
   let(:pane)  { described_class.new }
   let(:theme) { Tuile::Screen.instance.theme }
 

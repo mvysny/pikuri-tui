@@ -4,18 +4,20 @@ require 'pikuri-core'
 require 'tuile'
 
 # The conversation transcript as one cohesive Tuile component: a
-# {Tuile::Component::Window} that renders an agent conversation into its own
-# content view — user turns, streamed reasoning, streamed assistant answers,
-# tool calls, tool observations, fallback notices, cancellation markers — and
-# carries a {Shared::StatusFooterUpdater} footer in its bottom border. The host
-# folds the two listeners it exposes into the agent, then feeds the two values
-# that only exist once the agent is built:
+# {Tuile::Component::TextView} that renders an agent conversation into itself —
+# user turns, streamed reasoning, streamed assistant answers, tool calls, tool
+# observations, fallback notices, cancellation markers. The host folds the
+# listener it exposes into the agent:
 #
-#   win = Shared::ConversationWindow.new(token_log: token_log)
-#   config.add_listener(win.listener)                # transcript + model name, both
-#   config.add_listener(win.status_footer_updater)   #   into the ListenerList (plus token_log)
-#   win.interloper = agent.interloper                # mid-turn "N queued" segment
-#   win.current_model = 'Local Qwen 3.6'
+#   pane = Shared::ConversationTextView.new
+#   config.add_listener(pane.listener)   # into the agent's ListenerList
+#
+# This is the app's *primary* pane, so it is deliberately unframed and
+# untinted: it keeps the terminal's own background, and the surfaces around it
+# — the {Shared::StatusRuleLabel} below it, the {Shared::InputPane} below that,
+# the coding shell's sidebar beside it — are the tinted secondaries that set it
+# off. The agent status it used to carry in its bottom border now lives on the
+# rule, which is a sibling row the shell's +Layout+ owns.
 #
 # The pikuri seam lives in the nested {Listener}, not on the pane: this
 # component exposes UI verbs ({#add_block}, {#open_assistant_block},
@@ -41,14 +43,10 @@ require 'tuile'
 # still a {Shared::Markdown::StreamingBuffer} with a recolor-only render
 # function, so the gray tint survives.
 #
-# The plan-mode badge is not wired here: the footer exposes +plan_active=+ via
-# {#status_footer_updater}, but the +Code::PlanModeListener+ feeding it is a
-# +:code+-group concern, so the coding / computer shells bind it themselves.
-#
 # UI-thread-confined, with exceptions (the nested {Listener} marshals the event
 # stream onto the UI thread before driving these verbs; {#render_turn_error} is
 # safe off-thread and self-marshals).
-class Shared::ConversationWindow < Tuile::Component::Window
+class Shared::ConversationTextView < Tuile::Component::TextView
   # Cap, in characters, applied to tool-result content before it lands in the
   # pane. Mirrors the terminal listener's cap so the two renderers stay
   # visually consistent.
@@ -59,10 +57,6 @@ class Shared::ConversationWindow < Tuile::Component::Window
   LOG = Pikuri.logger_for('markdown')
   private_constant :LOG
 
-  # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token
-  #   log, fed into the footer. The host must wire the *same* instance into
-  #   the agent's +ListenerList+.
-  # @param title [String] the window's border caption.
   # @param markdown [Boolean] when +true+ (the default), assistant content is
   #   rendered through {Shared::Markdown::Renderer}; when +false+, echoed
   #   verbatim and streamed through {Shared::Markdown::PassthroughBuffer}. The
@@ -71,40 +65,19 @@ class Shared::ConversationWindow < Tuile::Component::Window
   #   per-tool-name formatters that replace the default +→ name(args)+ /
   #   += result+ rendering for those tools (the +edit+ / +write+ diff views).
   #   Defaults to +{}+.
-  # @param model_names [Hash{Array(String, String) => String}]
-  #   {Shared::Model::Choice.key} → display name, forwarded to the
-  #   {Shared::StatusFooterUpdater} so a transport passed to {#current_model=}
-  #   resolves to a friendly name.
-  def initialize(token_log:, title: 'Conversation', markdown: true, tool_formatters: {}, model_names: {})
-    super(title)
+  def initialize(markdown: true, tool_formatters: {})
+    super()
     @markdown = markdown
     @tool_formatters = tool_formatters
-    @view = Tuile::Component::TextView.new
-    @view.auto_scroll = true
-    self.content = @view
-    self.scrollbar = true
-    # The footer chrome and the leaf listener this window builds directly
-    # aren't components, so they take the screen explicitly — this window hands
-    # them its own inherited +#screen+ property (the {Tuile::Screen} singleton,
-    # fake-able via +Tuile::Screen.fake+ for tests). Its +event_queue+ marshals
-    # {#render_turn_error} and drives the spinner.
-    # Border chrome, not a widget slot: the Shared::StatusFooterUpdater embeds
-    # the agent status into this window's bottom border (window: self).
-    @status_footer_updater = Shared::StatusFooterUpdater.new(screen: screen, window: self, token_log: token_log, names: model_names)
+    self.auto_scroll = true
+    self.scrollbar_visibility = :visible
+    # The leaf listener this pane builds directly isn't a component, so it
+    # takes the screen explicitly — this pane hands it its own inherited
+    # +#screen+ property (the {Tuile::Screen} singleton, fake-able via
+    # +Tuile::Screen.fake+ for tests). Its +event_queue+ marshals the render
+    # calls back from the agent's worker thread.
     @listener = Listener.new(view: self, screen: screen, indent: 0)
   end
-
-  # @return [Tuile::Component::TextView] the content view backing the
-  #   transcript; exposed for tests, production drives it through {#listener}.
-  attr_reader :view
-
-  # The footer-chrome updater, which also duck-types as an agent listener
-  # ({Shared::StatusFooterUpdater#on_event}) to re-point its model name on a
-  # switch — fold it into the agent's +ListenerList+ alongside {#listener}.
-  # The coding / computer shells also bind their {Code::PlanModeListener} to it.
-  #
-  # @return [Shared::StatusFooterUpdater]
-  attr_reader :status_footer_updater
 
   # @return [Listener] the transcript listener bound to this pane, created once
   #   at construction. The host includes it in the agent's +ListenerList+;
@@ -119,23 +92,12 @@ class Shared::ConversationWindow < Tuile::Component::Window
   #   OS light/dark flip is picked up).
   def theme = screen.theme
 
-  # Render width for a fresh streaming buffer: the content view's current width
-  # less two columns for the scrollbar gutter, floored at 1 so a not-yet-laid-
-  # out pane doesn't pass a non-positive width to {Shared::Markdown::Renderer}.
+  # Render width for a fresh streaming buffer: the pane's wrap width (its own
+  # width less the scrollbar gutter), floored at 1 so a not-yet-laid-out pane
+  # doesn't pass a non-positive width to {Shared::Markdown::Renderer}.
   #
   # @return [Integer]
-  def buffer_width = [@view.rect.width - 2, 1].max
-
-  # Pages the transcript up half a screen, clamped at the top.
-  #
-  # @return [void]
-  def scroll_half_page_up = @view.scroll_half_page_up
-
-  # Pages the transcript down half a screen; landing on the last row re-arms
-  # tailing, so streamed output follows the viewport again.
-  #
-  # @return [void]
-  def scroll_half_page_down = @view.scroll_half_page_down
+  def buffer_width = [wrap_width, 1].max
 
   # Append one logical block to the pane: create a fresh region and assign
   # +text+ (prefixed with +indent+ spaces on its first line). Each
@@ -145,7 +107,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @param indent [Integer] leading spaces on the block's first line.
   # @return [void]
   def add_block(text, indent: 0)
-    @view.create_region.text = indent_block(text, indent)
+    create_region.text = indent_block(text, indent)
   end
 
   # Open a fresh streamed assistant block: a new region plus the streaming
@@ -159,7 +121,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @return [Array(Tuile::Component::TextView::Region, #append)] the region and
   #   its streaming buffer.
   def open_assistant_block(indent: 0)
-    region = @view.create_region
+    region = create_region
     buffer =
       if @markdown
         Shared::Markdown::StreamingBuffer.new(render: indent_render(build_markdown_renderer, indent), region: region)
@@ -179,7 +141,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @return [Array(Tuile::Component::TextView::Region, #append)] the region and
   #   its streaming buffer.
   def open_thinking_block(indent: 0)
-    region = @view.create_region
+    region = create_region
     thinking = screen.theme[:thinking]
     render = if @markdown
                markdown = build_markdown_renderer
@@ -232,42 +194,6 @@ class Shared::ConversationWindow < Tuile::Component::Window
     "#{flattened[0, MAX_TOOL_RESULT_CHARS]}… (#{original_bytes} bytes total)"
   end
 
-  # Wipe the whole transcript (detaching every region). The {Listener} calls
-  # this on a +Reset+.
-  #
-  # @return [void]
-  def clear = @view.clear
-
-  # Hand the footer the agent's mid-turn input queue so it can render the
-  # "N queued" segment.
-  #
-  # @param interloper [Pikuri::Agent::Control::Interloper, nil]
-  # @return [void]
-  def interloper=(interloper)
-    @status_footer_updater.interloper = interloper
-  end
-
-  # Seed the footer's model-name segment with the boot model (a display name
-  # or a transport to resolve — see {Shared::StatusFooterUpdater#current_model=});
-  # the footer's own {Shared::StatusFooterUpdater#on_event} takes over on later
-  # switches once it's in the +ListenerList+.
-  #
-  # @param model [String, Pikuri::Agent::ChatTransport, nil]
-  # @return [void]
-  def current_model=(model)
-    @status_footer_updater.current_model = model
-  end
-
-  # Start the footer's mid-turn spinner.
-  #
-  # @return [void]
-  def start_animation = @status_footer_updater.start_animation
-
-  # Stop the footer's mid-turn spinner, settling it to idle.
-  #
-  # @return [void]
-  def stop_animation = @status_footer_updater.stop_animation
-
   # Append a one-line, error-themed turn-failure notice to the transcript.
   # Safe to call from the agent worker thread; marshals its own append onto
   # the event-loop thread.
@@ -276,7 +202,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @return [void]
   def render_turn_error(exception)
     screen.event_queue.submit do
-      @view.add_line(screen.theme.error("! #{exception.class}: #{exception.message}"))
+      add_line(screen.theme.error("! #{exception.class}: #{exception.message}"))
     end
   end
 
@@ -289,7 +215,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   # @return [void]
   def render_notice(text)
     screen.event_queue.submit do
-      @view.add_line(screen.theme.detail("· #{text}"))
+      add_line(screen.theme.detail("· #{text}"))
     end
   end
 
@@ -346,7 +272,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
   def dark_scheme? = !screen.theme.equal?(Shared::AppTheme::LIGHT)
 
   # Translates a +Pikuri::Agent+'s normalized event stream into
-  # {Shared::ConversationWindow} render calls — the Tuile-targeted equivalent of
+  # {Shared::ConversationTextView} render calls — the Tuile-targeted equivalent of
   # +Pikuri::Agent::Listener::Terminal+, rendering into the conversation pane
   # instead of stdout.
   #
@@ -393,7 +319,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
     # @return [Integer]
     SUB_AGENT_INDENT = 2
 
-    # @param view [Shared::ConversationWindow] the pane this listener renders
+    # @param view [Shared::ConversationTextView] the pane this listener renders
     #   into. Lifetime owned by the pane; the listener neither constructs nor
     #   destroys it.
     # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals UI
@@ -428,7 +354,7 @@ class Shared::ConversationWindow < Tuile::Component::Window
     end
 
     # @return [String] short label used by +Pikuri::Agent#to_s+.
-    def to_s = 'Shared::ConversationWindow::Listener'
+    def to_s = 'Shared::ConversationTextView::Listener'
 
     # Mint a sub-agent sibling rendering into the *same* pane, indented one
     # {SUB_AGENT_INDENT} deeper (dispatched by

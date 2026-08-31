@@ -5,25 +5,24 @@ require 'pikuri-core'
 module Shared
   # Owns one agent's turn lifecycle for a shell: run the loop off the UI
   # thread, serialize concurrent turns, absorb mid-turn injections, drive
-  # the conversation spinner, and escalate Ctrl+C. Construct it, hand it the
+  # the status rule's spinner, and escalate Ctrl+C. Construct it, hand it the
   # agent once the build block has run, then feed it user input:
   #
   #   session = Shared::AgentSession.new(
-  #     screen: @screen, conversation_window: @conversation_window,
+  #     screen: @screen, conversation: @conversation, status_rule: @status_rule,
   #     model_picker: @model_picker, logger: LOG
   #   )
   #   session.agent = built_agent          # once the agent exists
-  #   input_window = Shared::InputWindow.new(on_submit: session.method(:submit))
+  #   input = Shared::InputPane.new(on_submit: session.method(:submit))
   #   # Ctrl+C -> session.interrupt ; leader 'c' -> session.clear_conversation
   #
-  # This is a *coordinator/presenter*, not a UI-independent service: unlike
-  # {Code::GitWatcher} it deliberately holds the +screen+ and drives the
-  # conversation window's spinner / error surface — coordinating the spinner
-  # with off-thread agent work is its whole job, so its sibling is
-  # {Shared::StatusFooterUpdater}, not a pure service. It only ever calls the
-  # window's public action verbs (+start_animation+ / +stop_animation+ /
-  # +render_turn_error+ — tell, don't ask); the window keeps owning how it
-  # draws.
+  # This is a *coordinator*, not a UI-independent service: unlike
+  # {Code::GitWatcher} it deliberately holds the +screen+ and drives two panes'
+  # surfaces — the rule's spinner and the transcript's error / notice lines.
+  # Coordinating those with off-thread agent work is its whole job. It only
+  # ever calls their public action verbs (+start_animation+ /
+  # +stop_animation+ / +render_turn_error+ — tell, don't ask); each pane keeps
+  # owning how it draws.
   #
   # Each shell's +App+ composes one of these and delegates into it; the +App+
   # keeps its own construction / layout / leader-menu / shortcuts / +run+
@@ -51,17 +50,20 @@ module Shared
 
     # @param screen [Tuile::Screen] the screen whose +event_queue+ the worker
     #   marshals back through, and whose focus / loop {#interrupt} escalates.
-    # @param conversation_window [Shared::ConversationWindow] the transcript
-    #   window whose spinner and error surface this drives (+start_animation+
-    #   / +stop_animation+ / +render_turn_error+).
+    # @param conversation [Shared::ConversationTextView] the transcript pane
+    #   whose error / notice surface this drives (+render_turn_error+ /
+    #   +render_notice+).
+    # @param status_rule [Shared::StatusRuleLabel] the status rule whose
+    #   mid-turn spinner this drives (+start_animation+ / +stop_animation+).
     # @param model_picker [Shared::Model::Picker] the shared picker; a pending
     #   switch is consumed via +take_pending+ at the top of each turn.
     # @param logger [Logger] the per-shell logger (so dropped-injection and
     #   clear-during-turn warnings keep the shell's subsystem tag in the
     #   diagnostic pane); typically the +App+'s +LOG+ constant.
-    def initialize(screen:, conversation_window:, model_picker:, logger:)
+    def initialize(screen:, conversation:, status_rule:, model_picker:, logger:)
       @screen = screen
-      @conversation_window = conversation_window
+      @conversation = conversation
+      @status_rule = status_rule
       @model_picker = model_picker
       @logger = logger
       @agent = nil
@@ -84,7 +86,7 @@ module Shared
 
     # Start a turn for +message+, or — if one is already running — queue it as
     # a mid-turn injection instead of starting a second +run_loop+. The
-    # {Shared::InputWindow}'s +on_submit+ target, and the re-entry point
+    # {Shared::InputPane}'s +on_submit+ target, and the re-entry point
     # {#deliver_pending_injections} uses to flush leftovers as a fresh turn.
     #
     # +message+ is normally non-blank (the input suppresses blank submits), but a
@@ -113,10 +115,10 @@ module Shared
     # "falls through" to the loop's unhandled-key quit the way ESC does. Three
     # states, in priority order:
     #
-    # 1. A turn is running -> cancel it. {Shared::ConversationWindow::Listener}
+    # 1. A turn is running -> cancel it. {Shared::ConversationTextView::Listener}
     #    renders the +Cancelled+ event; the worker's +ensure+ clears the flag.
     # 2. Nothing running but something is focused (normally the
-    #    {Shared::InputWindow}) -> drop focus, the same visible effect as ESC.
+    #    {Shared::InputPane}) -> drop focus, the same visible effect as ESC.
     # 3. Nothing running and nothing focused -> stop the event loop, which
     #    unwinds the +App+'s +run+ into +Screen#close+ (what an unhandled ESC
     #    does).
@@ -140,8 +142,8 @@ module Shared
     # Reset the agent to a fresh-conversation state via
     # +Pikuri::Agent#clear_conversation+ (chat history, controls, and each
     # extension's conversation-scoped state). That emits a single
-    # +Pikuri::Agent::Event::Reset+, off which {Shared::ConversationWindow::Listener}
-    # wipes the pane and the +TokenLog+ zeroes the footer — so this only kicks
+    # +Pikuri::Agent::Event::Reset+, off which {Shared::ConversationTextView::Listener}
+    # wipes the pane and the +TokenLog+ zeroes the status rule — so this only kicks
     # the agent; the visible reset falls out of the event stream. The leader
     # menu's +c+ action.
     #
@@ -180,7 +182,7 @@ module Shared
     # Spawn a worker thread for one agent turn. Library exceptions are logged
     # (the long-running TUI takes the "exceptions logged, our bugs raise" path
     # from CLAUDE.md) and a short red one-liner is echoed into the conversation
-    # pane; cancellation is silent because {Shared::ConversationWindow::Listener}
+    # pane; cancellation is silent because {Shared::ConversationTextView::Listener}
     # already rendered the +Cancelled+ event.
     #
     # @param message [String]
@@ -190,24 +192,24 @@ module Shared
       # before the worker spawns: run_loop applies it at the top of the turn.
       # take_pending clears it so it's applied at most once.
       transport = @model_picker.take_pending
-      @conversation_window.start_animation
+      @status_rule.start_animation
       Thread.new do
         @agent.run_loop(user_message: message, transport: transport)
       rescue Pikuri::Agent::Control::Cancellable::Cancelled
-        # Notice already rendered by the Shared::ConversationWindow::Listener; nothing else to do.
+        # Notice already rendered by the Shared::ConversationTextView::Listener; nothing else to do.
       rescue Pikuri::Agent::EmptyTurnError
         # A bare load (blank turn on a system-hoisting provider) can't complete —
         # not a failure. Whatever was injected (a skill) already rendered its own
         # SystemInjected block; nudge the user to say something, dim not red.
-        @conversation_window.render_notice('Nothing to send yet — type a message to start the turn.')
+        @conversation.render_notice('Nothing to send yet — type a message to start the turn.')
       rescue StandardError => e
         @logger.error(
           "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"
         )
-        @conversation_window.render_turn_error(e)
+        @conversation.render_turn_error(e)
       ensure
         @screen.event_queue.submit do
-          @conversation_window.stop_animation
+          @status_rule.stop_animation
           @turn_in_progress = false
           deliver_pending_injections
         end

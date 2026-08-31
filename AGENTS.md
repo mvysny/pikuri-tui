@@ -24,7 +24,7 @@ shell only.
 
 All three shells are functional. `bin/pikuri-tui-chat` runs the full
 Tuile UI — conversation pane with streamed Markdown, a diagnostic
-log popup, input field, footer spinner + token status —
+log popup, input field, status rule with spinner + token readout —
 against a local llama.cpp server, with specs and Woodpecker CI in
 place. `bin/pikuri-tui-code` (the `Code` namespace) is
 the in-repo coding shell: the same Tuile UI plus a project-rooted
@@ -36,7 +36,7 @@ read-only git additionally auto-approves once the user affirms a
 one-time, persisted git-config trust prompt — `Code::TrustStore`),
 sub-agent-only network tools, the skill / command / task / MCP /
 sub-agent extensions, a plan-mode toggle (a read-only
-posture surfaced as a footer badge), and a second one-time,
+posture surfaced as a status-rule badge), and a second one-time,
 persisted startup question — does this project hold anything you'd
 mind leaking? (`Code::PrivacyStore`) — whose answer sets the
 workspace's `private:` and so the private leg of the `/trifecta`
@@ -60,7 +60,7 @@ and delegates via the `agent` tool to an isolated
 `Pikuri::SubAgent::RESEARCHER` (web tools, no filesystem), with the
 `Code::ConfirmerPopup` gating each research task before it runs;
 `--no-internet` drops the researcher. It owns a `Code::ConfirmerPopup`
-on writes/bash, surfaces plan mode (footer badge + leader `p` toggle),
+on writes/bash, surfaces plan mode (status-rule badge + leader `p` toggle),
 and renders `edit` / `write` diffs — all reusing the coding shell's
 `Code::*` adapters verbatim, ported from pikuri's
 `pikuri-os/bin/pikuri-computer` demo. All three shells route every
@@ -79,10 +79,10 @@ The three shells keep their genuinely-divergent scaffolding (`App` /
 `lib/code.rb` and `lib/computer.rb`; the computer shell
 additionally reuses the `Code::*` confirmer / diff adapters directly).
 The pieces that carried no divergence are shared top-level components
-instead: the Enter-submits input (`Shared::InputWindow`), the
-conversation-window footer updater (`Shared::StatusFooterUpdater`) — the footer's
+instead: the Enter-submits input (`Shared::InputPane`), the
+status rule (`Shared::StatusRuleLabel`) — its
 only cross-shell difference, chat's lack of a plan-mode badge, collapses
-to chat simply never calling `Shared::StatusFooterUpdater#plan_active=` — and the
+to chat simply never calling `Shared::StatusRuleLabel#plan_active=` — and the
 turn-lifecycle engine (`Shared::AgentSession`, the worker thread + mid-turn
 injection + spinner + `Ctrl+C` escalation each `App` used to carry byte-identically). Their dependencies are
 split across Bundler groups: `bin/pikuri-tui-chat` runs
@@ -113,6 +113,35 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   layout / focus / input wiring around them. Anything beyond that
   is a bug or scope creep.
 
+- **Borderless: one primary pane on the terminal's own background, tinted
+  secondaries around it.** Nothing in the running UI is framed. The
+  conversation is the *primary* pane and keeps the terminal's background
+  untouched; every *secondary* surface — the prompt well, the coding shell's
+  sidebar — paints `:pane_bg`, one step of HSL lightness toward mid-grey
+  from whatever background the terminal reported (`Shared::Tint`), hue held.
+  What used to be a border is now a hairline: a `─` status rule between the
+  conversation and the prompt, a `│` column beside the sidebar, a
+  `Shared::PaneCaptionLabel` rule where a `Window` caption used to sit. The
+  three consequences worth knowing before touching any of it:
+  - **Only modal popups keep frames** (`Code::GitDiffPopup`, the log popup,
+    `Code::ConfirmerPopup`, the leader menu). A popup floating over the app
+    needs an edge; a pane in the layout does not.
+  - **We don't paint the primary pane's background**, so the app still
+    blends with the user's terminal theme and stays translucent under a
+    transparent one. Under transparency the tinted secondaries go solid —
+    "translucent transcript, solid furniture" — which is intended.
+  - **Focus needs no chrome cue here.** The prompt is the only focus target
+    in all three shells (the popups are modal), so the caret is the cue and
+    the prompt's tint is a permanent spatial anchor, not a focus state.
+    Don't tie the tint to focus, and don't add the labeled focus chips a
+    multi-pane borderless app would need — if a second focusable pane ever
+    lands, *that* is when the chip question opens.
+- **Chrome accents are Talus, not Tuile's teal.** `Shared::AppTheme`
+  overrides `hint_color` with `#a89c8e` (dark) / `#6f6558` (light) — kuri's
+  own coat from `pikuri/assets/kuri.svg`. Everything Tuile's `hint_color`
+  reaches follows for free: keyboard hints, the `❯`, pane captions, the
+  status readout. New chrome should reach for `theme.hint` rather than
+  inventing an accent.
 - **Two panes, two purposes.** The `TextView` shows the LLM
   conversation transcript — assistant Markdown, reasoning,
   tool-call lines, tool observations — driven by our pikuri
@@ -133,8 +162,8 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   consume (a `Button` exposes clicks; a `PersonForm` owns its fields,
   validation, and save). Whether a component references `Pikuri::*`
   is not a constraint we impose from outside — it falls out of what
-  the component is *for*. A conversation window that renders the
-  agent's event stream, the `Shared::StatusFooterUpdater` footer, the
+  the component is *for*. A conversation pane that renders the
+  agent's event stream, the `Shared::StatusRuleLabel`, the
   `Code::ConfirmerPopup`, and the `Shared::Model::*` adapters all
   legitimately own their Pikuri wiring (build their own listener,
   register their own confirmer); a pure layout container like
@@ -145,7 +174,7 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   touches Pikuri. The general shape (the composition-over-inheritance UI
   carve-out, the model/view sizing seam, the data-in-renders-itself rule) lives in the
   `cop` skill and the two posts it cites; the Tuile mechanics live in the
-  `tuile` skill. Live exemplars: `Shared::ConversationWindow` (a `Window`
+  `tuile` skill. Live exemplars: `Shared::ConversationTextView` (a `Window`
   that renders into its own content view, with a thin nested `Listener`) is
   the big-nested case; `Code::GitWatcher` feeding two panes is the
   shared-injected case.
@@ -197,7 +226,7 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   `Control::Interloper`: Enter during a running turn injects into
   the agent's queue — drained at the next tool-result boundary
   and echoed by the listener as a `mid_loop:` `UserTurn` — the
-  conversation footer shows an "N queued" count while injections
+  status rule shows an "N queued" count while injections
   are pending, and anything still queued when the turn ends is
   delivered as a fresh turn by `Chat::App`.)
 
@@ -223,7 +252,14 @@ Zeitwerk over `lib/` and eager-loads it.
   computer shell also reuses. Grouped by subsystem below.
 - `lib/shared/app_theme.rb` — `Shared::AppTheme`, the
   `Tuile::Theme` subclass carrying the app's accent tokens; single
-  source of truth for every UI accent all three shells paint.
+  source of truth for every UI accent all three shells paint. It overrides
+  one built-in token — `hint_color` becomes `TALUS` / `TALUS_SHADE`, kuri's
+  own coat color from `pikuri/assets/kuri.svg` — and adds the three
+  borderless-chrome tokens (`:pane_bg`, `:frame`, `:pane_frame`) as a
+  fixed floor that `.derived` replaces with values stepped off the
+  terminal's reported background (`Shared::Tint`). `.install(screen)` is the
+  entry point: each `App` calls it before building any component, and
+  `Shared::RootLayout#on_theme_changed` calls it again to keep it current.
 - `lib/shared/config.rb` — `Shared::Config`, the layered
   XDG-path TOML config all three shells load at boot (connections,
   search selection, sandbox/confirm switches, MCP servers), hand-validated.
@@ -233,7 +269,7 @@ Zeitwerk over `lib/` and eager-loads it.
   `Tuile::Component::TextView::Region` + its streaming buffer as one unit:
   lazy-open on first `#append`, then `#finalize` (commit) / `#wipe` (drop
   region + content) / `#preserve` (drop handle, keep content). The
-  `Shared::ConversationWindow::Listener` holds two (assistant + thinking).
+  `Shared::ConversationTextView::Listener` holds two (assistant + thinking).
 - `Shared::Markdown` — namespace (implicit — no `lib/shared/markdown.rb`,
   autovivified from `lib/shared/markdown/`) for the Markdown → ANSI
   rendering path (renderer over converter, the in-place streaming buffers,
@@ -260,8 +296,8 @@ Zeitwerk over `lib/` and eager-loads it.
 - `Shared::Model` — namespace (implicit — no `lib/shared/model.rb`,
   autovivified from `lib/shared/model/`) for the model-switch subsystem
   (the connection/transport value object, the leader-menu picker). The
-  `ModelSwitched`→footer listener that once lived here is now the footer's
-  own `Shared::StatusFooterUpdater#on_event` (see that entry).
+  `ModelSwitched`→model-name listener that once lived here is now the status
+  rule's own `Shared::StatusRuleLabel#on_event` (see that entry).
 - `lib/shared/model/choice.rb` — `Shared::Model::Choice`, a
   `Data.define` pairing a connection's display name with its
   `ChatTransport`; the one place the Pikuri seam is crossed for model
@@ -302,11 +338,15 @@ Zeitwerk over `lib/` and eager-loads it.
   lazyvim-style which-key command menu: `Ctrl+K` opens a modal
   `PickerWindow` of app actions, each on one follow-up key. Shared by
   all three shells; each `App` registers its own action set.
-- `lib/shared/input_window.rb` — `Shared::InputWindow`, the `Window`
-  captioned "Prompt" framing a private nested `TextArea` subclass that
-  rebinds Enter to submit-and-clear (blank buffers are a no-op); the host
-  focuses the window and Tuile's content-focus cascade lands the caret on
-  the area. With an optional `slash_menu:` it also arbitrates slash-command
+- `lib/shared/input_pane.rb` — `Shared::InputPane`, the prompt as a
+  borderless, permanently `:pane_bg`-tinted `Layout`: `PAD` columns of
+  padding, a static Talus `❯` marker, then a private nested `TextArea`
+  subclass that rebinds Enter to submit-and-clear (blank buffers are a
+  no-op), with a blank tinted row above and below so the tint reads as a
+  padded well. Tinted regardless of focus — the well is a spatial anchor,
+  not a focus cue, and with nothing else in these shells focusable the caret
+  is cue enough. A `Layout` cascades no focus, so `#focus` forwards onto the
+  area itself. With an optional `slash_menu:` it also arbitrates slash-command
   entry (opens/filters the palette on change, runs a command on Enter for a
   leading-`/` buffer instead of submitting a turn, forwards Up/Down/ESC while
   shown) — the prompt owns Enter and the buffer, so it's the only place that
@@ -344,7 +384,7 @@ Zeitwerk over `lib/` and eager-loads it.
   rows, navigates, splits `/name rest` and runs the picked command with `rest`,
   and echoes the command + any outcome into the conversation pane via
   `#add_block` (never the agent context; an unknown command echoes a red
-  "Command not found"). Driven by `Shared::InputWindow` (`#sync` /
+  "Command not found"). Driven by `Shared::InputPane` (`#sync` /
   `#handle_nav_key` / `#submit`); each `App` registers its own command set, and
   `#commands=` re-sets it mid-session (the coding shell's
   `Code::SkillActivationListener` does, as the `paths:` gate opens and closes).
@@ -363,15 +403,34 @@ Zeitwerk over `lib/` and eager-loads it.
   `Pikuri::Trifecta::Report` for the conversation pane (advisory toned by
   verdict, map untoned) — what `/trifecta` echoes in all three shells;
   screen-agnostic (takes the theme) like `Code::DiffRenderer`.
-- `lib/shared/status_footer_updater.rb` — `Shared::StatusFooterUpdater`, the
-  presenter that keeps the conversation window's footer chrome current
-  (it drives `Window#footer_text`; it is not itself a widget), shared by
-  all three shells: model name, mid-turn spinner, queued-injection count,
-  token snapshot, and a plan-mode badge. Also duck-types as an agent
-  listener — its `#on_event` catches `ModelSwitched` and re-points the
-  footer's model name — so the footer goes straight into the agent's
+- `lib/shared/status_rule_label.rb` — `Shared::StatusRuleLabel`, the one-row
+  `─── readout ───` rule separating the conversation from the prompt in all
+  three shells, and the agent readout it carries: a static `context:` segment
+  (the coding / computer shells' root), model name, mid-turn spinner,
+  queued-injection count, token snapshot, and a plan-mode badge. Empty
+  segments drop out and an empty readout leaves an unbroken hairline. Also
+  duck-types as an agent listener — its `#on_event` catches `ModelSwitched`
+  and re-points the model name — so it goes straight into the agent's
   `ListenerList` (no separate listener object; `#current_model=` owns the
-  transport→display-name resolution the picker's name map feeds).
+  transport→display-name resolution the picker's name map feeds). A component
+  rather than the `Window#footer_text` presenter it grew out of: with the
+  frames gone there is no chrome to drive, and owning the widget buys the
+  width-aware `─` fill (`on_width_changed`) and the light/dark re-render.
+- `lib/shared/pane_caption_label.rb` — `Shared::PaneCaptionLabel`, a
+  borderless pane's caption row (`Tasks ──────`): the name in the theme's
+  Talus hint accent, then a hairline to the right edge — what replaced the
+  caption a `Window` painted into its top border. `rule_token:` picks the
+  hairline for the ground it sits on (`:pane_frame` on the tint by default,
+  `:frame` on the terminal background). Used by the coding shell's two
+  sidebar panes.
+- `lib/shared/tint.rb` — `Shared::Tint`, derives the borderless-chrome colors
+  from the terminal's reported background RGB: `.pane_bg` (the secondary-pane
+  tint, one `DELTA` step of HSL lightness *toward mid-grey*, hue held, with a
+  contrast guard that flips the step when it would drag a guarded foreground
+  under 4.5:1) and `.hairline` (a rule color `HAIRLINE_DELTA` from the ground
+  it rules on). Stateless and screen-free; `Shared::AppTheme.derived` is its
+  only caller. Ported from virtui's `UI::Tint`, which carries the measurement
+  table behind the constants in its `DECISIONS.md` `D_tint_toward_grey`.
 - `lib/shared/status_bar.rb` — `Shared::StatusBar`, the bottom row
   (`^C cancel  ^K menu`) as a `Label`: an unconditional `^C` half plus a `^K`
   half supplied as a *block*, re-run on `#refresh` (what a bumped error tally
@@ -380,33 +439,35 @@ Zeitwerk over `lib/` and eager-loads it.
   shells.
 - `lib/shared/root_layout.rb` — `Shared::RootLayout`, the screen's content
   component in all three shells: the shell's own `Layout` (`Expand[1]`) stacked
-  over the `Shared::StatusBar` (`Fixed[1]`).
+  over the `Shared::StatusBar` (`Fixed[1]`). Being the one component every
+  shell mounts, it is also where `on_theme_changed` re-runs
+  `Shared::AppTheme.install`, so a light/dark flip or a fresh OSC-11
+  background re-derives the tint and hairlines tree-wide.
 - `lib/shared/agent_session.rb` — `Shared::AgentSession`, the turn-lifecycle
   engine all three shells compose: owns one agent's worker thread, the
   `@turn_in_progress` concurrency guard, mid-turn interloper injection +
   leftover delivery (splitting `:user` leftovers into the fresh turn's message
   from `:system` ones it re-injects as context), the blank-submit split (idle →
   a bare `run_loop`; mid-turn → no-op) with an `EmptyTurnError` rescue that dims
-  a notice instead of red-lining, the conversation spinner, the pending
-  model-switch drain, and the `Ctrl+C` escalation. A coordinator/presenter (holds the `screen` +
-  conversation window, drives its spinner/error verbs) — sibling of
-  `Shared::StatusFooterUpdater`, *not* a UI-independent service like
+  a notice instead of red-lining, the status rule's spinner, the pending
+  model-switch drain, and the `Ctrl+C` escalation. A coordinator (holds the
+  `screen` plus the two panes it drives — the transcript's error/notice verbs
+  and the rule's spinner) — *not* a UI-independent service like
   `Code::GitWatcher`. Each `App` constructs one, sets `#agent=` after its build
   block, and delegates Enter/`Ctrl+C`/leader-`c` into it; the `App` keeps its
   own construction/layout/leader-menu/shortcuts/`run` loop plus `quit` /
   `on_screen_error` (which touch neither the agent nor the turn flag).
-- `lib/shared/conversation_window.rb` — `Shared::ConversationWindow`, the
-  conversation transcript as one cohesive `Tuile::Component::Window`
+- `lib/shared/conversation_text_view.rb` — `Shared::ConversationTextView`, the
+  conversation transcript as one cohesive `Tuile::Component::TextView`
   subclass shared by all three shells: renders the agent event stream into
-  its own content view (blocks, `Shared::StreamedBlock` streaming buffers,
+  itself (blocks, `Shared::StreamedBlock` streaming buffers,
   Markdown / grayscale, tool formatters) via a thin nested `Listener` (a
   `Pikuri::Agent::Listener::Base` that holds the per-stream state and mints
-  indented siblings for sub-agents), and carries a
-  `Shared::StatusFooterUpdater` footer that itself doubles as the
-  `ModelSwitched` listener. Exposes `#listener` (the transcript) /
-  `#status_footer_updater` (the footer) for the host to compose into the
-  agent's `ListenerList`, plus `#render_notice` (a dim, non-error transcript
-  line, sibling of `#render_turn_error`); a `SystemInjected` event renders as a
+  indented siblings for sub-agents). The app's *primary* pane: unframed and
+  untinted, keeping the terminal's own background, with the tinted secondaries
+  around it doing the setting-off. Exposes `#listener` for the host to compose
+  into the agent's `ListenerList`, plus `#render_notice` (a dim, non-error
+  transcript line, sibling of `#render_turn_error`); a `SystemInjected` event renders as a
   dim `⊕` block, except that the two skill-shaped payloads are collapsed — a
   loaded `SKILL.md` body to `⊕ loaded skill: <name>`, a `paths:` promotion block
   to nothing at all (the promoting host announces its own line, carrying the
@@ -451,26 +512,33 @@ Zeitwerk over `lib/` and eager-loads it.
   decisions) and a transcript notice naming the file that fired it. `#refresh`
   re-lists (the host calls it after `clear_conversation`; a `Event::Reset` arm
   would run *before* the activation is cleared). Coding-shell-only.
-- `lib/code/layout.rb` — `Code::Layout`, the
-  coding shell's dual-column root: a 60/40 conversation-over-input left
-  column beside a full-height `Code::WorkspaceSidebar` (collapsed when too
-  narrow).
+- `lib/code/layout.rb` — `Code::Layout`, the coding shell's dual-column root:
+  the *upper* region splits 60/40 into the conversation and a
+  `Code::WorkspaceSidebar` (collapsed when too narrow) with a one-cell `│`
+  column between them, and under both run the full-width
+  `Shared::StatusRuleLabel` and `Shared::InputPane`. The prompt spans the full
+  width deliberately: it is the shell's one focus target, and running it edge
+  to edge is what lets a single status rule serve the whole app rather than
+  one per column. This layout owns the `│` separator (rebuilt on resize and
+  on a theme flip); the sidebar owns only its own tint.
 - `lib/code/workspace_sidebar.rb` — `Code::WorkspaceSidebar`, the tasks + git
-  sidebar as one `Tuile::Component::Layout`: frames `Code::TaskListWindow`
-  over the git "Changes" pane, owns the `Code::GitWatcher` lifecycle
+  sidebar as one `Tuile::Component::Layout`: stacks `Code::TaskListPane`
+  over the git "Changes" pane, paints the column's `:pane_bg` tint once (both
+  panes inherit it), owns the `Code::GitWatcher` lifecycle
   (`#start_git_watching` / `#stop_git_watching`) + the `Code::GitDiffPopup`
   (`#open_diff`), and exposes `#task_listener` for the agent's `ListenerList`.
   Coding-shell-only.
-- `lib/code/task_list_window.rb` —
-  `Code::TaskListWindow`, the sidebar task pane: a `Window` domain component
-  that draws a task list into its own content view (glyphs, placeholder,
+- `lib/code/task_list_pane.rb` —
+  `Code::TaskListPane`, the sidebar task pane: a borderless
+  `Layout::Vertical` domain component stacking a `Shared::PaneCaptionLabel`
+  over a task list it draws itself (glyphs, placeholder,
   per-status tone) via the `#items=` verb, plus a nested `Listener` (a
   `Pikuri::Agent::Listener::Base`) translating the `Pikuri::Tasks::ListChanged`
   stream into `#items=` calls; exposes `#listener` for the agent's
   `ListenerList`. Coding-shell-only.
 - `lib/code/plan_mode_listener.rb` —
   `Code::PlanModeListener`, a `Pikuri::Agent::Listener::Base`
-  driving the footer plan-mode badge off `Pikuri::Code::PlanModeChanged`;
+  driving the status rule's plan-mode badge off `Pikuri::Code::PlanModeChanged`;
   coding/OS-shell-only.
 - `lib/code/git_watcher.rb` —
   `Code::GitWatcher`, the background git poller as a **UI-independent
@@ -478,11 +546,13 @@ Zeitwerk over `lib/` and eager-loads it.
   `#on_change` listeners on its poll thread and knows nothing of the UI;
   `Code::WorkspaceSidebar` subscribes, marshals onto the event loop, and
   projects onto the panes. Owns `Snapshot` / `Change`.
-- `lib/code/git_summary_window.rb` —
-  `Code::GitSummaryWindow`, the sidebar "Changes" pane: a `Window` domain
-  component (subclasses the generic `Window`, renders into its own content view)
-  that draws a git change summary (per-file `XY path +A -D` line, kind-toned
-  label) via `#snapshot=`; fed by `GitWatcher`.
+- `lib/code/git_summary_pane.rb` —
+  `Code::GitSummaryPane`, the sidebar "Changes" pane: a borderless
+  `Layout::Vertical` domain component stacking a `Shared::PaneCaptionLabel`
+  over a git change summary it draws itself (per-file `XY path +A -D` line,
+  kind-toned label) via `#snapshot=`; fed by `GitWatcher`. Neither sidebar
+  pane carries a scrollbar: nothing in the sidebar takes focus, so no key
+  could drive one.
 - `lib/code/git_diff_window.rb` —
   `Code::GitDiffWindow`, the "Git diff" pane (inside `GitDiffPopup`): a `Window`
   domain component that draws a working-tree diff via `#snapshot=`, re-rendering
@@ -649,8 +719,8 @@ Zeitwerk over `lib/` and eager-loads it.
   wired) and is a single untagged logger, so it's reserved for one job:
   `Shared::Log::UI#wire!` still assigns `Tuile.logger = Logger.new(io)` to capture
   `Tuile`'s *own* internal noise into the same LogWindow. The
-  conversation pane (`Shared::ConversationWindow`, driven by its nested
-  `Shared::ConversationWindow::Listener`)
+  conversation pane (`Shared::ConversationTextView`, driven by its nested
+  `Shared::ConversationTextView::Listener`)
   is for the LLM stream — assistant Markdown, reasoning, tool calls,
   observations — and is not a log sink; never write log lines into it.
 - **Our bugs raise; library exceptions are logged.** Two buckets:
@@ -689,19 +759,26 @@ Zeitwerk over `lib/` and eager-loads it.
 - **Widget-class suffix on Tuile subclasses/wrappers only.** A class
   that extends or wraps a Tuile component carries that component's
   class as its name suffix, so the primitive it's built on is
-  legible at the reference site: `Shared::InputWindow` (a `Window`),
-  `Shared::Log::Popup` / `GitDiffPopup` (both `Popup`s), `LogWindow` /
-  `PickerWindow` (both `Window`s). Name the prefix for what the
-  component *does*, never for the slot it sits in — `Shared::InputWindow`
-  (what it does), not `BottomWindow` (where it sits). A class that is
-  *not* a Tuile subclass or wrapper takes no widget suffix at all:
-  `Shared::StatusFooterUpdater` is a presenter — it drives a
-  `Window`'s `footer_text` but owns no widget of its own — so it gets a
-  plain agent-noun name in the `GitWatcher` / `GitDiffRenderer` /
-  `*Listener` family, and would have been actively misleading as a
-  `*Label` (there is no `Label` there). "Footer" in its name is its
-  contract — the border chrome it keeps current — not an incidental
-  slot.
+  legible at the reference site: `Shared::ConversationTextView` (a
+  `TextView`), `Shared::StatusRuleLabel` / `Shared::PaneCaptionLabel` (both
+  `Label`s), `Shared::Log::Popup` / `GitDiffPopup` (both `Popup`s),
+  `LogWindow` / `PickerWindow` (both `Window`s). Name the prefix for what
+  the component *does*, never for the slot it sits in —
+  `Shared::ConversationTextView` (what it does), not `TopTextView` (where
+  it sits). A class that is *not* a Tuile subclass or wrapper takes no
+  widget suffix at all: it gets a plain agent-noun name in the
+  `GitWatcher` / `GitDiffRenderer` / `*Listener` family.
+
+  **The one sanctioned exception is `Layout`**, where `*Layout` says
+  nothing a reader wants (every container is one) and would read as a
+  *root* layout, which these are not. A composite borderless pane built on
+  `Layout` / `Layout::Vertical` takes `*Pane` instead —
+  `Shared::InputPane`, `Code::TaskListPane`, `Code::GitSummaryPane` — or
+  no suffix when the name is already a place (`Code::WorkspaceSidebar`).
+  `*Pane` is not a free-for-all: it means specifically "a borderless
+  region built out of a `Layout`", the shape that replaced framed
+  `Window`s. Each shell's own root layout stays plain `Layout`
+  (`Chat::Layout`, `Code::Layout`, `Computer::Layout`).
 - **Tests: rspec-core with minitest-style asserts.** Use the
   `rspec-core` runner (`describe`/`it`) but write assertions in
   the minitest style (`assert_equal`, `assert`, `refute`, …)
@@ -783,9 +860,9 @@ Zeitwerk over `lib/` and eager-loads it.
   appears in more than one shell, extract it once into the
   `Shared::` namespace (or `Code::*` when it's coding-family) and
   reuse it — that is how we kill duplication. The building blocks
-  already living this way: `Shared::InputWindow`,
-  `Shared::PromptHistory`, `Shared::StatusFooterUpdater`,
-  `Shared::ConversationWindow`, `Shared::AgentSession`,
+  already living this way: `Shared::InputPane`,
+  `Shared::PromptHistory`, `Shared::StatusRuleLabel`,
+  `Shared::ConversationTextView`, `Shared::AgentSession`,
   `Shared::StatusBar`, `Shared::RootLayout`,
   `Shared::LeaderMenu`, `Shared::SlashMenuPopup`, `Shared::SlashCommand`,
   `Shared::FileCommands`,

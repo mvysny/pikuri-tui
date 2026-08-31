@@ -27,7 +27,7 @@
 # But its tools mutate the real host, so it carries the coding shell's
 # safety machinery: it owns a {Code::ConfirmerPopup} (yielded to the
 # build block for the +write+ / +bash+ tools), surfaces plan mode (a
-# footer badge via {Code::PlanModeListener} + a leader-menu +p+ toggle),
+# status-rule badge via {Code::PlanModeListener} + a leader-menu +p+ toggle),
 # and renders +edit+ / +write+ tool calls as diffs through the same
 # {Code::EditFormatter} / {Code::WriteFormatter}. Thunderbird's two outbound
 # tools need no confirmer here — their gate is Thunderbird's own compose
@@ -36,7 +36,7 @@
 # == Why a parallel copy of +Chat::+ / +Code::+ and not a shared base
 #
 # The shell machinery (worker-thread turn loop, diagnostic-log wiring,
-# leader-menu / Ctrl+C shortcuts, footer, model picker) is ~90% the same
+# leader-menu / Ctrl+C shortcuts, status rule, model picker) is ~90% the same
 # across all three shells, but they are deliberately kept as independent
 # copies rather than factored onto a common base — the project's "thin
 # shell, readable not obfuscated" ceiling favors a little duplication

@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-RSpec.describe Shared::ConversationWindow do
-  let(:token_log) { Pikuri::Agent::Listener::TokenLog.new }
-  let(:window)    { described_class.new(token_log: token_log) }
-  let(:listener)  { window.listener }
+RSpec.describe Shared::ConversationTextView do
+  let(:pane)      { described_class.new }
+  let(:listener)  { pane.listener }
   let(:gray)      { Shared::Markdown::Grayscale::GRAY }
 
   before do
@@ -21,87 +20,67 @@ RSpec.describe Shared::ConversationWindow do
     Tuile::Screen.close
   end
 
-  def rendered = window.view.text.to_s
+  def rendered = pane.text.to_s
 
-  describe 'window scaffolding' do
-    it 'stands up from just a screen + token_log, as a titled Tuile Window' do
-      assert_kind_of Tuile::Component::Window, window
-      assert_equal 'Conversation', window.caption.to_s
+  describe 'pane scaffolding' do
+    it 'is an unframed TextView — the primary pane keeps the terminal background' do
+      assert_kind_of Tuile::Component::TextView, pane
+      assert_nil pane.bg_color
     end
 
-    it 'takes a custom title (the coding shell passes its project root)' do
-      titled = described_class.new(token_log: token_log, title: '/srv/app')
-      assert_equal '/srv/app', titled.caption.to_s
+    it 'tails the transcript and shows its own scrollbar (the frame carried neither)' do
+      assert pane.auto_scroll
+      assert_equal :visible, pane.scrollbar_visibility
     end
 
     it 'owns the transcript listener it exposes for the agent ListenerList' do
-      assert_kind_of Shared::ConversationWindow::Listener, window.listener
-    end
-
-    it 'drives its Shared::StatusFooterUpdater as border chrome, leaving the Window footer slot empty' do
-      assert_kind_of Shared::StatusFooterUpdater, window.status_footer_updater
-      assert_nil window.footer
-    end
-
-    it 'exposes the footer, which duck-types as an agent listener for the ListenerList' do
-      assert_respond_to window.status_footer_updater, :on_event
-    end
-
-    it 'forwards current_model= to the footer' do
-      window.current_model = 'Local Qwen'
-      assert_equal 'Local Qwen', window.status_footer_updater.current_model
-    end
-
-    it 'forwards interloper= to the footer for the queued-count display' do
-      interloper = Pikuri::Agent::Control::Interloper.new
-      window.interloper = interloper
-      assert_same interloper, window.status_footer_updater.interloper
+      assert_kind_of Shared::ConversationTextView::Listener, pane.listener
     end
 
     it 'honors markdown: false' do
-      plain = described_class.new(token_log: token_log, markdown: false)
+      plain = described_class.new(markdown: false)
       assert_equal false, plain.instance_variable_get(:@markdown)
     end
 
     it 'renders a caught turn error as an error-themed transcript line' do
-      window.render_turn_error(RuntimeError.new('boom'))
+      pane.render_turn_error(RuntimeError.new('boom'))
       assert_includes rendered, 'RuntimeError'
       assert_includes rendered, 'boom'
     end
 
     it 'renders a notice as a plain dim transcript line (no error marker)' do
-      window.render_notice('type a message to start the turn')
+      pane.render_notice('type a message to start the turn')
       assert_includes rendered, 'type a message to start the turn'
       refute_includes rendered, '!'
     end
   end
 
   describe 'half-page scrolling' do
-    let(:half_page) { window.view.rect.height / 2 }
+    let(:half_page) { pane.rect.height / 2 }
 
     before do
-      window.rect = Tuile::Rect.new(0, 0, 40, 10)
-      30.times { |i| window.add_block("line #{i}") }
+      pane.rect = Tuile::Rect.new(0, 0, 40, 10)
+      30.times { |i| pane.add_block("line #{i}") }
     end
 
     it 'pages up half a screen, clamped at the top' do
-      window.view.scroll_top_row = 10
-      window.scroll_half_page_up
-      assert_equal 10 - half_page, window.view.scroll_top_row
+      pane.scroll_top_row = 10
+      pane.scroll_half_page_up
+      assert_equal 10 - half_page, pane.scroll_top_row
 
-      3.times { window.scroll_half_page_up }
-      assert_equal 0, window.view.scroll_top_row
+      3.times { pane.scroll_half_page_up }
+      assert_equal 0, pane.scroll_top_row
     end
 
     it 'pages down half a screen, and re-arms tailing on reaching the bottom' do
-      window.view.scroll_top_row = 0
-      refute window.view.following?, 'scrolled off the bottom'
+      pane.scroll_top_row = 0
+      refute pane.following?, 'scrolled off the bottom'
 
-      window.scroll_half_page_down
-      assert_equal half_page, window.view.scroll_top_row
+      pane.scroll_half_page_down
+      assert_equal half_page, pane.scroll_top_row
 
-      10.times { window.scroll_half_page_down }
-      assert window.view.following?, 'paging back to the bottom resumes tailing'
+      10.times { pane.scroll_half_page_down }
+      assert pane.following?, 'paging back to the bottom resumes tailing'
     end
   end
 
@@ -230,8 +209,8 @@ RSpec.describe Shared::ConversationWindow do
     assert_includes log, 'Shared::Markdown::Renderer.render failed'
   end
 
-  it 'reports its listener label as "Shared::ConversationWindow::Listener" (used by Agent#to_s)' do
-    assert_equal 'Shared::ConversationWindow::Listener', listener.to_s
+  it 'reports its listener label as "Shared::ConversationTextView::Listener" (used by Agent#to_s)' do
+    assert_equal 'Shared::ConversationTextView::Listener', listener.to_s
   end
 
   context 'streaming AssistantDelta' do
@@ -360,7 +339,7 @@ RSpec.describe Shared::ConversationWindow do
     it 'recolors streamed thinking to a single gray tone, stripping any color the renderer produced' do
       Shared::Markdown::Renderer.define_singleton_method(:render) { |_text, **_kwargs| "\e[31mred-from-renderer\e[0m" }
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
-      fg_colors = window.view.text.spans.map { |s| s.style.fg }
+      fg_colors = pane.text.spans.map { |s| s.style.fg }
       refute_includes fg_colors, Tuile::Color.new(:red)
       assert_includes fg_colors, gray
     end
@@ -370,7 +349,7 @@ RSpec.describe Shared::ConversationWindow do
         "\e[1;3;4;31mbold italic underlined red\e[0m"
       end
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
-      span = window.view.text.spans.find { |s| s.text.include?('bold italic underlined red') }
+      span = pane.text.spans.find { |s| s.text.include?('bold italic underlined red') }
       refute_nil span, 'expected a span carrying the rendered text'
       assert_equal gray, span.style.fg
       assert span.style.bold,      'bold should pass through the recolor'
@@ -381,14 +360,14 @@ RSpec.describe Shared::ConversationWindow do
     it 'renders the non-streaming Thinking bookend in the same gray tone' do
       Shared::Markdown::Renderer.define_singleton_method(:render) { |_text, **_kwargs| "\e[31mred\e[0m" }
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'bookend'))
-      fg_colors = window.view.text.spans.map { |s| s.style.fg }
+      fg_colors = pane.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
       refute_includes fg_colors, Tuile::Color.new(:red)
     end
   end
 
   context 'markdown: false' do
-    let(:window) { described_class.new(token_log: token_log, markdown: false) }
+    let(:pane) { described_class.new(markdown: false) }
 
     # If the passthrough stub fired we'd see no behavior difference vs
     # markdown: true. Replace it with a sentinel that would *always* be visible
@@ -407,7 +386,7 @@ RSpec.describe Shared::ConversationWindow do
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: '**raw thinking**'))
       assert_includes rendered, '**raw thinking**'
       refute_includes rendered, 'MARKDOWN_RAN'
-      fg_colors = window.view.text.spans.map { |s| s.style.fg }
+      fg_colors = pane.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
     end
 
@@ -421,7 +400,7 @@ RSpec.describe Shared::ConversationWindow do
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: '**still literal**'))
       assert_includes rendered, '**still literal**'
       refute_includes rendered, 'MARKDOWN_RAN'
-      fg_colors = window.view.text.spans.map { |s| s.style.fg }
+      fg_colors = pane.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
     end
   end
@@ -474,23 +453,23 @@ RSpec.describe Shared::ConversationWindow do
       end
     end
 
-    # The formatter is set at construction, so each test builds its own window
+    # The formatter is set at construction, so each test builds its own pane
     # (and asserts on its pane) rather than the shared markdown-true one.
-    def window_with(fmt)
-      described_class.new(token_log: token_log, tool_formatters: { 'edit' => fmt })
+    def pane_with(fmt)
+      described_class.new(tool_formatters: { 'edit' => fmt })
     end
 
     it 'renders a formatter call block instead of the default tool-call line' do
       fmt = formatter.new(call_block: 'DIFF BLOCK', result_block: nil)
-      w = window_with(fmt)
+      w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
-      assert_includes w.view.text.to_s, 'DIFF BLOCK'
-      refute_includes w.view.text.to_s, '→ edit'
+      assert_includes w.text.to_s, 'DIFF BLOCK'
+      refute_includes w.text.to_s, '→ edit'
     end
 
     it 'passes the pane width and theme to the formatter' do
       fmt = formatter.new(call_block: 'X', result_block: nil)
-      w = window_with(fmt)
+      w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
       assert_equal({ 'path' => 'a.rb' }, fmt.call_args[:arguments])
       assert fmt.call_args[:width].positive?
@@ -499,49 +478,49 @@ RSpec.describe Shared::ConversationWindow do
 
     it 'suppresses the result line when the paired formatter returns nil (success)' do
       fmt = formatter.new(call_block: 'DIFF', result_block: nil)
-      w = window_with(fmt)
+      w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
       w.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'Edited a.rb: replaced 1 occurrence.'))
-      refute_includes w.view.text.to_s, 'Edited a.rb'
-      refute_includes w.view.text.to_s, '= '
+      refute_includes w.text.to_s, 'Edited a.rb'
+      refute_includes w.text.to_s, '= '
     end
 
     it 'renders the formatter result block when it returns one (error path)' do
       fmt = formatter.new(call_block: 'DIFF', result_block: '✗ Error: old_string not found')
-      w = window_with(fmt)
+      w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
       w.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'Error: old_string not found in a.rb.'))
-      assert_includes w.view.text.to_s, '✗ Error: old_string not found'
+      assert_includes w.text.to_s, '✗ Error: old_string not found'
     end
 
     it 'falls back to the default tool-call line when render_call returns nil' do
       fmt = formatter.new(call_block: nil, result_block: nil)
-      w = window_with(fmt)
+      w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
-      assert_includes w.view.text.to_s, '→ edit'
+      assert_includes w.text.to_s, '→ edit'
     end
 
     it 'routes the result to the default += line when render_call declined' do
       fmt = formatter.new(call_block: nil, result_block: 'SHOULD NOT SHOW')
-      w = window_with(fmt)
+      w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
       w.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'whatever'))
-      assert_includes w.view.text.to_s, '= whatever'
-      refute_includes w.view.text.to_s, 'SHOULD NOT SHOW'
+      assert_includes w.text.to_s, '= whatever'
+      refute_includes w.text.to_s, 'SHOULD NOT SHOW'
     end
 
     it 'leaves unregistered tools on the default rendering' do
       fmt = formatter.new(call_block: 'DIFF', result_block: 'R')
-      w = window_with(fmt)
+      w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'grep', arguments: { 'q' => 'x' }))
       w.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'match'))
-      assert_includes w.view.text.to_s, '→ grep'
-      assert_includes w.view.text.to_s, '= match'
-      refute_includes w.view.text.to_s, 'DIFF'
+      assert_includes w.text.to_s, '→ grep'
+      assert_includes w.text.to_s, '= match'
+      refute_includes w.text.to_s, 'DIFF'
     end
   end
 
-  # Every other spec here reads window.view.text — the pre-wrap model, which
+  # Every other spec here reads pane.text — the pre-wrap model, which
   # holds the indent whether or not the pane can display it. tuile#2 (0.10.0's
   # wrapper ate a leading whitespace run on the *first* row, not just on
   # continuations) was invisible to all of them: the /trifecta tree and the
@@ -560,16 +539,16 @@ RSpec.describe Shared::ConversationWindow do
     end
 
     it 'paints the indent: prefix, so sub-agent blocks nest visibly' do
-      window.add_block('→ web_search', indent: described_class::Listener::SUB_AGENT_INDENT)
+      pane.add_block('→ web_search', indent: described_class::Listener::SUB_AGENT_INDENT)
       assert_equal ["#{' ' * described_class::Listener::SUB_AGENT_INDENT}→ web_search"],
-                   painted(window.view).reject(&:empty?)
+                   painted(pane).reject(&:empty?)
     end
 
     it 'paints indentation carried inside a block, so a /trifecta tree stays a tree' do
-      window.add_block("pikuri-tui-code [:egress]\n  read [:untrusted_hard]\n  file_miner []\n    read []")
+      pane.add_block("pikuri-tui-code [:egress]\n  read [:untrusted_hard]\n  file_miner []\n    read []")
       assert_equal ['pikuri-tui-code [:egress]', '  read [:untrusted_hard]',
                     '  file_miner []', '    read []'],
-                   painted(window.view).reject(&:empty?)
+                   painted(pane).reject(&:empty?)
     end
   end
 

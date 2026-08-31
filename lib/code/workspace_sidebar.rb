@@ -5,15 +5,19 @@ require 'tuile'
 module Code
   # The coding shell's workspace sidebar as one Tuile container: a fixed
   # {TASK_HEIGHT} task pane stacked over the git change-summary pane, plus the
-  # off-layout diff popup they share. Composes {TaskListWindow},
-  # {GitSummaryWindow} / {GitDiffWindow}, {GitDiffPopup}, and the
+  # off-layout diff popup they share. Composes {TaskListPane},
+  # {GitSummaryPane} / {GitDiffWindow}, {GitDiffPopup}, and the
   # {GitWatcher} service that feeds the two git panes:
   #
-  #   +-- tasks ----+   <- fixed TASK_HEIGHT rows
-  #   +-------------+
-  #   |  changes    |   <- the remaining rows; the full-width diff is a
-  #   |             |      leader-menu popup (#open_diff), not part of this box
-  #   +-------------+
+  #   Tasks ───────    <- fixed TASK_HEIGHT rows, caption included
+  #   ○ port the tint
+  #   Changes ─────    <- the remaining rows; the full diff is a
+  #   M lib/x.rb +2       leader-menu popup (#open_diff), not part of this box
+  #
+  # This is a *secondary* surface, so the whole column paints +:pane_bg+ — set
+  # once here, inherited by both panes — which is what tells it apart from the
+  # untinted conversation beside it now that neither is framed. The +│+ column
+  # on its left edge and the status rule below it belong to {Layout}, not here.
   #
   # The host builds it, folds {#task_listener} into the agent's
   # +ListenerList+, hands it to {Layout} as the single +sidebar:+ child, and
@@ -29,21 +33,21 @@ module Code
   # thread via +screen.event_queue.submit+ before touching the panes, so the
   # service itself stays UI-independent.
   class WorkspaceSidebar < Tuile::Component::Layout
-    # Rows the task pane (top of the sidebar) occupies: ~4 task lines + 2 rows
-    # of {Tuile::Component::Window} frame. The git change-summary pane below it
-    # takes whatever sidebar rows remain.
+    # Rows the task pane (top of the sidebar) occupies: its caption row plus
+    # ~5 task lines. The git change-summary pane below it takes whatever
+    # sidebar rows remain.
     #
     # @return [Integer]
     TASK_HEIGHT = 6
 
-    # Builds the two git panes ({GitSummaryWindow} / {GitDiffWindow}), the shared
+    # Builds the two git panes ({GitSummaryPane} / {GitDiffWindow}), the shared
     # {GitDiffPopup}, and the {GitWatcher}, then subscribes the panes to it. Adds
     # the task and change-summary windows as layout children; the diff window is
     # *not* a child — it lives in the popup, shown only on {#open_diff}.
     def initialize
       super()
-      @task_list_window = TaskListWindow.new
-      @git_summary_window = GitSummaryWindow.new
+      @task_pane = TaskListPane.new
+      @git_summary_pane = GitSummaryPane.new
 
       # The full colored diff is too wide for the sidebar, so it lives in a
       # near-fullscreen popup opened from the leader menu's 'd' entry. Built
@@ -59,30 +63,33 @@ module Code
       @git_watcher = GitWatcher.new
       @git_watcher.on_change do |snapshot|
         screen.event_queue.submit do
-          @git_summary_window.snapshot = snapshot
+          @git_summary_pane.snapshot = snapshot
           @git_diff_window.snapshot = snapshot
         end
       end
 
-      add(@task_list_window)
-      add(@git_summary_window)
+      add(@task_pane)
+      add(@git_summary_pane)
+      # Tint the whole column; a Theme::Ref re-resolves on every theme swap by
+      # itself, and both panes inherit it via Component#effective_bg_color.
+      self.bg_color = Tuile::Theme.ref(:pane_bg)
     end
 
     # @return [GitWatcher] the background git service the panes subscribe to;
     #   exposed for tests.
     attr_reader :git_watcher
 
-    # @return [GitSummaryWindow] the change-summary pane; exposed for tests,
+    # @return [GitSummaryPane] the change-summary pane; exposed for tests,
     #   production drives it through the {GitWatcher} subscription.
-    attr_reader :git_summary_window
+    attr_reader :git_summary_pane
 
     # @return [GitDiffWindow] the diff pane wrapped by {GitDiffPopup}; exposed
     #   for tests.
     attr_reader :git_diff_window
 
-    # @return [TaskListWindow::Listener] the task-stream listener (owned by
+    # @return [TaskListPane::Listener] the task-stream listener (owned by
     #   the task pane's view); fold it into the agent's +ListenerList+.
-    def task_listener = @task_list_window.listener
+    def task_listener = @task_pane.listener
 
     # Starts the {GitWatcher}'s background poll; call before the event loop
     # ({App#run}) and pair with {#stop_git_watching}.
@@ -123,8 +130,8 @@ module Code
 
       tasks_h = [TASK_HEIGHT, rect.height].min
       git_h   = rect.height - tasks_h
-      @task_list_window.rect = Tuile::Rect.new(rect.left, rect.top, rect.width, tasks_h)
-      @git_summary_window.rect = Tuile::Rect.new(rect.left, rect.top + tasks_h, rect.width, git_h)
+      @task_pane.rect = Tuile::Rect.new(rect.left, rect.top, rect.width, tasks_h)
+      @git_summary_pane.rect = Tuile::Rect.new(rect.left, rect.top + tasks_h, rect.width, git_h)
     end
   end
 end

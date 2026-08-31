@@ -49,22 +49,29 @@ RSpec.describe Shared::AgentSession do
     end
   end
 
-  # Records the spinner / error verbs the session drives, so a spec can
-  # assert the coordinator poked the conversation window without standing up
-  # the real {Shared::ConversationWindow} (token log, markdown, panes).
-  class FakeConversationWindow
-    attr_reader :animation, :errors, :notices
+  # Records the error / notice verbs the session drives on the transcript, so a
+  # spec can assert the coordinator poked it without standing up the real
+  # {Shared::ConversationTextView} (markdown, streaming buffers, regions).
+  class FakeConversation
+    attr_reader :errors, :notices
 
     def initialize
-      @animation = []
       @errors = []
       @notices = []
     end
 
-    def start_animation = @animation << :start
-    def stop_animation = @animation << :stop
     def render_turn_error(exception) = @errors << exception
     def render_notice(text) = @notices << text
+  end
+
+  # The other half of what the session drives: the status rule's spinner.
+  class FakeStatusRule
+    attr_reader :animation
+
+    def initialize = @animation = []
+
+    def start_animation = @animation << :start
+    def stop_animation = @animation << :stop
   end
 
   # A one-shot pending-switch source: hands out +pending+ in order, then
@@ -78,7 +85,8 @@ RSpec.describe Shared::AgentSession do
   end
 
   let(:agent) { TurnAgentStub.new }
-  let(:conversation_window) { FakeConversationWindow.new }
+  let(:conversation) { FakeConversation.new }
+  let(:status_rule) { FakeStatusRule.new }
   let(:picker) { FakePicker.new }
   let(:log_io) { StringIO.new }
   let(:logger) { Logger.new(log_io) }
@@ -98,10 +106,10 @@ RSpec.describe Shared::AgentSession do
     agent.block_turns!
     session.submit('work')
     wait_until { agent.messages.size == 1 }
-    assert_equal [:start], conversation_window.animation
+    assert_equal [:start], status_rule.animation
   ensure
     agent.finish_turn!
-    wait_until { conversation_window.animation == %i[start stop] }
+    wait_until { status_rule.animation == %i[start stop] }
   end
 
   it 'reports turn_in_progress? true while a turn runs, false once it settles' do
@@ -197,8 +205,8 @@ RSpec.describe Shared::AgentSession do
       session.submit('')
       wait_until { !session.turn_in_progress? }
 
-      assert_equal 1, conversation_window.notices.size
-      assert_empty conversation_window.errors, 'EmptyTurnError must not red-line as a turn failure'
+      assert_equal 1, conversation.notices.size
+      assert_empty conversation.errors, 'EmptyTurnError must not red-line as a turn failure'
     end
   end
 
@@ -295,7 +303,7 @@ RSpec.describe Shared::AgentSession do
 
   def new_session(agent: self.agent, picker: self.picker)
     Shared::AgentSession.new(
-      screen: screen, conversation_window: conversation_window,
+      screen: screen, conversation: conversation, status_rule: status_rule,
       model_picker: picker, logger: logger
     ).tap { |s| s.agent = agent }
   end

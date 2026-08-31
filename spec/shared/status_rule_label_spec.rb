@@ -1,10 +1,14 @@
 # frozen_string_literal: true
 
-RSpec.describe Shared::StatusFooterUpdater do
+RSpec.describe Shared::StatusRuleLabel do
   let(:token_log)   { Pikuri::Agent::Listener::TokenLog.new }
   let(:event_queue) { Tuile::Screen.instance.event_queue }
-  let(:window)      { Tuile::Component::Window.new }
-  let(:label)       { described_class.new(screen: Tuile::Screen.instance, window: window, token_log: token_log) }
+  let(:label) do
+    described_class.new(token_log: token_log).tap { |l| l.rect = Tuile::Rect.new(0, 0, WIDTH, 1) }
+  end
+
+  # Wide enough that the readout never runs into the fill.
+  WIDTH = 80
 
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
@@ -16,9 +20,19 @@ RSpec.describe Shared::StatusFooterUpdater do
     )
   end
 
-  # The chrome the composer keeps current on the window's bottom border.
+  # The rule paints `── <readout> ────…`; every example here is about the
+  # readout, so strip the hairline off both ends. What is left still carries
+  # the one-space padding, which one example asserts on directly.
   def footer_text
-    window.footer_text
+    Tuile::StyledString.new(readout_spans)
+  end
+
+  # The readout's spans — everything but the two hairline runs.
+  def readout_spans
+    spans = label.text.spans.dup
+    spans.shift while spans.first && spans.first.text.match?(/\A─+\z/)
+    spans.pop while spans.last && spans.last.text.match?(/\A─+\z/)
+    spans
   end
 
   it 'starts empty before any Tokens event arrives (no spinner, no status)' do
@@ -48,7 +62,7 @@ RSpec.describe Shared::StatusFooterUpdater do
     # Keyed on [model, api_base] (Shared::Model::Choice.key), not the model id alone.
     let(:names) { { ['big-model', 'http://cloud/v1'] => 'Big Cloud' } }
     let(:label) do
-      described_class.new(screen: Tuile::Screen.instance, window: window, token_log: token_log, names: names)
+      described_class.new(token_log: token_log, names: names)
     end
 
     def transport(model, api_base: 'http://cloud/v1')
@@ -119,7 +133,7 @@ RSpec.describe Shared::StatusFooterUpdater do
     assert_includes footer_text.to_s, 'msg #1: ctx=11.0k'
   end
 
-  it 'pads non-empty text with one space on each side (breathing room against the border)' do
+  it 'pads a non-empty readout with one space on each side (breathing room against the rule)' do
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
     label.send(:refresh)
     assert_match(/\A \S.*\S \z/, footer_text.to_s)
@@ -251,30 +265,29 @@ RSpec.describe Shared::StatusFooterUpdater do
     assert_equal '', footer_text.to_s
   end
 
-  it 'bakes the current theme hint_color into the text (footer text is status-hint chrome)' do
+  it 'bakes the current theme hint_color into the readout (the status is hint chrome)' do
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
     label.send(:refresh)
     hint = Tuile::Screen.instance.theme.hint_color
-    refute_empty footer_text.spans
-    assert(footer_text.spans.all? { |span| span.style.fg == hint })
+    refute_empty readout_spans
+    assert(readout_spans.all? { |span| span.style.fg == hint })
   end
 
-  it 'restyles when the window on_theme_changed listener fires after a theme flip' do
-    label # construct first: refresh bakes the FakeScreen default (DARK) hint color in, and
-    # claims the window's on_theme_changed listener slot.
+  it 'restyles when on_theme_changed fires after a theme flip' do
+    label # construct first: refresh bakes the FakeScreen default (DARK) hint color in.
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
 
-    Tuile::Screen.instance.theme = Tuile::Theme::LIGHT
+    Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
     # Screen#theme= fires this tree-wide; here we drive it directly. The hook is
     # protected plumbing since tuile 0.14 (D_hook_visibility), so reach it the
     # way Tuile's own fan-out does.
-    window.__send__(:on_theme_changed)
-    assert(footer_text.spans.all? { |span| span.style.fg == Tuile::Theme::LIGHT.hint_color })
+    label.__send__(:on_theme_changed)
+    assert(readout_spans.all? { |span| span.style.fg == Shared::AppTheme::LIGHT.hint_color })
   end
 
   it 'paints on the terminal-default background (no hardcoded bar)' do
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
     label.send(:refresh)
-    assert(footer_text.spans.all? { |span| span.style.bg.nil? })
+    assert(readout_spans.all? { |span| span.style.bg.nil? })
   end
 end

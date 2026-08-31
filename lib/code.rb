@@ -8,7 +8,7 @@
 # == Why a parallel copy of +Chat::+ and not a shared base
 #
 # The shell machinery (worker-thread turn loop, diagnostic-log wiring,
-# leader-menu / Ctrl+C shortcuts, footer) is ~90% the same as {Chat::App},
+# leader-menu / Ctrl+C shortcuts, status rule) is ~90% the same as {Chat::App},
 # but the two shells are kept as independent copies rather than factored
 # onto a common base: the project's "thin shell, readable not obfuscated"
 # ceiling doesn't ask for the DRY win, and the coding shell's one genuine
@@ -17,7 +17,7 @@
 # the same call (reusing this namespace's {ConfirmerPopup} / diff adapters,
 # which are cross-cutting tool wiring, not shell scaffolding). Only pieces
 # that carry *no* shell-specific divergence are extracted into {Shared}
-# instead of copied ({Shared::InputWindow}, {Shared::StatusFooterUpdater}, …);
+# instead of copied ({Shared::InputPane}, {Shared::StatusRuleLabel}, …);
 # duplicate only where the copies genuinely drift.
 #
 # == Code-only dependencies

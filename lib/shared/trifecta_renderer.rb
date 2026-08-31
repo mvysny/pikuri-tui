@@ -31,7 +31,7 @@ module Shared::TrifectaRenderer
     # @param theme [Shared::AppTheme] supplies the verdict tone; taken as an
     #   argument, so this renders (and tests) without a {Tuile::Screen}.
     # @return [String] ANSI, newline-separated, no trailing newline — ready for
-    #   {Shared::ConversationWindow#add_block}.
+    #   {Shared::ConversationTextView#add_block}.
     # @raise [NoMatchingPatternError] if the report carries a verdict this has
     #   no tone for — deliberate, so a new severity can't slip through untoned.
     def render(report, theme:)

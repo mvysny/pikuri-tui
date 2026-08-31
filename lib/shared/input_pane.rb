@@ -2,19 +2,30 @@
 
 require 'tuile'
 
-# The bottom input pane, framed: a {Tuile::Component::Window} captioned
-# "Prompt" wrapping an editable {Area} (Enter submits, blank buffers are a
-# no-op). Frames the input the way {Shared::ConversationWindow} frames the
-# transcript — the host builds one, drops it into the layout, and focuses
-# the *window*; Tuile's Window→content focus cascade (+HasContent#on_focus+)
-# lands focus on the inner {Area}, so there is no focus plumbing to expose
-# here:
+# The bottom input pane: a borderless, permanently tinted well framing an
+# editable {Area} (Enter submits, blank buffers are a no-op), with a static
+# {MARKER} in front of it.
+#
+#                                              <- BLANK_ROWS
+#     ❯ what about lifetimes                   <- PAD, MARKER, then the Area
+#                                              <- BLANK_ROWS
+#
+# The whole rect paints +:pane_bg+ — this is a *secondary* surface, set off
+# against the untinted {Shared::ConversationTextView} above it — and it does so
+# regardless of focus: the well is a permanent spatial anchor, not a focus cue.
+# With nothing else in these shells focusable (the popups are modal), the caret
+# is the only focus cue needed, which is why this pane carries no counterpart
+# to the labeled chips a multi-pane borderless app would need.
+#
+# The host builds one, drops it into the layout, and focuses it — {#focus}
+# forwards to the private {Area}, since a {Tuile::Component::Layout} has no
+# Window→content focus cascade to do it:
 #
 #   menu = Shared::SlashMenuPopup.new(screen:, commands:, conversation:)
-#   win  = Shared::InputWindow.new(on_submit: session.method(:submit),
-#                                  slash_menu: menu, conversation: conversation_window)
-#   layout = Chat::Layout.new(conversation: conversation_window, input: win)
-#   screen.focused = win   # cascades onto the inner Area
+#   pane = Shared::InputPane.new(on_submit: session.method(:submit),
+#                                slash_menu: menu, conversation: conversation)
+#   layout = Chat::Layout.new(conversation: conversation, status_rule: rule, input: pane)
+#   pane.focus   # lands the caret in the Area
 #
 # With a +slash_menu+, the prompt also owns slash-command entry: the {Area}
 # opens/filters the palette as the buffer changes, arbitrates Enter (a
@@ -30,26 +41,94 @@ require 'tuile'
 # Shared by all three shells.
 #
 # UI-thread-confined.
-class Shared::InputWindow < Tuile::Component::Window
-  # Border caption. Not a constructor parameter — all three shells frame
-  # the input identically.
+class Shared::InputPane < Tuile::Component::Layout
+  # The static prompt marker drawn in front of the {Area}, in the theme's
+  # {Shared::AppTheme::TALUS} hint accent. One row only — a wrapped second line
+  # of the buffer sits under blank marker columns, so the marker reads as the
+  # prompt's start rather than a per-line bullet.
   #
   # @return [String]
-  TITLE = 'Prompt'
+  MARKER = '❯'
+
+  # Columns of tinted padding at each edge, so neither the marker nor the
+  # buffer butts against the terminal's side.
+  #
+  # @return [Integer]
+  PAD = 2
+
+  # Blank tinted rows above and below the editable rows, which is what makes
+  # the tint read as a padded well rather than a stripe. Dropped when the pane
+  # is too short to afford them.
+  #
+  # @return [Integer]
+  BLANK_ROWS = 1
+
+  # Total rows the pane asks its layout for: {ROWS} editable rows plus a
+  # {BLANK_ROWS} margin top and bottom.
+  #
+  # @return [Integer]
+  HEIGHT = 5
+
+  # Editable rows — the buffer scrolls within them once a message runs longer.
+  #
+  # @return [Integer]
+  ROWS = HEIGHT - (2 * BLANK_ROWS)
 
   # @param on_submit [Proc, Method] one-arg callable invoked with the
   #   buffer text when the user presses Enter on a non-blank line; handed
   #   straight to the wrapped {Area}.
   # @param slash_menu [Shared::SlashMenuPopup, nil] the slash-command palette
-  #   this prompt drives, or nil for a plain input. This window becomes its
+  #   this prompt drives, or nil for a plain input. This pane becomes its
   #   anchor (the palette floats just above it).
-  # @param conversation [Shared::ConversationWindow, nil] the transcript
+  # @param conversation [Shared::ConversationTextView, nil] the transcript
   #   PageUp/PageDown page while the prompt holds focus, or nil to leave those
   #   keys to the {Tuile::Component::TextArea}.
   def initialize(on_submit:, slash_menu: nil, conversation: nil)
-    super(TITLE)
-    self.content = Area.new(on_submit: on_submit, slash_menu: slash_menu, conversation: conversation)
+    super()
+    @marker = Tuile::Component::Label.new
+    @area = Area.new(on_submit: on_submit, slash_menu: slash_menu, conversation: conversation)
+    add(@marker)
+    add(@area)
+    # A Theme::Ref re-resolves against the theme on every paint, so the tint
+    # follows a light/dark flip with no hook of our own; the marker's tone is
+    # baked into its text and does need {#on_theme_changed}.
+    self.bg_color = Tuile::Theme.ref(:pane_bg)
     slash_menu.anchor = self if slash_menu
+    rebuild_marker
+  end
+
+  # @return [Tuile::Component::TextArea] the editable area. Exposed for tests;
+  #   production drives the prompt through +on_submit+ and {#focus}, and the
+  #   {Area} class itself stays private so nothing outside can re-arbitrate the
+  #   keys it owns.
+  attr_reader :area
+
+  # Focuses the editable area. The pane itself is passive layout; the {Area} is
+  # what owns the caret and the keyboard, and unlike a
+  # {Tuile::Component::Window} a {Tuile::Component::Layout} cascades nothing.
+  #
+  # @return [void]
+  def focus = @area.focus
+
+  # Lays the marker and the editable area out inside the tinted well: a
+  # {BLANK_ROWS} margin top and bottom (dropped when the pane is too short for
+  # it), {PAD} columns at each side, the marker then a space, then the area.
+  # The base {Tuile::Component#repaint} fills whatever the two children don't
+  # cover with {#bg_color} — which is exactly what paints the padding.
+  #
+  # @param new_rect [Tuile::Rect]
+  # @return [void]
+  def rect=(new_rect)
+    super
+    return if rect.empty?
+
+    margin = rect.height > (2 * BLANK_ROWS) ? BLANK_ROWS : 0
+    top = rect.top + margin
+    height = rect.height - (2 * margin)
+    marker_width = MARKER.length + 1
+    @marker.rect = Tuile::Rect.new(rect.left + PAD, top, marker_width, 1)
+    @area.rect = Tuile::Rect.new(rect.left + PAD + marker_width, top,
+                                 [rect.width - (2 * PAD) - marker_width, 0].max, height)
   end
 
   # The editable content: a {Tuile::Component::TextArea} that rebinds Enter
@@ -64,7 +143,7 @@ class Shared::InputWindow < Tuile::Component::Window
   # {Shared::PromptHistory}: Up/Down recall it once the caret has nowhere left
   # to go in that direction, and ESC goes back to the draft. All other
   # TextArea behaviour (caret motion, word-jumps, backspace/delete) is
-  # inherited unchanged. Private to {InputWindow} — the frame is the only
+  # inherited unchanged. Private to {Shared::InputPane} — the pane is the only
   # public handle.
   class Area < Tuile::Component::TextArea
     # @param on_submit [Proc, Method] one-arg callable invoked when the
@@ -73,7 +152,7 @@ class Shared::InputWindow < Tuile::Component::Window
     #   wipe the input in their handler.
     # @param slash_menu [Shared::SlashMenuPopup, nil] the palette to drive, or
     #   nil for a plain input (then every slash branch below is skipped).
-    # @param conversation [Shared::ConversationWindow, nil] the pane the page
+    # @param conversation [Shared::ConversationTextView, nil] the pane the page
     #   keys scroll, or nil to leave them unclaimed.
     def initialize(on_submit:, slash_menu:, conversation:)
       super()
@@ -229,4 +308,23 @@ class Shared::InputWindow < Tuile::Component::Window
   end
 
   private_constant :Area
+
+  protected
+
+  # Repaints the marker in the new theme's hint accent — its tone is baked into
+  # the label's text, so a light/dark flip has to re-run it.
+  #
+  # @return [void]
+  def on_theme_changed
+    super
+    rebuild_marker
+  end
+
+  private
+
+  # Re-renders the marker label; its accent is baked into the text.
+  # @return [void]
+  def rebuild_marker
+    @marker.text = screen.theme.hint(MARKER)
+  end
 end

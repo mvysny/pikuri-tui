@@ -3,9 +3,21 @@
 require 'tuile'
 
 module Chat
-  # Vertical-split root layout for {App}: the conversation Window
-  # occupies the top, the input Window occupies a fixed-height strip at
-  # the bottom.
+  # Vertical-split root layout for {App}, borderless throughout:
+  #
+  #   ┌────────────────────────────────────────────┐
+  #   │   conversation (terminal background)       │
+  #   │                                            │
+  #   ├── Local Qwen 3.6 · 25k/60k ────────────────┤  <- Shared::StatusRuleLabel
+  #   │   ❯ prompt (tinted :pane_bg)               │  <- Shared::InputPane
+  #   └────────────────────────────────────────────┘
+  #
+  # Nothing here is framed; what separates the two panes is the one-row status
+  # rule and the prompt's own tint. The conversation is inset {CONTENT_INSET}
+  # columns from the left so its text lines up with the prompt's +❯+ marker,
+  # which sits {Shared::InputPane::PAD} columns in; the rule and the prompt well
+  # both span the full width, so the tinted block reads as a band across the
+  # bottom of the screen.
   #
   # Layout only — global keybindings (Ctrl+K, Ctrl+C) are installed by
   # {App} via {Tuile::Screen#register_global_shortcut}, which bypasses
@@ -14,37 +26,51 @@ module Chat
   #
   # UI-thread-confined.
   class Layout < Tuile::Component::Layout
-    # Number of rows the bottom input pane occupies: 3 lines of editable
-    # text + 2 rows of {Tuile::Component::Window} frame.
+    # Rows the bottom input pane occupies.
     #
     # @return [Integer]
-    INPUT_HEIGHT = 5
+    INPUT_HEIGHT = Shared::InputPane::HEIGHT
 
-    # @param conversation [Tuile::Component::Window] the framed conversation
-    #   pane (top). Added as a child during construction; its rect is
-    #   managed by {#rect=}.
-    # @param input [Tuile::Component::Window] the framed input pane
-    #   (bottom). Same lifecycle as +conversation+.
-    def initialize(conversation:, input:)
+    # Columns the conversation pane is inset from the left edge, matching
+    # {Shared::InputPane::PAD} so the transcript and the +❯+ marker share a
+    # left margin. The status rule and the prompt well are deliberately *not*
+    # inset — a full-bleed rule reads as a divider, an inset one as a caption.
+    #
+    # @return [Integer]
+    CONTENT_INSET = Shared::InputPane::PAD
+
+    # @param conversation [Shared::ConversationTextView] the transcript pane
+    #   (top). Added as a child during construction; its rect is managed by
+    #   {#rect=}.
+    # @param status_rule [Shared::StatusRuleLabel] the one-row rule between the
+    #   two panes, carrying the agent status readout. Same lifecycle.
+    # @param input [Shared::InputPane] the tinted prompt well (bottom). Same
+    #   lifecycle.
+    def initialize(conversation:, status_rule:, input:)
       super()
       @conversation = conversation
+      @status_rule = status_rule
       @input = input
       add(conversation)
+      add(status_rule)
       add(input)
     end
 
-    # @return [Tuile::Component::Window]
+    # @return [Shared::ConversationTextView]
     attr_reader :conversation
 
-    # @return [Tuile::Component::Window]
+    # @return [Shared::StatusRuleLabel]
+    attr_reader :status_rule
+
+    # @return [Shared::InputPane]
     attr_reader :input
 
-    # Re-positions the conversation and input panes whenever the layout's
-    # own rect changes. Top pane takes all rows except the bottom
-    # {INPUT_HEIGHT}; bottom pane takes the last {INPUT_HEIGHT} rows. If
-    # the terminal is too small to give both panes a positive height,
-    # the input shrinks first (its lower bound is +0+, at which point
-    # {Tuile::Component} treats it as invisible).
+    # Re-positions the three rows whenever the layout's own rect changes. The
+    # prompt takes the bottom {INPUT_HEIGHT} rows and the rule the one above
+    # it; the conversation takes everything left, inset by {CONTENT_INSET}. On
+    # a terminal too short for all three the prompt shrinks first, then the
+    # rule drops out, then the conversation — each floored at +0+, at which
+    # point {Tuile::Component} treats the pane as invisible.
     #
     # @param new_rect [Tuile::Rect]
     # @return [void]
@@ -52,10 +78,13 @@ module Chat
       super
       return if rect.empty?
 
-      top_h = [rect.height - INPUT_HEIGHT, 0].max
-      bottom_h = rect.height - top_h
-      @conversation.rect = Tuile::Rect.new(rect.left, rect.top, rect.width, top_h)
-      @input.rect = Tuile::Rect.new(rect.left, rect.top + top_h, rect.width, bottom_h)
+      input_h = [INPUT_HEIGHT, rect.height].min
+      rule_h = rect.height > input_h ? 1 : 0
+      top_h = rect.height - input_h - rule_h
+      @conversation.rect = Tuile::Rect.new(rect.left + CONTENT_INSET, rect.top,
+                                           [rect.width - CONTENT_INSET, 0].max, top_h)
+      @status_rule.rect = Tuile::Rect.new(rect.left, rect.top + top_h, rect.width, rule_h)
+      @input.rect = Tuile::Rect.new(rect.left, rect.top + top_h + rule_h, rect.width, input_h)
     end
   end
 end

@@ -46,7 +46,7 @@ module Code
 
     # Rewrite the pane from a git snapshot (retained so a later resize can
     # re-render at the new width). Ignores the snapshot's change list (that's the
-    # {GitSummaryWindow}'s half). Must run on the UI thread.
+    # {GitSummaryPane}'s half). Must run on the UI thread.
     #
     # @param snapshot [GitWatcher::Snapshot]
     # @return [void]

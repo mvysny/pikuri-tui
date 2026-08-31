@@ -2,7 +2,7 @@
 
 RSpec.describe Shared::SlashMenuPopup do
   let(:token_log)    { Pikuri::Agent::Listener::TokenLog.new }
-  let(:conversation) { Shared::ConversationWindow.new(token_log: token_log) }
+  let(:conversation) { Shared::ConversationTextView.new }
   let(:ran)          { [] } # [symbol, rest] pairs, so tests assert the forwarded arg too
   let(:commands) do
     [Shared::SlashCommand.new('/diff', 'show the git diff', ->(rest) { ran << [:diff, rest]; 'Opened the git diff.' }),
@@ -16,7 +16,7 @@ RSpec.describe Shared::SlashMenuPopup do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  def rendered = conversation.view.text.to_s
+  def rendered = conversation.text.to_s
   def list     = menu.content
   # The list holds SlashCommands and renders them at paint time, so the rows are
   # read off the painted buffer (blank filler rows dropped).
