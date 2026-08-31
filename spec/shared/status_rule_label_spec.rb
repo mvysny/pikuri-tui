@@ -285,9 +285,18 @@ RSpec.describe Shared::StatusRuleLabel do
     assert(readout_spans.all? { |span| span.style.fg == Shared::AppTheme::LIGHT.hint_color })
   end
 
-  it 'paints on the terminal-default background (no hardcoded bar)' do
+  it 'carries the secondary-pane tint, so it reads as the prompt block top edge' do
+    assert_equal Tuile::Theme.ref(:pane_bg), label.bg_color
+  end
+
+  it 'bakes no background into the text itself — the tint comes from bg_color' do
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
     label.send(:refresh)
-    assert(readout_spans.all? { |span| span.style.bg.nil? })
+    assert(label.text.spans.all? { |span| span.style.bg.nil? })
+  end
+
+  it 'rules in :pane_frame, the hairline derived for the ground it sits on' do
+    hairline = label.text.spans.find { |span| span.text.include?('─') }
+    assert_equal Tuile::Screen.instance.theme[:pane_frame], hairline.style.fg
   end
 end

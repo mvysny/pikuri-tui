@@ -15,19 +15,17 @@ require 'tuile'
 #
 #   pane.add(Shared::PaneCaptionLabel.new('Tasks'), Fixed[1])
 #
-# The default +rule_token+ is +:pane_frame+, the hairline derived for the
-# tinted +:pane_bg+ ground every captioned pane sits on; pass +:frame+ for a
-# caption on the terminal's own background.
+# The hairline is +:pane_frame+, derived for the tinted +:pane_bg+ ground every
+# captioned pane sits on. There is no token parameter: every borderless
+# surface in these shells that carries chrome is a tinted secondary — the one
+# untinted pane, the transcript, has no caption and no rule.
 #
 # UI-thread-confined.
 class Shared::PaneCaptionLabel < Tuile::Component::Label
   # @param caption [String] the pane's name.
-  # @param rule_token [Symbol] theme token for the hairline — +:pane_frame+ on
-  #   a tinted ground (the default), +:frame+ on the terminal's own.
-  def initialize(caption, rule_token: :pane_frame)
+  def initialize(caption)
     super()
     @caption = caption
-    @rule_token = rule_token
     refresh
   end
 
@@ -62,7 +60,7 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
     theme = screen.theme
     text = Tuile::StyledString.plain(@caption).with_fg(theme.hint_color)
     fill = rect.width - @caption.length - 1
-    text += Tuile::StyledString.styled(" #{'─' * fill}", fg: theme[@rule_token]) if fill.positive?
+    text += Tuile::StyledString.styled(" #{'─' * fill}", fg: theme[:pane_frame]) if fill.positive?
     self.text = text
   end
 end

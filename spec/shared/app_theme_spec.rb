@@ -15,7 +15,7 @@ RSpec.describe Shared::AppTheme do
 
     it 'carries exactly the tokens the app paints' do
       assert_equal %i[added detail diff_line_add diff_line_del diff_span_add diff_span_del
-                      error frame notice pane_bg pane_frame removed thinking tool user],
+                      error notice pane_bg pane_frame removed thinking tool user],
                    described_class::DARK.custom.keys.sort
     end
 
@@ -38,12 +38,12 @@ RSpec.describe Shared::AppTheme do
       assert_same described_class::THEME_DEF, described_class.derived(nil)
     end
 
-    it 'steps the pane tint off a reported background and hairlines off their own grounds' do
+    it 'steps the pane tint off a reported background, and the hairline off the tint' do
       derived = described_class.derived(Tuile::Color.hex('#000000')).dark
       refute_equal described_class::DARK[:pane_bg], derived[:pane_bg]
-      # :frame rules on the terminal ground, :pane_frame on the tinted one, so
-      # the two must not collapse to the same value.
-      refute_equal derived[:frame], derived[:pane_frame]
+      # The hairline steps from :pane_bg, the ground it actually rules on —
+      # not from the raw terminal background.
+      assert_equal Shared::Tint.hairline(derived[:pane_bg]), derived[:pane_frame]
     end
 
     it 'leaves the non-derived tokens (and the Talus hint) alone' do

@@ -30,6 +30,10 @@ require 'pikuri-core'
 # wired into the agent — the rule reads its cached +status_line+ rather than
 # subscribing to events itself.
 #
+# The row paints +:pane_bg+, so it reads as the top edge of the tinted block
+# the {Shared::InputPane} continues rather than as a divider on the terminal
+# ground — the transcript above it is the one untinted pane.
+#
 # This is a component rather than the presenter it grew out of: with the pane
 # frames gone there is no +Window#footer_text+ chrome to drive, the rule is an
 # addressable row of its own, and owning the widget is what buys the
@@ -100,6 +104,13 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     @sub_status = nil
     @ticker = nil
     @spinner_frame = nil
+    # The rule is the top edge of the tinted block the prompt continues, not a
+    # divider floating on the terminal ground — so it carries +:pane_bg+ like
+    # the prompt, and its hairline is +:pane_frame+ (derived for that tinted
+    # ground) rather than one derived for the terminal's. A {Tuile::Theme::Ref}
+    # re-resolves on every paint, so the tint follows a light/dark flip on its
+    # own; the hairline is baked into the text and needs {#on_theme_changed}.
+    self.bg_color = Tuile::Theme.ref(:pane_bg)
     token_log.on_status_line = method(:on_status_line)
     refresh
   end
@@ -259,11 +270,12 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
 
   # @param width [Integer] how many columns to fill; non-positive yields an
   #   empty string (a rule narrower than its own readout simply stops).
-  # @return [Tuile::StyledString] +width+ hairline columns in the +:frame+ tone.
+  # @return [Tuile::StyledString] +width+ hairline columns in the +:pane_frame+
+  #   tone — the hairline derived for the +:pane_bg+ this row paints.
   def hairline(width)
     return Tuile::StyledString::EMPTY if width <= 0
 
-    Tuile::StyledString.styled('─' * width, fg: screen.theme[:frame])
+    Tuile::StyledString.styled('─' * width, fg: screen.theme[:pane_frame])
   end
 
   # The status readout: the plan-mode badge (notice-toned, so it pops against

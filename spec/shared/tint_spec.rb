@@ -111,10 +111,10 @@ RSpec.describe Shared::Tint do
       end
     end
 
-    it 'derives the hairlines from their actual grounds' do
+    it 'derives the hairline from the tinted ground it rules on, not the terminal one' do
       derived = Shared::AppTheme.derived(hex('#282c34')).dark
-      assert_equal described_class.hairline(hex('#282c34')), derived[:frame]
       assert_equal described_class.hairline(derived[:pane_bg]), derived[:pane_frame]
+      refute_equal described_class.hairline(hex('#282c34')), derived[:pane_frame]
     end
   end
 end

@@ -116,9 +116,11 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
 - **Borderless: one primary pane on the terminal's own background, tinted
   secondaries around it.** Nothing in the running UI is framed. The
   conversation is the *primary* pane and keeps the terminal's background
-  untouched; every *secondary* surface — the prompt well, the coding shell's
-  sidebar — paints `:pane_bg`, one step of HSL lightness toward mid-grey
-  from whatever background the terminal reported (`Shared::Tint`), hue held.
+  untouched; every *secondary* surface — the status rule, the prompt well,
+  the coding shell's sidebar — paints `:pane_bg`, one step of HSL lightness
+  toward mid-grey from whatever background the terminal reported
+  (`Shared::Tint`), hue held. Rule and prompt tinted together read as one
+  block at the foot of the screen, with the untinted status bar under it.
   What used to be a border is now a hairline: a `─` status rule between the
   conversation and the prompt, a `│` column beside the sidebar, a
   `Shared::PaneCaptionLabel` rule where a `Window` caption used to sit. The
@@ -414,7 +416,9 @@ Zeitwerk over `lib/` and eager-loads it.
   three shells, and the agent readout it carries: a static `context:` segment
   (the coding / computer shells' root), model name, mid-turn spinner,
   queued-injection count, token snapshot, and a plan-mode badge. Empty
-  segments drop out and an empty readout leaves an unbroken hairline. Also
+  segments drop out and an empty readout leaves an unbroken hairline. The row
+  carries `:pane_bg` like the prompt below it, so it reads as that block's top
+  edge rather than as a divider on the terminal ground. Also
   duck-types as an agent listener — its `#on_event` catches `ModelSwitched`
   and re-points the model name — so it goes straight into the agent's
   `ListenerList` (no separate listener object; `#current_model=` owns the
@@ -425,18 +429,17 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/shared/pane_caption_label.rb` — `Shared::PaneCaptionLabel`, a
   borderless pane's caption row (`Tasks ──────`): the name in the theme's
   Talus hint accent, then a hairline to the right edge — what replaced the
-  caption a `Window` painted into its top border. `rule_token:` picks the
-  hairline for the ground it sits on (`:pane_frame` on the tint by default,
-  `:frame` on the terminal background). Used by the coding shell's two
-  sidebar panes.
+  caption a `Window` painted into its top border. Used by the coding shell's
+  two sidebar panes.
 - `lib/shared/tint.rb` — `Shared::Tint`, derives the borderless-chrome colors
   from the terminal's reported background RGB: `.pane_bg` (the secondary-pane
   tint, one `DELTA` step of HSL lightness *toward mid-grey*, hue held, with a
   contrast guard that flips the step when it would drag a guarded foreground
-  under 4.5:1) and `.hairline` (a rule color `HAIRLINE_DELTA` from the ground
-  it rules on). Stateless and screen-free; `Shared::AppTheme.derived` is its
-  only caller. Ported from virtui's `UI::Tint`, which carries the measurement
-  table behind the constants in its `DECISIONS.md` `D_tint_toward_grey`.
+  under 4.5:1) and `.hairline` (`:pane_frame`, `HAIRLINE_DELTA` from
+  `:pane_bg` — the ground every rule in these shells sits on). Stateless and
+  screen-free; `Shared::AppTheme.derived` is its only caller. Ported from
+  virtui's `UI::Tint`, which carries the measurement table behind the
+  constants in its `DECISIONS.md` `D_tint_toward_grey`.
 - `lib/shared/status_bar.rb` — `Shared::StatusBar`, the bottom row
   (`^C cancel  ^K menu`) as a `Label`: an unconditional `^C` half plus a `^K`
   half supplied as a *block*, re-run on `#refresh` (what a bumped error tally

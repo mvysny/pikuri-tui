@@ -22,13 +22,6 @@ RSpec.describe Shared::PaneCaptionLabel do
     assert_equal theme[:pane_frame], rule_spans.first.style.fg
   end
 
-  it 'rules with :frame when told it sits on the terminal background' do
-    on_terminal = described_class.new('Tasks', rule_token: :frame)
-    on_terminal.rect = Tuile::Rect.new(0, 0, 20, 1)
-    assert_equal Tuile::Screen.instance.theme[:frame],
-                 on_terminal.text.spans.find { |span| span.text.include?('─') }.style.fg
-  end
-
   it 're-renders the fill when the width changes' do
     label.rect = Tuile::Rect.new(0, 0, 20, 1)
     label.rect = Tuile::Rect.new(0, 0, 30, 1)

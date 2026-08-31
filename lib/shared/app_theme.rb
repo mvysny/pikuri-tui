@@ -44,17 +44,16 @@ require 'tuile'
 #   markers {Code::GitWatcher} paints next to each path in the sidebar
 #   change summary. (The full diff popup uses git's own SGR coloring, not
 #   these — they're only for the summary's hand-rendered counts.)
-# - +:pane_bg+ — the background of every *secondary* surface: the prompt
-#   well and the coding shell's tasks / changes sidebar. The conversation
-#   pane, the status rule and the status bar are primary and keep the
-#   terminal's own background, so the app still blends with the user's
+# - +:pane_bg+ — the background of every *secondary* surface: the status
+#   rule, the prompt well, and the coding shell's tasks / changes sidebar.
+#   The conversation pane and the status bar are the untinted ones, keeping
+#   the terminal's own background, so the app still blends with the user's
 #   terminal theme (and stays translucent under a transparent one).
-# - +:frame+ / +:pane_frame+ — the hairline color for the +─+ / +│+ rules
-#   that separate panes now that nothing is framed: +:frame+ for a rule on
-#   the terminal background (the status rule), +:pane_frame+ for one on
-#   +:pane_bg+ (the sidebar's captions and its left-edge column). Two tokens
-#   because a hairline must be derived from the ground it rules on — see
-#   {.derived}.
+# - +:pane_frame+ — the hairline color for the +─+ / +│+ rules that separate
+#   panes now that nothing is framed (the status rule, the sidebar's captions
+#   and its left-edge column). Derived from +:pane_bg+, the ground all of
+#   them rule on — a hairline must step from the ground it sits on, not from
+#   the terminal's. See {.derived}.
 # - +:diff_line_add+ / +:diff_line_del+ / +:diff_span_add+ /
 #   +:diff_span_del+ — the four *background* tones {Code::DiffRenderer}
 #   paints for the edit / write tool diff view: a dim whole-line bar
@@ -139,11 +138,10 @@ class Shared::AppTheme < Tuile::Theme
   # for its named +GREEN+ border); +:thinking+ is +#555555+ and +:detail+
   # a mid gray near X11 +dimgray+.
   #
-  # +:pane_bg+ / +:frame+ / +:pane_frame+ are the *fixed-tint floor* — the
-  # values used when the terminal answers no OSC 11 and
+  # +:pane_bg+ / +:pane_frame+ are the *fixed-tint floor* — the values used
+  # when the terminal answers no OSC 11 and
   # +Tuile::Screen#background_color+ is +nil+, assuming the common near-black
-  # ground. When the real background RGB is known, {.derived} replaces all
-  # three.
+  # ground. When the real background RGB is known, {.derived} replaces both.
   # @return [Hash{Symbol => Tuile::Color}]
   DARK_CUSTOM = {
     tool:     Tuile::Color::CYAN,
@@ -159,7 +157,6 @@ class Shared::AppTheme < Tuile::Theme
     diff_span_add: Tuile::Color.rgb(40, 110, 45),
     diff_span_del: Tuile::Color.rgb(120, 40, 40),
     pane_bg:    Tuile::Color.hex('#121212'),
-    frame:      Tuile::Color.hex('#333333'),
     pane_frame: Tuile::Color.hex('#333333')
   }.freeze
 
@@ -184,7 +181,6 @@ class Shared::AppTheme < Tuile::Theme
     diff_span_add: Tuile::Color.rgb(170, 230, 175),
     diff_span_del: Tuile::Color.rgb(250, 180, 185),
     pane_bg:    Tuile::Color.hex('#f0f0f0'),
-    frame:      Tuile::Color.hex('#cccccc'),
     pane_frame: Tuile::Color.hex('#cccccc')
   }.freeze
 
@@ -205,11 +201,11 @@ class Shared::AppTheme < Tuile::Theme
   # @return [Tuile::ThemeDef]
   THEME_DEF = Tuile::ThemeDef.new(dark: DARK, light: LIGHT)
 
-  # The theme pair with +:pane_bg+ and the two hairlines derived from the
+  # The theme pair with +:pane_bg+ and its hairline derived from the
   # terminal's *actual* background ({Shared::Tint}), replacing the fixed floors
   # baked into {DARK_CUSTOM} / {LIGHT_CUSTOM}: +:pane_bg+ steps the background
-  # toward mid-grey, +:frame+ becomes a hairline on the terminal ground and
-  # +:pane_frame+ a hairline on the tinted ground. With no reported background
+  # toward mid-grey, and +:pane_frame+ becomes a hairline on *that* tinted
+  # ground rather than on the terminal's. With no reported background
   # (+nil+ — plenty of terminals answer no OSC 11) the fixed floor
   # {THEME_DEF} stands.
   #
@@ -267,7 +263,6 @@ class Shared::AppTheme < Tuile::Theme
     pane_bg = Shared::Tint.pane_bg(background, guard: guard_colors(base))
     base.with(custom: base.custom.merge(
       pane_bg: pane_bg,
-      frame: Shared::Tint.hairline(background),
       pane_frame: Shared::Tint.hairline(pane_bg)
     ))
   end
