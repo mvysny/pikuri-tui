@@ -474,7 +474,14 @@ Zeitwerk over `lib/` and eager-loads it.
   `Pikuri::Agent::Listener::Base` that holds the per-stream state and mints
   indented siblings for sub-agents). The app's *primary* pane: unframed and
   untinted, keeping the terminal's own background, with the tinted secondaries
-  around it doing the setting-off. Exposes `#listener` for the host to compose
+  around it doing the setting-off. It also holds a one-column
+  `SCROLLBAR_GUTTER` between the wrapped text and the scrollbar, which Tuile
+  has no option for: `#wrap_width` narrows the wrap and the *private*
+  `#paintable_row` puts the columns back as blanks, the pair keeping every
+  painted row exactly `rect.width` wide. Those two must stay in step, and that
+  `paintable_row` override is the one place in this repo leaning on a private
+  Tuile method — a gutter option upstream would retire both. Exposes
+  `#listener` for the host to compose
   into the agent's `ListenerList`, plus `#render_notice` (a dim, non-error
   transcript line, sibling of `#render_turn_error`); a `SystemInjected` event renders as a
   dim `⊕` block, except that the two skill-shaped payloads are collapsed — a

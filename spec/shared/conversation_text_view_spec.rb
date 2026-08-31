@@ -36,6 +36,39 @@ RSpec.describe Shared::ConversationTextView do
     it 'owns the transcript listener it exposes for the agent ListenerList' do
       assert_kind_of Shared::ConversationTextView::Listener, pane.listener
     end
+  end
+
+  # The gutter rides two overrides that must stay in step — one narrows the
+  # wrap, the other puts the columns back as blanks — and the base class
+  # relies on every painted row being exactly rect.width wide.
+  describe 'the scrollbar gutter' do
+    def row_width(width)
+      pane.rect = Tuile::Rect.new(0, 0, width, 3)
+      pane.add_block('x' * 200)
+      pane.__send__(:paintable_row, 0, 0, Tuile::VerticalScrollBar.new(3, row_count: 9, scroll_top_row: 0))
+        .display_width
+    end
+
+    it 'stops the wrapped text short of the scrollbar by SCROLLBAR_GUTTER' do
+      pane.rect = Tuile::Rect.new(0, 0, 40, 3)
+      # 40 columns less the scrollbar's one and the gutter's one.
+      assert_equal 38, pane.wrap_width
+      assert_equal 38, pane.buffer_width
+    end
+
+    it 'paints a row exactly rect.width wide, gutter included' do
+      assert_equal 40, row_width(40)
+    end
+
+    it 'holds that contract at widths too small for a gutter' do
+      [1, 2, 3].each { |width| assert_equal width, row_width(width), "at width #{width}" }
+    end
+
+    it 'gives the gutter back when the scrollbar is gone' do
+      pane.scrollbar_visibility = :gone
+      pane.rect = Tuile::Rect.new(0, 0, 40, 3)
+      assert_equal 40, pane.wrap_width
+    end
 
     it 'honors markdown: false' do
       plain = described_class.new(markdown: false)
