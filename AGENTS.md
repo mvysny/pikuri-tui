@@ -138,12 +138,16 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
     Don't tie the tint to focus, and don't add the labeled focus chips a
     multi-pane borderless app would need — if a second focusable pane ever
     lands, *that* is when the chip question opens.
-- **Chrome accents are Talus, not Tuile's teal.** `Shared::AppTheme`
-  overrides `hint_color` with `#a89c8e` (dark) / `#6f6558` (light) — kuri's
-  own coat from `pikuri/assets/kuri.svg`. Everything Tuile's `hint_color`
-  reaches follows for free: keyboard hints, the `❯`, pane captions, the
-  status readout. New chrome should reach for `theme.hint` rather than
-  inventing an accent.
+- **Chrome accents are Talus, not Tuile's teal — and the tool lines are the
+  same coat.** `Shared::AppTheme` overrides `hint_color` with `#a89c8e`
+  (dark) / `#6f6558` (light) — kuri's own coat from
+  `pikuri/assets/kuri.svg`. Everything Tuile's `hint_color` reaches follows
+  for free: keyboard hints, the `❯`, pane captions, the status readout. New
+  chrome should reach for `theme.hint` rather than inventing an accent. The
+  `:tool` token is that coat one step warmer (`CHESTNUT` `#c1a586` /
+  `CHESTNUT_SHADE` `#715433` — the same two hexes pikuri-web paints), and is
+  the one conversation-pane accent that is an absolute RGB rather than a
+  terminal-remapped named ANSI color.
 - **Two panes, two purposes.** The `TextView` shows the LLM
   conversation transcript — assistant Markdown, reasoning,
   tool-call lines, tool observations — driven by our pikuri
@@ -256,7 +260,8 @@ Zeitwerk over `lib/` and eager-loads it.
   `Tuile::Theme` subclass carrying the app's accent tokens; single
   source of truth for every UI accent all three shells paint. It overrides
   one built-in token — `hint_color` becomes `TALUS` / `TALUS_SHADE`, kuri's
-  own coat color from `pikuri/assets/kuri.svg` — and adds the three
+  own coat color from `pikuri/assets/kuri.svg`, which `:tool` then echoes as
+  `CHESTNUT` / `CHESTNUT_SHADE` — and adds the three
   borderless-chrome tokens (`:pane_bg`, `:frame`, `:pane_frame`) as a
   fixed floor that `.derived` replaces with values stepped off the
   terminal's reported background (`Shared::Tint`). `.install(screen)` is the

@@ -18,12 +18,17 @@ require 'tuile'
 # default is a teal (+LIGHT_SKY_BLUE3+ / +TURQUOISE4+), and pikuri-tui paints
 # its chrome accents in {TALUS} instead — kuri's own coat color, so the
 # keyboard hints, the +❯+ prompt marker, the pane captions and the status
-# rule's model / token readout all read as the mascot's palette.
+# rule's model / token readout all read as the mascot's palette. +:tool+ is
+# the same coat one step warmer ({CHESTNUT}), so the conversation pane's
+# machinery reads as a sibling of the chrome rather than as a fourth accent
+# hue — the panes keep them apart, the palette no longer has to.
 #
 # The tokens cover the chrome all three shells paint:
 #
 # - +:tool+ — the +→ tool(args)+ call and += result+ lines
-#   {Shared::ConversationTextView::Listener} writes into the conversation pane.
+#   {Shared::ConversationTextView::Listener} writes into the conversation pane,
+#   plus the slash-menu command names and the coding shell's diff headers.
+#   {CHESTNUT} / {CHESTNUT_SHADE}.
 # - +:notice+ — the +! reason+ fallback line and the
 #   {Code::ConfirmerPopup} sanitizer warnings (a "read this carefully"
 #   amber).
@@ -132,11 +137,38 @@ class Shared::AppTheme < Tuile::Theme
   # @return [Tuile::Color]
   TALUS_SHADE = Tuile::Color.hex('#6f6558')
 
+  # The +:tool+ accent for dark terminals: {TALUS}'s hue with the chroma
+  # lifted, so the tool lines read as the coat's warm tan rather than as a
+  # dimmer shade of the terminal's own foreground. The coat itself is nearly
+  # neutral (13% saturation), which is right for chrome sitting on a tinted
+  # pane and wrong for text sharing the conversation pane with the body copy
+  # — a near-grey there just looks like faded prose. Named for the chestnut
+  # kuri is named after. 9.0:1 on +#000+, 6.0:1 on One Dark.
+  #
+  # Same hex as +--dark-tool+ in pikuri-web's +style.css+, deliberately: one
+  # tool color across both shells.
+  # @return [Tuile::Color]
+  CHESTNUT = Tuile::Color.hex('#c1a586')
+
+  # {CHESTNUT} for light terminals: the same hue taken down to a brown
+  # (7.0:1 on +#fff+, 6.2:1 on Catppuccin Latte, 6.5:1 on Solarized Light).
+  # It separates from +:detail+ on *hue* rather than on lightness — the two
+  # sit side by side in a {Shared::SlashMenuPopup} row — which is why the
+  # chroma stays up here too. Same hex as pikuri-web's +--light-tool+.
+  # @return [Tuile::Color]
+  CHESTNUT_SHADE = Tuile::Color.hex('#715433')
+
   # The custom tokens tuned for dark terminal backgrounds. The accents
   # are the named ANSI colors (terminal-remapped, so they track the
   # user's own palette — the same rationale {Tuile::Theme::DARK} uses
   # for its named +GREEN+ border); +:thinking+ is +#555555+ and +:detail+
   # a mid gray near X11 +dimgray+.
+  #
+  # +:tool+ is the one accent that opts *out* of the remapping, the way
+  # +hint_color+ already does: it is {CHESTNUT}, an absolute RGB, because a
+  # terminal-remapped cyan cannot carry pikuri's own palette. Everything the
+  # conversation pane marks as machinery — the +→ call+ / += result+ lines,
+  # the slash-menu names, the coding shell's diff headers — follows it.
   #
   # +:pane_bg+ / +:pane_frame+ are the *fixed-tint floor* — the values used
   # when the terminal answers no OSC 11 and
@@ -144,7 +176,7 @@ class Shared::AppTheme < Tuile::Theme
   # ground. When the real background RGB is known, {.derived} replaces both.
   # @return [Hash{Symbol => Tuile::Color}]
   DARK_CUSTOM = {
-    tool:     Tuile::Color::CYAN,
+    tool:     CHESTNUT,
     notice:   Tuile::Color::YELLOW,
     error:    Tuile::Color::RED,
     thinking: Tuile::Color.new([85, 85, 85]),
@@ -162,13 +194,13 @@ class Shared::AppTheme < Tuile::Theme
 
   # The custom tokens tuned for light terminal backgrounds: the bright
   # named accents are swapped for darker palette siblings (yellow in
-  # particular is illegible on white), and the gray tones step darker so
-  # they read against a light "paper" background — +:thinking+ kept a
-  # touch lighter than +:detail+ so reasoning reads as muted secondary
-  # text without disappearing.
+  # particular is illegible on white), +:tool+ for {CHESTNUT_SHADE}, and
+  # the gray tones step darker so they read against a light "paper"
+  # background — +:thinking+ kept a touch lighter than +:detail+ so
+  # reasoning reads as muted secondary text without disappearing.
   # @return [Hash{Symbol => Tuile::Color}]
   LIGHT_CUSTOM = {
-    tool:     Tuile::Color::DARK_CYAN,
+    tool:     CHESTNUT_SHADE,
     notice:   Tuile::Color::DARK_ORANGE3,
     error:    Tuile::Color::RED3,
     thinking: Tuile::Color::GREY46,

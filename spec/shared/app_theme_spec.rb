@@ -31,6 +31,24 @@ RSpec.describe Shared::AppTheme do
       assert_operator Shared::Tint.contrast(described_class::TALUS_SHADE, Tuile::Color.hex('#ffffff')),
                       :>=, 4.5
     end
+
+    it 'paints the tool lines in the coat too, not a terminal cyan' do
+      assert_equal described_class::CHESTNUT, described_class::DARK[:tool]
+      assert_equal described_class::CHESTNUT_SHADE, described_class::LIGHT[:tool]
+    end
+
+    # The conversation pane keeps the terminal's own background, so :tool has
+    # to clear the floor on whatever ground the user runs — not just on the
+    # near-black/near-white the fixed pane tint assumes.
+    it 'keeps both Chestnut variants above the 4.5:1 text floor on common terminal grounds' do
+      { described_class::CHESTNUT => %w[#000000 #282c34 #1e1e2e #002b36],
+        described_class::CHESTNUT_SHADE => %w[#ffffff #eff1f5 #fdf6e3] }.each do |color, grounds|
+        grounds.each do |ground|
+          assert_operator Shared::Tint.contrast(color, Tuile::Color.hex(ground)), :>=, 4.5,
+                          "#{color.inspect} on #{ground}"
+        end
+      end
+    end
   end
 
   describe '.derived' do
