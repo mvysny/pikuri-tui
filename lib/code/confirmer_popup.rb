@@ -439,6 +439,31 @@ module Code
     # Built and driven on the UI thread — constructed inside the
     # {ConfirmerPopup#ask_prompt} +submit+ block.
     class PromptDialog < Tuile::Component::Popup
+      # The entry field: a {Tuile::Component::TextArea} that rebinds ENTER to
+      # "submit" (it would otherwise insert a newline). Every other key falls
+      # through to +super+ and edits as usual.
+      #
+      # Subclassing is Tuile's seam for this — a component receives keys
+      # through +handle_key+, so one that wants a key overrides it (here its
+      # +handle_text_input_key+ hook) and calls +super+ for the rest.
+      # +on_submit+ keeps the dialog's own resolution logic out of the widget.
+      class SubmitTextArea < Tuile::Component::TextArea
+        # @return [Proc, nil] called with the field's text when ENTER is
+        #   pressed.
+        attr_accessor :on_submit
+
+        protected
+
+        # @param key [String]
+        # @return [Boolean] true iff the key was consumed (ENTER).
+        def handle_text_input_key(key)
+          return super unless key == Tuile::Keys::ENTER
+
+          @on_submit&.call(text)
+          true
+        end
+      end
+
       # @param caption [String] window caption / instruction line.
       # @param initial [String] pre-fill text ("" for none).
       # @param rows [Integer] the field's visible height in rows.
@@ -447,9 +472,9 @@ module Code
       def initialize(caption:, initial:, rows:, channel:)
         @channel = channel
         @resolved = false
-        @field = Tuile::Component::TextArea.new
+        @field = SubmitTextArea.new
         @field.text = initial unless initial.empty?
-        @field.on_key = method(:field_key)
+        @field.on_submit = ->(text) { resolve(text) }
         @field.on_escape = -> { resolve(:cancel) }
         window = Tuile::Component::Window.new(caption)
         window.content = @field
@@ -480,23 +505,10 @@ module Code
         @channel << :cancel
       end
 
-      # @return [Tuile::Component::TextArea] the entry field (for specs).
+      # @return [SubmitTextArea] the entry field (for specs).
       attr_reader :field
 
       private
-
-      # The +on_key+ interceptor: Enter submits the current text (the
-      # field would otherwise insert a newline); every other key falls
-      # through to normal editing.
-      #
-      # @param key [String]
-      # @return [Boolean] true iff the key was consumed (Enter).
-      def field_key(key)
-        return false unless key == Tuile::Keys::ENTER
-
-        resolve(@field.text)
-        true
-      end
 
       # @param value [String, Symbol] the submitted text or +:cancel+.
       # @return [void]
