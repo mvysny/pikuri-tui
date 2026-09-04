@@ -124,8 +124,8 @@ module Code
     def diff_open? = @git_diff_popup.open?
 
     # @return [Shared::StatusRuleLabel::WorkspaceDigest] what the two panes are
-    #   showing, reduced to counts — for a host to stand in the status rule
-    #   while this column is off screen ({Layout#sidebar_visible?}).
+    #   showing, reduced to counts — for a host to stand up elsewhere while this
+    #   column is off screen.
     def digest
       changes = @git_snapshot&.changes || []
       done, total = @task_pane.tally

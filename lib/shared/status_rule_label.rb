@@ -72,9 +72,8 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # What {#workspace_digest=} takes: the counts a workspace pane would be
   # showing if one were on screen. Renders as up to two segments —
   # +3 files +42/-7+ and +2/5 tasks+ — each dropping out when its own count is
-  # zero, so a clean tree with no tasks adds nothing to the rule.
-  #
-  # @return [Class]
+  # zero, so a clean tree with no tasks adds nothing to the rule. A files count
+  # whose line counts are both zero (a mode-only diff) renders bare: +2 files+.
   WorkspaceDigest = Data.define(:files, :added, :deleted, :tasks_done, :tasks_total)
 
   # The agent's mid-loop input queue; its +#size+ drives the "N queued"
@@ -101,10 +100,8 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # @return [Boolean]
   attr_reader :decision_pending
 
-  # The workspace counts standing in for panes that aren't on screen; +nil+
-  # (the default, and what the chat shell leaves it at) renders no segments.
-  #
-  # @return [WorkspaceDigest, nil]
+  # @return [WorkspaceDigest, nil] the counts currently standing in for
+  #   off-screen panes; +nil+ (the default) renders no segments.
   attr_reader :workspace_digest
 
   # Claims the +token_log.on_status_line+ observer slot.
@@ -374,33 +371,26 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     tail.empty? ? @spinner_frame : "#{@spinner_frame} #{tail}"
   end
 
-  # @return [Array<String>] the workspace segments — +"3 files +42/-7"+ and
-  #   +"2/5 tasks"+ — dropping each whose own count is zero, and both when no
-  #   digest is set.
+  # @return [Array<String>] zero to two tail segments — the files count, the
+  #   tasks tally — as {WorkspaceDigest} describes them.
   def digest_segments
     digest = @workspace_digest
     return [] if digest.nil?
 
     segments = []
-    segments << [pluralize(digest.files, 'file'), change_counts(digest)].reject(&:empty?).join(' ') if
-      digest.files.positive?
+    segments << files_segment(digest) if digest.files.positive?
     segments << "#{digest.tasks_done}/#{digest.tasks_total} tasks" if digest.tasks_total.positive?
     segments
   end
 
   # @param digest [WorkspaceDigest]
-  # @return [String] +"+42/-7"+, omitting a zero side and empty when both are
-  #   zero (a mode-only change); the +/+ pairs them the way the coding shell's
-  #   own change summary does.
-  def change_counts(digest)
+  # @return [String] +"3 files +42/-7"+ — the +/+ pairing the counts the way the
+  #   coding shell's own change summary does.
+  def files_segment(digest)
     counts = []
     counts << "+#{digest.added}" if digest.added.positive?
     counts << "-#{digest.deleted}" if digest.deleted.positive?
-    counts.join('/')
+    noun = digest.files == 1 ? 'file' : 'files'
+    ["#{digest.files} #{noun}", counts.join('/')].reject(&:empty?).join(' ')
   end
-
-  # @param count [Integer]
-  # @param noun [String] the singular form.
-  # @return [String] +"1 file"+ / +"3 files"+.
-  def pluralize(count, noun) = "#{count} #{noun}#{'s' unless count == 1}"
 end

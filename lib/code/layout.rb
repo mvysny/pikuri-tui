@@ -171,9 +171,8 @@ module Code
     def sidebar_visible? = !@sidebar.rect.empty?
 
     # Registers a callback fired whenever {#sidebar_visible?} flips, so a host
-    # can stand something in for the vanished panes (the coding shell moves
-    # their counts into {Shared::StatusRuleLabel#workspace_digest=}). Needed
-    # because visibility also changes on a *resize*, which no host sees.
+    # can stand something in for the vanished panes. Needed because visibility
+    # also changes on a *resize*, which no host would otherwise see.
     #
     #   layout.on_sidebar_visibility { |visible| … }
     #
@@ -185,14 +184,7 @@ module Code
       @on_sidebar_visibility = block
     end
 
-    # Re-positions the five pieces whenever the layout's own rect changes. The
-    # bottom {INPUT_HEIGHT} rows go to the prompt and the row above them to the
-    # status rule, both full width; what is left splits into a conversation
-    # column and a sidebar column ({#sidebar_width}) with the {#separator}
-    # between them. When the terminal is too narrow for a readable sidebar,
-    # {#sidebar_width} returns +0+ and both the sidebar and the separator take
-    # empty rects ({Tuile::Component} treats a zero-area rect as invisible),
-    # leaving the conversation full width.
+    # Re-positions the five pieces whenever the layout's own rect changes.
     #
     # @param new_rect [Tuile::Rect]
     # @return [void]
@@ -215,8 +207,16 @@ module Code
 
     private
 
-    # Positions the five pieces across the current {#rect} — see {#rect=}, and
-    # {#sidebar_mode=}, which re-runs this without the rect having moved.
+    # Positions the five pieces across the current {#rect}: the bottom
+    # {INPUT_HEIGHT} rows go to the prompt and the row above them to the status
+    # rule, both full width; what is left splits into a conversation column and
+    # a sidebar column ({#sidebar_width}) with the {#separator} between them.
+    # With no room for a readable sidebar, {#sidebar_width} returns +0+ and both
+    # the sidebar and the separator take empty rects ({Tuile::Component} treats
+    # a zero-area rect as invisible), leaving the conversation full width.
+    #
+    # Also runs on a {#sidebar_mode=} change, when the rect itself has not
+    # moved — which is why the geometry is here rather than inline in {#rect=}.
     #
     # @return [void]
     def reflow
