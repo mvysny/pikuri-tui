@@ -81,10 +81,8 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # @return [Boolean]
   attr_reader :plan_active
 
-  # Whether a tool is parked waiting for a human answer in the transcript; when
-  # +true+ the readout leads with a notice-toned "⏸ decision" badge naming the
-  # key that gets there. The turn cannot proceed until it is answered, so this
-  # is the loudest thing the rule ever says.
+  # Whether a tool is parked waiting for a human answer in the transcript. It
+  # leads the readout because the turn cannot proceed until it is answered.
   #
   # @return [Boolean]
   attr_reader :decision_pending

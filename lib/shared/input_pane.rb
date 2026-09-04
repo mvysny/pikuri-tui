@@ -46,9 +46,10 @@ require 'tuile'
 # transcript reads back without the caret leaving the prompt. A visible palette
 # gets those keys first, to page its own list.
 #
-# {#capture} borrows the prompt for a one-off answer (the reason for rejecting a
-# tool call, a rewritten sub-agent task) instead of a turn. That is why this app
-# has no text-entry popup: prose belongs in the one place prose is safe.
+# {#capture} borrows the prompt for a one-off answer instead of a turn — a
+# reason for rejecting a tool call, a rewritten sub-agent task. Prose is typed
+# here and nowhere else, which is what keeps it away from anything that treats
+# a keystroke as a decision.
 #
 # Shared by all three shells.
 #

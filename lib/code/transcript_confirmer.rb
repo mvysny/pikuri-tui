@@ -5,95 +5,63 @@ require 'pikuri-workspace'
 require 'tuile'
 
 module Code
-  # A {Pikuri::Workspace::Confirmer} that asks the user *in the transcript*
-  # instead of in a modal popup — wired into the +write+ / +Pikuri::Code::Bash+
-  # / +agent+ tools so a write, a bash command or a network-reaching delegation
-  # parks for a decision before it runs:
+  # A {Pikuri::Workspace::Confirmer} that asks the human in the transcript: the
+  # question lands as a block in the conversation pane, the status rule lights
+  # its parked-decision badge, and the calling thread parks until a key answers.
   #
   #   confirmer = Code::TranscriptConfirmer.new(screen: screen, conversation: conversation,
   #                                             status_rule: status_rule, input: input)
   #   # ... a tool, on the agent worker thread:
-  #   case confirmer.ask(request: request)   # blocks until the human answers
+  #   case confirmer.ask(request: request)   # parks here until the human answers
   #   in Pikuri::Workspace::Confirmer::Approved then run_it
   #   in Pikuri::Workspace::Confirmer::Rejected(reason:) then tell_the_model(reason)
   #   end
-  #
-  # The question lands as a block in the conversation pane, the status rule
-  # lights its parked-decision badge, and the answer keys go live only while the
-  # transcript holds focus:
   #
   #   ⏵ OK to run this command?
   #   rm -rf build
   #   (y) approve   (n) reject   (r) reject w/ reason
   #
-  # == Why not a popup
+  # +y+ approves the payload unchanged, +n+ declines, and +r+ borrows the prompt
+  # for a steering reason the tool folds into the model's next observation. An
+  # *editable* request (only the +agent+ tool's delegation sets that) also offers
+  # +e+, which borrows the prompt to rewrite the payload the tool then acts on —
+  # the "author, not approver" seat. Both typing outcomes go through
+  # {Shared::InputPane#capture}; there is deliberately no text-entry popup.
   #
-  # A confirmation is the one surface in these shells that opens *unbidden*, so
-  # it is the one that must not be able to steal a keystroke. Focus is what
-  # solves that: prose goes to the prompt, decisions go to the transcript, and no
-  # amount of typing can answer a question the user has not looked at. A modal
-  # popup instead put +y+ / +n+ in the path of ordinary typing, where a key that
-  # arrived a moment after the popup opened decided a question nobody had read.
-  #
-  # Three properties fall out, and each is load-bearing:
-  #
-  # * *Dismissal is not decline.* Tabbing away or scrolling leaves the decision
-  #   parked. Only an explicit key answers it — plus {#reject_pending!}, which is
-  #   how +Ctrl+C+ and quit stay responsive while a tool is parked.
-  # * *The context stays readable.* The tool calls that explain *why* the agent
-  #   wants this are still on screen, and the diff scrolls with the transcript.
-  # * *The decision is a record.* Once answered, the block keeps the question
-  #   with its outcome written underneath.
-  #
-  # == The decision: approve / edit / reject
-  #
-  # {#ask} implements the confirmer primitive, returning
-  # {Pikuri::Workspace::Confirmer::Approved} (carrying the possibly-edited
-  # +detail+) or {Pikuri::Workspace::Confirmer::Rejected} (carrying an optional
-  # steering reason); the base derives +confirm?+ from it for the mutation gates
-  # that need only a Boolean. Four outcomes are on offer:
-  #
-  # * *Approve* (+y+) — run the operation with +detail+ unchanged.
-  # * *Edit* (+e+, editable requests only) — the human rewrites the verbatim
-  #   payload (the +agent+ task) in the prompt; the edited text is what the tool
-  #   acts on. The "author, not approver" seat.
-  # * *Reject* — +n+ declines immediately; +r+ borrows the prompt for an optional
-  #   steering reason the tool folds into the model's next observation. Two keys
-  #   keep a plain "no" friction-free while making reason-giving a choice.
-  #
-  # Only the +agent+ delegation gate sets +Request#editable+, so +write+ and
-  # +bash+ offer approve / reject only. Text for the two typing outcomes is
-  # captured by the {Shared::InputPane} ({Shared::InputPane#capture}) rather than
-  # a text-entry popup: prose belongs in the one place prose is safe.
+  # Those keys answer only while the conversation pane holds focus — which is
+  # what lets them be spelled +y+ / +n+ at all, since prose typed at the prompt
+  # is a different focus target and can never reach a decision. The one
+  # obligation that puts on a caller: *dismissal is not decline.* Tabbing away
+  # leaves the decision parked, and a parked decision holds the agent's worker
+  # thread, so +Ctrl+C+ and quit must both call {#reject_pending!} or they do
+  # nothing visible while a question waits.
   #
   # == Sanitizing
   #
   # +request.question+, +request.detail+ and the change's bytes are RAW
-  # LLM-composed bytes (see {Pikuri::Workspace::Confirmer::Request}). {#ask} runs
-  # them through {Pikuri::Sanitizer} once — the same chrome-independent primitive
-  # +Confirmer::Terminal+ uses — which (a) neutralizes the dangerous bytes for
-  # literal display, so a command containing +"\rrm -rf ~/"+ can't visually
-  # overwrite the line after the user has read it, and (b) returns a warning per
-  # attack class detected, which {ConfirmRenderer} surfaces above the question.
+  # LLM-composed bytes (see {Pikuri::Workspace::Confirmer::Request}), so {#ask}
+  # runs them through {Pikuri::Sanitizer} — the same chrome-independent primitive
+  # +Confirmer::Terminal+ uses. Dangerous bytes are neutralized for literal
+  # display (a command carrying +"\rrm -rf ~/"+ can't redraw the line after the
+  # user has read it), and each attack class detected returns a warning
+  # {ConfirmRenderer} surfaces above the question.
   #
-  # The verdict also gates the edit pre-fill: the edited payload must be RAW
-  # bytes (it is what the sub-agent receives), but pre-filling the prompt with
-  # raw bytes would reintroduce the very attack the sanitizer defends against. So
-  # a *clean* task pre-fills; a *flagged* one forces a full retype, and drops the
-  # bare-approve key entirely — forced authorship exactly where it matters most.
+  # The verdict also gates the edit pre-fill, which is the subtle part: the
+  # edited payload must be RAW bytes (it is what the sub-agent receives), so
+  # pre-filling the prompt with it would hand the attack straight back. A
+  # *clean* task pre-fills; a *flagged* one forces a full retype and loses the
+  # bare-approve key — forced authorship exactly where it matters most.
   #
   # == Threading
   #
-  # {#ask} is called synchronously by a tool on the agent worker thread, and
-  # every UI mutation must run on the thread that owns +run_event_loop+. So
-  # {#ask} creates a one-shot +Queue+, submits the block that asks the question
-  # onto the UI thread, and parks the worker on +Queue#pop+ until a key resolves
-  # it. Parking the worker is the point: it is exactly the thread that should
-  # wait while the user decides, and the UI thread stays free to paint and to
-  # process the keypress that unblocks it.
+  # UI-thread-confined, with one exception (the method a tool calls parks the
+  # *caller's* thread, and carries its own rule).
   #
-  # UI-thread-confined, with one exception ({#ask}, which must be called from
-  # the worker and would deadlock on the UI thread).
+  # The hand-off is a one-shot +Queue+: the question is submitted onto the UI
+  # thread, and the worker parks on +Queue#pop+ until a key resolves it. Parking
+  # the worker is the point — it is exactly the thread that should wait while the
+  # human decides, leaving the UI thread free to paint and to process the
+  # keypress that unblocks it.
   class TranscriptConfirmer < Pikuri::Workspace::Confirmer
     # Marker the {Shared::InputPane} wears while it holds a captured answer
     # rather than a message, so a borrowed prompt doesn't look like an idle one.
@@ -137,12 +105,11 @@ module Code
       detail   = request.detail ? Pikuri::Sanitizer.sanitize(request.detail) : nil
       change, change_warnings = sanitize_change(request.change)
       warnings = question.warnings + (detail ? detail.warnings : []) + change_warnings
-      editable = request.editable && !request.detail.nil?
 
       channel = Queue.new
       @screen.event_queue.submit do
-        park(channel, question: question, detail: detail, warnings: warnings, change: change,
-                      editable: editable, clean: warnings.empty?, payload: request.detail)
+        park(channel, request: request, question: question, detail: detail,
+                      warnings: warnings, change: change)
       end
       channel.pop
     end
@@ -152,8 +119,7 @@ module Code
     def pending? = !@pending.nil?
 
     # Reject whatever is parked, so a +Ctrl+C+ or a quit isn't swallowed by a
-    # decision the user never noticed — the decline-by-default a modal popup got
-    # from its ESC dismissal, moved to the two places that actually mean "stop".
+    # decision the user never noticed.
     #
     # @return [Boolean] +false+ when nothing was parked (the caller should fall
     #   through to its normal handling), +true+ when a decision was declined.
@@ -174,18 +140,28 @@ module Code
 
     # Ask the question and light the badge, arming the transcript's keys.
     #
-    # @param channel [Queue] the one-shot answer channel {#ask} is parked on.
-    # @param payload [String, nil] the RAW (unsanitized) +request.detail+ — what
-    #   an approval passes through and an edit pre-fills.
+    # @param channel [Queue] the one-shot channel the parked caller is popping.
+    # @param request [Pikuri::Workspace::Confirmer::Request] the original,
+    #   *unsanitized* request. Needed alongside the display copies below because
+    #   an approval passes its +detail+ through verbatim and an edit pre-fills
+    #   the prompt with it — both want the raw bytes the tool will act on.
+    # @param question [Pikuri::Sanitizer::Result] the sanitized question.
+    # @param detail [Pikuri::Sanitizer::Result, nil] the sanitized payload.
+    # @param warnings [Array<Pikuri::Sanitizer::Warning>] what the sanitizer
+    #   flagged; empty when clean.
+    # @param change [Pikuri::Workspace::Confirmer::Change, nil] the sanitized
+    #   file change to diff.
     # @return [void]
-    def park(channel, question:, detail:, warnings:, change:, editable:, clean:, payload:)
+    def park(channel, request:, question:, detail:, warnings:, change:)
       @pending = channel
+      clean = warnings.empty?
+      editable = request.editable && !request.detail.nil?
       body = ConfirmRenderer.render(question: question, detail: detail, warnings: warnings,
                                     change: change, width: @conversation.buffer_width,
                                     theme: @screen.theme)
       @conversation.pending_decision = Shared::PendingDecision.new(
         body: body, choices: choices(editable: editable, clean: clean),
-        on_choice: ->(outcome) { decide(outcome, payload: payload, clean: clean) }
+        on_choice: ->(outcome) { decide(outcome, payload: request.detail, clean: clean) }
       )
       @status_rule.decision_pending = true
     end
@@ -193,6 +169,8 @@ module Code
     # The outcomes on offer. An editable request whose payload the sanitizer
     # flagged loses the bare-approve key: authorship is forced.
     #
+    # @param editable [Boolean] whether the payload may be rewritten.
+    # @param clean [Boolean] whether the sanitizer flagged nothing.
     # @return [Array<Shared::PendingDecision::Choice>]
     def choices(editable:, clean:)
       choice = Shared::PendingDecision::Choice
@@ -208,6 +186,8 @@ module Code
     # the outcome still needs.
     #
     # @param outcome [Symbol] +:approve+, +:edit+, +:reject+, +:reject_reason+.
+    # @param payload [String, nil] the raw +Request#detail+.
+    # @param clean [Boolean] whether the sanitizer flagged nothing.
     # @return [void]
     def decide(outcome, payload:, clean:)
       case outcome
@@ -222,6 +202,9 @@ module Code
     # human-authored text (an emptied buffer included — a deliberately cleared
     # task); cancelling declines.
     #
+    # @param payload [String, nil] the raw task, pre-filled only when clean.
+    # @param clean [Boolean] whether the sanitizer flagged nothing; a flagged
+    #   task starts from an empty buffer.
     # @return [void]
     def capture_task(payload:, clean:)
       @conversation.settle_pending_decision('editing the task — Enter sends it, Esc rejects')
@@ -246,9 +229,9 @@ module Code
       end
     end
 
-    # Write the outcome into the transcript block, drop the badge, hand focus
-    # back to the prompt, and wake the parked tool — in that order, so the UI is
-    # settled before the worker resumes rendering into the same pane.
+    # Settle the transcript block and wake the parked tool. The wake goes last,
+    # so the UI is finished before the worker resumes rendering into that same
+    # pane.
     #
     # @param decision [Pikuri::Workspace::Confirmer::Approved,
     #   Pikuri::Workspace::Confirmer::Rejected]

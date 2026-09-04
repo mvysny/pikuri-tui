@@ -39,17 +39,15 @@ require 'tuile'
 #
 # == Asking a human decision
 #
-# A tool that needs a human answer renders the question here rather than into a
-# modal popup, and the answer keys are live only while this pane holds focus:
-#
 #   conversation.pending_decision = decision      # body + "(y) approve …"
 #   # user Tabs here (the prompt's caret vanishes — that is the focus cue),
 #   # presses y; decision.on_choice fires with :approve
 #   conversation.settle_pending_decision('approved')
 #
-# Focus is what arms the keys, and that is the whole safety property: prose
-# typed at the prompt is a different focus target, so no amount of typing can
-# answer a question the user has not looked at.
+# The answer keys are armed by *focus*: they only answer while this pane holds
+# it. That is the whole safety property — prose typed at the prompt is a
+# different focus target, so no amount of typing can answer a question the user
+# has not looked at.
 #
 # == Markdown flag
 #
@@ -88,9 +86,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # Keys that mean "I'm done reading here", both routed to {#on_escape}.
   #
   # +q+ rides along with ESC because Tuile's event loop *stops* on either one
-  # when no component claims it — a quit-on-one-keystroke that is fine when
-  # nothing is focused and a footgun on a pane the user tabs to routinely, all
-  # the more so with a tool parked on a decision here.
+  # when no component claims it — fine when nothing is focused, a footgun on a
+  # pane the user tabs to in order to answer a decision.
   #
   # @return [Array<String>]
   LEAVE_KEYS = [Tuile::Keys::ESC, 'q'].freeze
@@ -328,10 +325,6 @@ class Shared::ConversationTextView < Tuile::Component::TextView
 
   # Claims the asked decision's keys, then {LEAVE_KEYS}, then falls back to
   # {Tuile::Component::TextView}'s scroll ladder.
-  #
-  # The decision keys are live *only* while this pane holds focus, which is what
-  # makes them safe to spell +y+ / +n+: prose typed at the prompt is a different
-  # focus target and can never reach here.
   #
   # @param key [String]
   # @return [Boolean] +true+ if the key was consumed here.

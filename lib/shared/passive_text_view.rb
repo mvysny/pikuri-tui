@@ -5,8 +5,9 @@ require 'tuile'
 # A {Tuile::Component::TextView} that reads but never answers: display-only, so
 # Tab never parks focus on it and a click can't either.
 #
-#   view = Shared::PassiveTextView.new
-#   view.scrollbar_visibility = :gone   # nothing focuses it, so nothing can scroll it
+#   @view = Shared::PassiveTextView.new
+#   add(Shared::PaneCaptionLabel.new('Tasks'), Fixed[1])
+#   add(@view, Expand[1])
 #
 # Tuile's +TextView+ is a tab stop by default, which is right for a transcript
 # the user pages through and wrong for a summary pane: a focus stop that ignores

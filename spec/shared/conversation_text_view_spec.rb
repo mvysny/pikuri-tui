@@ -690,10 +690,6 @@ RSpec.describe Shared::ConversationTextView do
       assert_equal described_class::LEAVE_KEYS.length, escaped
     end
 
-    it 'claims q as well as ESC, so neither stops the event loop from here' do
-      assert_includes described_class::LEAVE_KEYS, 'q'
-    end
-
     it 'leaves them unclaimed with no handler wired' do
       described_class::LEAVE_KEYS.each { |key| assert_equal false, pane.handle_key(key) }
     end

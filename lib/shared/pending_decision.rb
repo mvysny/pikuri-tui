@@ -7,7 +7,7 @@
 #     body: 'OK to run `rm -rf build`?',
 #     choices: [Shared::PendingDecision::Choice.new(key: 'y', label: 'approve', outcome: :approve),
 #               Shared::PendingDecision::Choice.new(key: 'n', label: 'reject',  outcome: :reject)],
-#     on_choice: ->(outcome) { channel << outcome }
+#     on_choice: ->(outcome) { decide(outcome) }   # gets :approve / :reject
 #   )
 #   conversation.pending_decision = decision   # renders body + "(y) approve   (n) reject"
 #
@@ -15,8 +15,8 @@
 # looks like is the asking side's business — a write request renders a diff, a
 # sub-agent delegation renders the task text.
 #
-# Immutable, and UI-free: the pane renders it, but nothing here knows about
-# Tuile or Pikuri.
+# UI-free and Pikuri-free: the pane renders it, but nothing here reaches for
+# either — so the lean chat process can load it too.
 class Shared::PendingDecision < Data.define(:body, :choices, :on_choice)
   # One offered outcome: the key that picks it, the word shown in the cue, and
   # the symbol handed to +on_choice+.
