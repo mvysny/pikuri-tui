@@ -32,8 +32,41 @@ RSpec.describe Code::App do
   end
 
   it 'registers the coding slash commands mirroring the leader menu (single connection: no /model)' do
-    assert_equal ['/logs', '/trifecta', '/diff', '/plan', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/clear', '/exit', '/quit'],
                  app.send(:build_slash_commands).map(&:name)
+  end
+
+  describe '/sidebar' do
+    def sidebar_command = app.send(:build_slash_commands).find { |c| c.name == '/sidebar' }
+    def run_sidebar(rest) = sidebar_command.callback.call(rest)
+    def mode = app.instance_variable_get(:@layout).sidebar_mode
+
+    it 'sets the named mode and echoes it' do
+      assert_equal 'Sidebar: narrow.', run_sidebar('narrow')
+      assert_equal :narrow, mode
+    end
+
+    it 'takes off as an alias for hidden' do
+      assert_equal 'Sidebar: hidden.', run_sidebar('off')
+      assert_equal :hidden, mode
+    end
+
+    it 'cycles on a blank argument, like the leader key' do
+      assert_equal 'Sidebar: narrow.', run_sidebar('')
+      assert_equal 'Sidebar: hidden.', run_sidebar('')
+      assert_equal 'Sidebar: full.', run_sidebar('')
+    end
+
+    it 'tolerates surrounding space and case' do
+      assert_equal 'Sidebar: hidden.', run_sidebar('  HIDDEN ')
+    end
+
+    it 'answers an unknown mode with the ones on offer, changing nothing' do
+      outcome = run_sidebar('tiny')
+      assert_includes outcome, '"tiny"'
+      assert_includes outcome, 'full / narrow / hidden / off'
+      assert_equal :full, mode
+    end
   end
 
   describe '/trifecta' do
@@ -170,7 +203,7 @@ RSpec.describe Code::App do
     def palette = app.instance_variable_get(:@skill_activation).commands.map(&:name)
 
     it 'lists file commands after the built-ins and before the skills' do
-      assert_equal ['/logs', '/trifecta', '/diff', '/plan', '/clear', '/exit', '/quit',
+      assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/clear', '/exit', '/quit',
                     '/wh', '/writing-rdoc', '/cop'],
                    palette
     end
@@ -421,15 +454,15 @@ RSpec.describe Code::App do
       assert_includes app.status_bar.text.to_s, '^K menu'
     end
 
-    it 'offers logs, git diff, plan mode, clear and quit for a single-model shell' do
+    it 'offers logs, git diff, sidebar, plan mode, clear and quit for a single-model shell' do
       keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l d p c q], keys
+      assert_equal %w[l d s p c q], keys
     end
 
     it 'adds a switch-model action when more than one model is configured' do
       picker_app = code_app(config: code_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')]), model: 'm1')
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l d p m c q], keys
+      assert_equal %w[l d s p m c q], keys
     end
 
     it "picking 'c' clears the agent's conversation" do
@@ -450,6 +483,13 @@ RSpec.describe Code::App do
       app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
       app.screen.send(:handle_key, 'p')
       assert app.instance_variable_get(:@plan_mode).active?
+    end
+
+    it "picking 's' cycles the sidebar width, letting the re-split be the feedback" do
+      layout = app.instance_variable_get(:@layout)
+      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key, 's')
+      assert_equal :narrow, layout.sidebar_mode
     end
 
     it "picking 'q' stops the event loop" do

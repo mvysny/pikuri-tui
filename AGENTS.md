@@ -36,7 +36,9 @@ read-only git additionally auto-approves once the user affirms a
 one-time, persisted git-config trust prompt — `Code::TrustStore`),
 sub-agent-only network tools, the skill / command / task / MCP /
 sub-agent extensions, a plan-mode toggle (a read-only
-posture surfaced as a status-rule badge), and a second one-time,
+posture surfaced as a status-rule badge), a three-way sidebar-width
+cycle (leader `s` / `/sidebar`: full, a fixed 24 columns, hidden),
+and a second one-time,
 persisted startup question — does this project hold anything you'd
 mind leaking? (`Code::PrivacyStore`) — whose answer sets the
 workspace's `private:` and so the private leg of the `/trifecta`
@@ -571,7 +573,9 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/code/app.rb` — `Code::App`, the Tuile
   shell for `bin/pikuri-tui-code`; like `Chat::App` but adds the
   `Code::TranscriptConfirmer`, the `Code::WorkspaceSidebar` (tasks + git changes +
-  diff popup), plan-mode toggle, and the full three-namespace slash palette
+  diff popup), plan-mode toggle, the sidebar-width cycle (`SIDEBAR_ARGUMENTS`
+  maps `/sidebar`'s argument onto `Code::Layout::SIDEBAR_MODES`; a blank one
+  cycles, as leader `s` does), and the full three-namespace slash palette
   (built-ins, then `Shared::FileCommands`, then the skill half
   `Code::SkillActivationListener` keeps current). Like the other two shells it
   builds its own agent (models, MCP registry, the six file/shell tools +
@@ -600,7 +604,15 @@ Zeitwerk over `lib/` and eager-loads it.
   width deliberately: it is the shell's one focus target, and running it edge
   to edge is what lets a single status rule serve the whole app rather than
   one per column. This layout owns the `│` separator (rebuilt on resize and
-  on a theme flip); the sidebar owns only its own tint.
+  on a theme flip); the sidebar owns only its own tint. It also owns the
+  sidebar's posture — `#sidebar_mode` / `#cycle_sidebar_mode` over
+  `SIDEBAR_MODES` (`:full` = the fraction, `:narrow` = a fixed
+  `NARROW_SIDEBAR_WIDTH` of 24, `:hidden` = the whole width to the
+  conversation), driven by the leader menu's `s` and `/sidebar`. Both sidebar
+  panes ellipsize to their own width, so `:narrow` needs no second rendering
+  mode; the `MIN_SIDEBAR_WIDTH` / `MIN_CONVERSATION_WIDTH` starve floors still
+  apply, so an explicit `:narrow` on a 40-column terminal still collapses.
+  Session-only — no config key, no persistence across runs.
 - `lib/code/workspace_sidebar.rb` — `Code::WorkspaceSidebar`, the tasks + git
   sidebar as one `Tuile::Component::Layout`: stacks `Code::TaskListPane`
   over the git "Changes" pane, paints the column's `:pane_bg` tint once (both

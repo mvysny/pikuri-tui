@@ -63,4 +63,71 @@ RSpec.describe Code::Layout do
     layout.__send__(:on_theme_changed)
     assert(layout.separator.text.spans.all? { |span| span.style.fg == Shared::AppTheme::LIGHT[:pane_frame] })
   end
+
+  describe 'sidebar mode' do
+    def widths = [conversation.rect.width, layout.separator.rect.width, sidebar.rect.width]
+
+    it 'starts full — the fraction of the width' do
+      assert_equal :full, layout.sidebar_mode
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      assert_equal (WIDE * described_class::SIDEBAR_FRACTION).round, sidebar.rect.width
+    end
+
+    it 'narrows the column to a fixed width, handing the rest to the conversation' do
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      layout.sidebar_mode = :narrow
+      narrow = described_class::NARROW_SIDEBAR_WIDTH
+      assert_equal [WIDE - narrow - 1 - described_class::CONTENT_INSET, 1, narrow], widths
+    end
+
+    it 'drops the sidebar and its separator entirely when hidden' do
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      layout.sidebar_mode = :hidden
+      assert_predicate sidebar.rect, :empty?
+      assert_predicate layout.separator.rect, :empty?
+      assert_equal WIDE - described_class::CONTENT_INSET, conversation.rect.width
+    end
+
+    it 're-splits immediately, without waiting for a resize' do
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      before = sidebar.rect.width
+      layout.sidebar_mode = :narrow
+      refute_equal before, sidebar.rect.width
+    end
+
+    it 'keeps the prompt and status rule full width in every mode' do
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      described_class::SIDEBAR_MODES.each do |mode|
+        layout.sidebar_mode = mode
+        assert_equal WIDE, input.rect.width, "input in #{mode}"
+        assert_equal WIDE, status_rule.rect.width, "status rule in #{mode}"
+      end
+    end
+
+    it 'cycles full → narrow → hidden and back around' do
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      assert_equal %i[narrow hidden full], Array.new(3) { layout.cycle_sidebar_mode }
+    end
+
+    it 'raises on an unknown mode — our bug, with the offending value' do
+      error = assert_raises(ArgumentError) { layout.sidebar_mode = :tiny }
+      assert_includes error.message, ':tiny'
+    end
+
+    it 'still honors the starve floors: an explicit narrow is a request, not an override' do
+      # 40 columns leaves the conversation under MIN_CONVERSATION_WIDTH once a
+      # 24-column sidebar and its separator are taken out.
+      layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
+      layout.sidebar_mode = :narrow
+      assert_predicate sidebar.rect, :empty?
+      assert_equal 40, input.rect.width
+    end
+
+    it 'survives a mode change before it has a rect' do
+      layout.sidebar_mode = :narrow
+      assert_equal :narrow, layout.sidebar_mode
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      assert_equal described_class::NARROW_SIDEBAR_WIDTH, sidebar.rect.width
+    end
+  end
 end

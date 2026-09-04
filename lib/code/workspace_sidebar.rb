@@ -118,9 +118,11 @@ module Code
     def diff_open? = @git_diff_popup.open?
 
     # Stacks a fixed {TASK_HEIGHT} task pane over the git change-summary pane
-    # across the sidebar rect. On an empty rect — {Layout} hands one down when
-    # it collapses the sidebar column on a too-narrow terminal — both panes
-    # take empty rects and so paint nothing.
+    # across the sidebar rect. On an empty rect — {Layout} hands one down for a
+    # +:hidden+ {Layout#sidebar_mode} and for a terminal too narrow to carry
+    # both columns — both panes take empty rects and so paint nothing. The
+    # {GitWatcher} keeps polling either way, so {#open_diff} still opens on a
+    # current diff.
     #
     # @param new_rect [Tuile::Rect]
     # @return [void]

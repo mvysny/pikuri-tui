@@ -72,6 +72,13 @@ module Code
     LOG = Pikuri.logger_for('code')
     private_constant :LOG
 
+    # The +/sidebar+ arguments, onto {Layout::SIDEBAR_MODES}. +off+ is an alias
+    # for +hidden+ because that is what a hand reaches for; a blank argument
+    # cycles instead.
+    #
+    # @return [Hash{String => Symbol}]
+    SIDEBAR_ARGUMENTS = { 'full' => :full, 'narrow' => :narrow, 'hidden' => :hidden, 'off' => :hidden }.freeze
+
     # @return [Tuile::Screen] the (already-installed) screen this app
     #   runs on.
     attr_reader :screen
@@ -504,6 +511,7 @@ module Code
       menu = Shared::LeaderMenu.new(screen: @screen)
       menu.add('l', 'logs') { @log_ui.open }
       menu.add('d', 'git diff') { @sidebar.open_diff }
+      menu.add('s', 'sidebar width') { @layout.cycle_sidebar_mode }
       menu.add('p', 'plan mode') { toggle_plan_mode }
       menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
       menu.add('c', 'clear conversation + context') { clear_conversation }
@@ -535,6 +543,7 @@ module Code
         Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
                                  ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
         Shared::SlashCommand.new('/diff', 'show the git diff', ->(_rest) { @sidebar.open_diff; 'Opened the git diff.' }),
+        Shared::SlashCommand.new('/sidebar', 'sidebar full / narrow / off (blank cycles)', ->(rest) { set_sidebar(rest) }),
         Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' })
       ]
       if @model_picker.multiple?
@@ -582,6 +591,24 @@ module Code
     # @return [void]
     def toggle_plan_mode
       @plan_mode.active? ? @plan_mode.deactivate! : @plan_mode.activate!
+    end
+
+    # Applies a +/sidebar+ argument, or cycles when it is blank. Unlike the
+    # leader menu's +s+, which lets the re-split speak for itself, this echoes —
+    # a typed command that answered nothing reads as a command that did nothing.
+    #
+    # @param rest [String] the rest of the typed line: a {SIDEBAR_ARGUMENTS}
+    #   key, or blank to cycle.
+    # @return [String] the outcome to echo under the command.
+    def set_sidebar(rest)
+      argument = rest.strip.downcase
+      return "Sidebar: #{@layout.cycle_sidebar_mode}." if argument.empty?
+
+      mode = SIDEBAR_ARGUMENTS[argument]
+      return "No sidebar mode #{argument.inspect} — try #{SIDEBAR_ARGUMENTS.keys.join(' / ')}." unless mode
+
+      @layout.sidebar_mode = mode
+      "Sidebar: #{mode}."
     end
 
     # @param exception [StandardError]

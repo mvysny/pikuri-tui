@@ -24,9 +24,19 @@ module Code
   # underneath it terminates it from below, so its tint needs no border of its
   # own.
   #
-  # The upper region splits left/right by {SIDEBAR_FRACTION}. A parallel copy /
-  # extension of {Chat::Layout} (see {Code} for why the coding shell duplicates
-  # rather than shares).
+  # The upper region splits left/right by {SIDEBAR_FRACTION}, unless
+  # {#sidebar_mode} narrows the column to {NARROW_SIDEBAR_WIDTH} or drops it
+  # altogether to give the conversation the whole width:
+  #
+  #   layout.sidebar_mode = :narrow      # a fixed 24 columns
+  #   layout.cycle_sidebar_mode          # => :hidden, the next in SIDEBAR_MODES
+  #
+  # Both panes render one row per item ellipsized to their own width, so
+  # +:narrow+ needs no second rendering mode — it just hands them a tighter
+  # budget.
+  #
+  # A parallel copy / extension of {Chat::Layout} (see {Code} for why the coding
+  # shell duplicates rather than shares).
   #
   # Layout only — global keybindings (Ctrl+K, Ctrl+C) are installed
   # by {App} via {Tuile::Screen#register_global_shortcut}, which bypasses
@@ -68,6 +78,23 @@ module Code
     # @return [Integer]
     MIN_CONVERSATION_WIDTH = 24
 
+    # The +:narrow+ sidebar's fixed width — deliberately {MIN_SIDEBAR_WIDTH},
+    # the narrowest column this layout already considers readable, and the
+    # width both sidebar panes were designed against.
+    #
+    # @return [Integer]
+    NARROW_SIDEBAR_WIDTH = MIN_SIDEBAR_WIDTH
+
+    # The sidebar postures {#cycle_sidebar_mode} walks, in that order:
+    # {SIDEBAR_FRACTION} of the width, a fixed {NARROW_SIDEBAR_WIDTH}, then no
+    # sidebar at all. Three and not four: a 10–15 column strip was rejected
+    # because at that width a name row plus a counts row halves the files
+    # visible and basenames collide (+lib/code/app.rb+ vs +lib/chat/app.rb+),
+    # so it would show *less* than +:narrow+ for a second rendering mode.
+    #
+    # @return [Array<Symbol>]
+    SIDEBAR_MODES = %i[full narrow hidden].freeze
+
     # @param conversation [Shared::ConversationTextView] the transcript pane
     #   (top-left). Added as a child during construction; its rect is managed
     #   by {#rect=}.
@@ -83,6 +110,7 @@ module Code
       @status_rule = status_rule
       @input = input
       @sidebar = sidebar
+      @sidebar_mode = SIDEBAR_MODES.first
       # The one-cell │ column between the conversation and the sidebar. Its
       # text is rebuilt to the row height by #rect=, its tone by
       # #on_theme_changed — both are baked into the label's text.
@@ -111,6 +139,29 @@ module Code
     #   and the sidebar; exposed for tests.
     attr_reader :separator
 
+    # @return [Symbol] the current sidebar posture, one of {SIDEBAR_MODES}.
+    attr_reader :sidebar_mode
+
+    # @param mode [Symbol] one of {SIDEBAR_MODES}. Re-splits the upper region
+    #   immediately.
+    # @raise [ArgumentError] on any other symbol.
+    # @return [void]
+    def sidebar_mode=(mode)
+      raise ArgumentError, "unknown sidebar mode: #{mode.inspect}" unless SIDEBAR_MODES.include?(mode)
+      return if mode == @sidebar_mode
+
+      @sidebar_mode = mode
+      reflow unless rect.empty?
+    end
+
+    # Advances {#sidebar_mode} one step around {SIDEBAR_MODES}, wrapping.
+    #
+    # @return [Symbol] the mode now in force, for the caller to report.
+    def cycle_sidebar_mode
+      self.sidebar_mode = SIDEBAR_MODES[(SIDEBAR_MODES.index(@sidebar_mode) + 1) % SIDEBAR_MODES.size]
+      @sidebar_mode
+    end
+
     # Re-positions the five pieces whenever the layout's own rect changes. The
     # bottom {INPUT_HEIGHT} rows go to the prompt and the row above them to the
     # status rule, both full width; what is left splits into a conversation
@@ -126,6 +177,26 @@ module Code
       super
       return if rect.empty?
 
+      reflow
+    end
+
+    protected
+
+    # Re-tones the separator column, whose color is baked into its text.
+    #
+    # @return [void]
+    def on_theme_changed
+      super
+      rebuild_separator
+    end
+
+    private
+
+    # Positions the five pieces across the current {#rect} — see {#rect=}, and
+    # {#sidebar_mode=}, which re-runs this without the rect having moved.
+    #
+    # @return [void]
+    def reflow
       input_h = [INPUT_HEIGHT, rect.height].min
       rule_h = rect.height > input_h ? 1 : 0
       top_h = rect.height - input_h - rule_h
@@ -143,18 +214,6 @@ module Code
       rebuild_separator
     end
 
-    protected
-
-    # Re-tones the separator column, whose color is baked into its text.
-    #
-    # @return [void]
-    def on_theme_changed
-      super
-      rebuild_separator
-    end
-
-    private
-
     # Rebuilds the separator column: one +:pane_frame+ +│+ per row of the upper
     # region. A collapsed sidebar leaves it empty.
     #
@@ -164,15 +223,19 @@ module Code
       @separator.text = Tuile::StyledString.styled(column, fg: screen.theme[:pane_frame])
     end
 
-    # The sidebar column width for a given total width: {SIDEBAR_FRACTION}
-    # of it, collapsed to +0+ when either the sidebar would fall below
-    # {MIN_SIDEBAR_WIDTH} or honoring it would starve the conversation
-    # below {MIN_CONVERSATION_WIDTH}.
+    # The sidebar column width for a given total width: {SIDEBAR_FRACTION} of it
+    # under +:full+, a fixed {NARROW_SIDEBAR_WIDTH} under +:narrow+. Either is
+    # collapsed to +0+ when it would fall below {MIN_SIDEBAR_WIDTH} or would
+    # starve the conversation below {MIN_CONVERSATION_WIDTH} — an explicit
+    # +:narrow+ is a request, not an override of the floors, so a terminal too
+    # small for both columns still gives the conversation all of it.
     #
     # @param total_width [Integer]
     # @return [Integer]
     def sidebar_width(total_width)
-      candidate = (total_width * SIDEBAR_FRACTION).round
+      return 0 if @sidebar_mode == :hidden
+
+      candidate = @sidebar_mode == :narrow ? NARROW_SIDEBAR_WIDTH : (total_width * SIDEBAR_FRACTION).round
       return 0 if candidate < MIN_SIDEBAR_WIDTH
       return 0 if total_width - candidate < MIN_CONVERSATION_WIDTH
 
