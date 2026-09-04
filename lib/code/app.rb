@@ -334,6 +334,19 @@ module Code
         input: @input,
         sidebar: @sidebar
       )
+      # The status rule stands in for the sidebar's counts while the column is
+      # off screen. Two independent feeds — the panes' data, and whether they
+      # are showing — so App holds both halves and re-pushes on either.
+      @workspace_digest = nil
+      @sidebar_visible = true
+      @sidebar.on_digest do |digest|
+        @workspace_digest = digest
+        refresh_workspace_digest
+      end
+      @layout.on_sidebar_visibility do |visible|
+        @sidebar_visible = visible
+        refresh_workspace_digest
+      end
     end
 
     # Build the coding shell's +Pikuri::Agent+: a streaming agent on the boot
@@ -591,6 +604,14 @@ module Code
     # @return [void]
     def toggle_plan_mode
       @plan_mode.active? ? @plan_mode.deactivate! : @plan_mode.activate!
+    end
+
+    # Pushes the sidebar's counts into the status rule, or clears them: the rule
+    # is a stand-in, so it carries them only while the column itself is not.
+    #
+    # @return [void]
+    def refresh_workspace_digest
+      @status_rule.workspace_digest = @sidebar_visible ? nil : @workspace_digest
     end
 
     # Applies a +/sidebar+ argument, or cycles when it is blank. Unlike the

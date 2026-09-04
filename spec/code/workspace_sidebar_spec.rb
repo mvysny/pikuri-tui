@@ -69,4 +69,45 @@ RSpec.describe Code::WorkspaceSidebar do
       assert_includes diff_text, 'git unavailable'
     end
   end
+
+  describe '#digest / #on_digest' do
+    def task_pane = sidebar.instance_variable_get(:@task_pane)
+
+    def emit(*changes)
+      sidebar.git_watcher.send(:emit, Code::GitWatcher::Snapshot.new(
+                                       changes: changes, diff_text: '', error: nil
+                                     ))
+    end
+
+    def change(path, added, deleted)
+      Code::GitWatcher::Change.new(code: ' M', path: path, added: added, deleted: deleted)
+    end
+
+    it 'reduces both panes to counts' do
+      emit(change('a.rb', 2, 1), change('b.rb', 40, 6))
+      task_pane.items = [Pikuri::Tasks::Item.new(id: 1, content: 'x', status: 'completed')]
+      assert_equal Shared::StatusRuleLabel::WorkspaceDigest.new(
+        files: 2, added: 42, deleted: 7, tasks_done: 1, tasks_total: 1
+      ), sidebar.digest
+    end
+
+    it 'reads as an empty digest before any git poll has landed' do
+      assert_equal 0, sidebar.digest.files
+      assert_equal [0, 0], [sidebar.digest.added, sidebar.digest.deleted]
+    end
+
+    it 'fires on a git poll' do
+      seen = []
+      sidebar.on_digest { |digest| seen << digest.files }
+      emit(change('a.rb', 1, 0))
+      assert_equal [1], seen
+    end
+
+    it 'fires on a task change too, so the tasks half is never a poll behind' do
+      seen = []
+      sidebar.on_digest { |digest| seen << [digest.tasks_done, digest.tasks_total] }
+      task_pane.items = [Pikuri::Tasks::Item.new(id: 1, content: 'x', status: 'pending')]
+      assert_equal [[0, 1]], seen
+    end
+  end
 end

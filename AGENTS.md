@@ -37,7 +37,8 @@ one-time, persisted git-config trust prompt — `Code::TrustStore`),
 sub-agent-only network tools, the skill / command / task / MCP /
 sub-agent extensions, a plan-mode toggle (a read-only
 posture surfaced as a status-rule badge), a three-way sidebar-width
-cycle (leader `s` / `/sidebar`: full, a fixed 24 columns, hidden),
+cycle (leader `s` / `/sidebar`: full, a fixed 24 columns, hidden — with the
+vanished panes' counts standing in on the status rule),
 and a second one-time,
 persisted startup question — does this project hold anything you'd
 mind leaking? (`Code::PrivacyStore`) — whose answer sets the
@@ -464,8 +465,12 @@ Zeitwerk over `lib/` and eager-loads it.
   queued-injection count, token snapshot, and two badges — a parked
   `Code::TranscriptConfirmer` decision (leading, with the key that answers it:
   a turn is blocked, so it is the loudest thing the rule ever says) and the
-  plan-mode posture. Empty segments drop out and an empty readout leaves an
-  unbroken hairline. The row
+  plan-mode posture. It also carries `#workspace_digest=` — a
+  `WorkspaceDigest` of counts (`3 files +42/-7`, `2/5 tasks`) that stands in
+  for the coding shell's sidebar panes while that column is off screen; the
+  rule renders whatever it is handed, so *when* the digest is wanted is the
+  host's call, and the other two shells simply never set one. Empty segments
+  drop out and an empty readout leaves an unbroken hairline. The row
   carries `:pane_bg` like the prompt below it, so it reads as that block's top
   edge rather than as a divider on the terminal ground. Also
   duck-types as an agent listener — its `#on_event` catches `ModelSwitched`
@@ -575,7 +580,10 @@ Zeitwerk over `lib/` and eager-loads it.
   `Code::TranscriptConfirmer`, the `Code::WorkspaceSidebar` (tasks + git changes +
   diff popup), plan-mode toggle, the sidebar-width cycle (`SIDEBAR_ARGUMENTS`
   maps `/sidebar`'s argument onto `Code::Layout::SIDEBAR_MODES`; a blank one
-  cycles, as leader `s` does), and the full three-namespace slash palette
+  cycles, as leader `s` does), the workspace digest (it holds the two
+  independent halves — the sidebar's counts and whether the sidebar is
+  showing — and re-pushes `Shared::StatusRuleLabel#workspace_digest=` on
+  either), and the full three-namespace slash palette
   (built-ins, then `Shared::FileCommands`, then the skill half
   `Code::SkillActivationListener` keeps current). Like the other two shells it
   builds its own agent (models, MCP registry, the six file/shell tools +
@@ -612,13 +620,21 @@ Zeitwerk over `lib/` and eager-loads it.
   panes ellipsize to their own width, so `:narrow` needs no second rendering
   mode; the `MIN_SIDEBAR_WIDTH` / `MIN_CONVERSATION_WIDTH` starve floors still
   apply, so an explicit `:narrow` on a 40-column terminal still collapses.
-  Session-only — no config key, no persistence across runs.
+  Session-only — no config key, no persistence across runs. `#sidebar_visible?`
+  answers on the sidebar's *rect*, not the mode (a `:narrow` column can still
+  be starved out), and `#on_sidebar_visibility` fires on the flip — needed
+  because a plain **resize** can collapse the column with no host involved,
+  which is what lets `Code::App` move the counts into the status rule.
 - `lib/code/workspace_sidebar.rb` — `Code::WorkspaceSidebar`, the tasks + git
   sidebar as one `Tuile::Component::Layout`: stacks `Code::TaskListPane`
   over the git "Changes" pane, paints the column's `:pane_bg` tint once (both
   panes inherit it), owns the `Code::GitWatcher` lifecycle
   (`#start_git_watching` / `#stop_git_watching`) + the `Code::GitDiffPopup`
   (`#open_diff`), and exposes `#task_listener` for the agent's `ListenerList`.
+  It also reduces itself to a `Shared::StatusRuleLabel::WorkspaceDigest`
+  (`#digest` / `#on_digest`, fired on a git poll *and* on a task change so
+  neither half lags the 10s `POLL_INTERVAL`) — it is the one box already
+  holding both streams, so summarizing them is its own job.
   Coding-shell-only.
 - `lib/code/task_list_pane.rb` —
   `Code::TaskListPane`, the sidebar task pane: a borderless
@@ -633,7 +649,9 @@ Zeitwerk over `lib/` and eager-loads it.
   `WorkspaceSidebar::TASK_HEIGHT`). Which is also why **completed tasks are
   dropped rather than dimmed**, their count moving to the caption
   (`Tasks: 2/5`), and why `ALL_DONE` exists next to `PLACEHOLDER`: a finished
-  list renders empty, and `(no tasks)` would be a lie. Coding-shell-only.
+  list renders empty, and `(no tasks)` would be a lie. Surfaces that count as
+  `#tally` / `#on_tally` (edge-triggered) so the sidebar can carry it elsewhere
+  when this pane is off screen. Coding-shell-only.
 - `lib/code/plan_mode_listener.rb` —
   `Code::PlanModeListener`, a `Pikuri::Agent::Listener::Base`
   driving the status rule's plan-mode badge off `Pikuri::Code::PlanModeChanged`;

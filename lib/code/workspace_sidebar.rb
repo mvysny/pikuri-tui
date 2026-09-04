@@ -60,11 +60,17 @@ module Code
       # thread and knows nothing of these panes. We subscribe, marshal onto the
       # event loop, and hand each pane the snapshot (it renders the half it
       # cares about) — the one place the service's data becomes UI.
+      @git_snapshot = nil
+      @on_digest = nil
+      @task_pane.on_tally { emit_digest }
+
       @git_watcher = GitWatcher.new
       @git_watcher.on_change do |snapshot|
         screen.event_queue.submit do
+          @git_snapshot = snapshot
           @git_summary_pane.snapshot = snapshot
           @git_diff_window.snapshot = snapshot
+          emit_digest
         end
       end
 
@@ -117,6 +123,32 @@ module Code
     # @return [Boolean] whether the {GitDiffPopup} is currently open.
     def diff_open? = @git_diff_popup.open?
 
+    # @return [Shared::StatusRuleLabel::WorkspaceDigest] what the two panes are
+    #   showing, reduced to counts — for a host to stand in the status rule
+    #   while this column is off screen ({Layout#sidebar_visible?}).
+    def digest
+      changes = @git_snapshot&.changes || []
+      done, total = @task_pane.tally
+      Shared::StatusRuleLabel::WorkspaceDigest.new(
+        files: changes.size, added: changes.sum(&:added), deleted: changes.sum(&:deleted),
+        tasks_done: done, tasks_total: total
+      )
+    end
+
+    # Registers a callback fired with a fresh {#digest} whenever either pane's
+    # data moves — the git poll landing or the task list changing.
+    #
+    #   sidebar.on_digest { |digest| status_rule.workspace_digest = digest }
+    #
+    # Called on the UI thread (the git leg is already marshalled). One
+    # callback; a second registration replaces the first.
+    #
+    # @yieldparam digest [Shared::StatusRuleLabel::WorkspaceDigest]
+    # @return [void]
+    def on_digest(&block)
+      @on_digest = block
+    end
+
     # Stacks a fixed {TASK_HEIGHT} task pane over the git change-summary pane
     # across the sidebar rect. On an empty rect — {Layout} hands one down for a
     # +:hidden+ {Layout#sidebar_mode} and for a terminal too narrow to carry
@@ -135,5 +167,10 @@ module Code
       @task_pane.rect = Tuile::Rect.new(rect.left, rect.top, rect.width, tasks_h)
       @git_summary_pane.rect = Tuile::Rect.new(rect.left, rect.top + tasks_h, rect.width, git_h)
     end
+
+    private
+
+    # @return [void]
+    def emit_digest = @on_digest&.call(digest)
   end
 end

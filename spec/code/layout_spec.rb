@@ -130,4 +130,48 @@ RSpec.describe Code::Layout do
       assert_equal described_class::NARROW_SIDEBAR_WIDTH, sidebar.rect.width
     end
   end
+
+  describe '#on_sidebar_visibility' do
+    it 'reports the sidebar visible once it first lays out' do
+      seen = []
+      layout.on_sidebar_visibility { |visible| seen << visible }
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      assert_equal [true], seen
+      assert_predicate layout, :sidebar_visible?
+    end
+
+    it 'fires on a mode change' do
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      seen = []
+      layout.on_sidebar_visibility { |visible| seen << visible }
+      layout.sidebar_mode = :hidden
+      layout.sidebar_mode = :full
+      assert_equal [false, true], seen
+    end
+
+    it 'fires on a resize that collapses the column, which no host would see otherwise' do
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      seen = []
+      layout.on_sidebar_visibility { |visible| seen << visible }
+      layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
+      assert_equal [false], seen
+      refute_predicate layout, :sidebar_visible?
+    end
+
+    it 'is edge-triggered: a reflow that changes nothing says nothing' do
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      seen = 0
+      layout.on_sidebar_visibility { seen += 1 }
+      layout.rect = Tuile::Rect.new(0, 0, WIDE - 4, TALL)
+      layout.sidebar_mode = :narrow
+      assert_equal 0, seen
+    end
+
+    it 'answers sidebar_visible? on the rect, not the mode — a narrow mode can still collapse' do
+      layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
+      layout.sidebar_mode = :narrow
+      assert_equal :narrow, layout.sidebar_mode
+      refute_predicate layout, :sidebar_visible?
+    end
+  end
 end

@@ -111,6 +111,8 @@ module Code
       @input = input
       @sidebar = sidebar
       @sidebar_mode = SIDEBAR_MODES.first
+      @sidebar_was_visible = nil
+      @on_sidebar_visibility = nil
       # The one-cell │ column between the conversation and the sidebar. Its
       # text is rebuilt to the row height by #rect=, its tone by
       # #on_theme_changed — both are baked into the label's text.
@@ -160,6 +162,27 @@ module Code
     def cycle_sidebar_mode
       self.sidebar_mode = SIDEBAR_MODES[(SIDEBAR_MODES.index(@sidebar_mode) + 1) % SIDEBAR_MODES.size]
       @sidebar_mode
+    end
+
+    # @return [Boolean] whether the sidebar column is actually on screen — false
+    #   for a +:hidden+ {#sidebar_mode} *and* for a terminal too narrow to carry
+    #   both columns, which is why callers should ask this rather than compare
+    #   {#sidebar_mode}.
+    def sidebar_visible? = !@sidebar.rect.empty?
+
+    # Registers a callback fired whenever {#sidebar_visible?} flips, so a host
+    # can stand something in for the vanished panes (the coding shell moves
+    # their counts into {Shared::StatusRuleLabel#workspace_digest=}). Needed
+    # because visibility also changes on a *resize*, which no host sees.
+    #
+    #   layout.on_sidebar_visibility { |visible| … }
+    #
+    # One callback; a second registration replaces the first.
+    #
+    # @yieldparam visible [Boolean] {#sidebar_visible?} as it now stands.
+    # @return [void]
+    def on_sidebar_visibility(&block)
+      @on_sidebar_visibility = block
     end
 
     # Re-positions the five pieces whenever the layout's own rect changes. The
@@ -212,6 +235,20 @@ module Code
       @status_rule.rect = Tuile::Rect.new(rect.left, rect.top + top_h, rect.width, rule_h)
       @input.rect = Tuile::Rect.new(rect.left, rect.top + top_h + rule_h, rect.width, input_h)
       rebuild_separator
+      announce_sidebar_visibility
+    end
+
+    # Fires {#on_sidebar_visibility} when the sidebar has just appeared or
+    # vanished. Edge-triggered: a reflow that leaves it as it was says nothing,
+    # so the host isn't re-fed on every resize.
+    #
+    # @return [void]
+    def announce_sidebar_visibility
+      visible = sidebar_visible?
+      return if visible == @sidebar_was_visible
+
+      @sidebar_was_visible = visible
+      @on_sidebar_visibility&.call(visible)
     end
 
     # Rebuilds the separator column: one +:pane_frame+ +│+ per row of the upper

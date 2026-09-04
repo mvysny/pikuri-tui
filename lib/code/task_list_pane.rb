@@ -89,6 +89,8 @@ module Code
     def initialize
       super()
       @items = []
+      @tally = [0, 0]
+      @on_tally = nil
       # Passive, so Tab stays a two-stop cycle between the transcript and the
       # prompt, and left on Tuile's default +:gone+ scrollbar — with nothing in
       # the sidebar focusable, no key could drive either one.
@@ -110,6 +112,25 @@ module Code
     # @return [Listener] the task-stream adapter; fold it into the agent's
     #   +ListenerList+.
     attr_reader :listener
+
+    # @return [Array(Integer, Integer)] +[completed, total]+ for the current
+    #   list — the same tally the caption shows.
+    attr_reader :tally
+
+    # Registers a callback fired when {#tally} changes, so a host can carry the
+    # count somewhere else while this pane is off screen. Edge-triggered on the
+    # tally itself, so a re-render at a new width fires nothing.
+    #
+    #   pane.on_tally { |done, total| … }
+    #
+    # One callback; a second registration replaces the first.
+    #
+    # @yieldparam done [Integer]
+    # @yieldparam total [Integer]
+    # @return [void]
+    def on_tally(&block)
+      @on_tally = block
+    end
 
     # Rewrite the whole pane from a task snapshot. Must run on the UI thread
     # (the {Listener} marshals it there).
@@ -148,6 +169,19 @@ module Code
         else
           join(live.map { |item| render_item(item) })
         end
+      announce_tally(done.size)
+    end
+
+    # Fires {#on_tally} when the count has actually moved.
+    #
+    # @param done [Integer]
+    # @return [void]
+    def announce_tally(done)
+      tally = [done, @items.size]
+      return if tally == @tally
+
+      @tally = tally
+      @on_tally&.call(*tally)
     end
 
     # One task as a styled row: its glyph, then the content ellipsized to

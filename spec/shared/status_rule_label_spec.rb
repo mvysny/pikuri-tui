@@ -318,4 +318,77 @@ RSpec.describe Shared::StatusRuleLabel do
     hairline = label.text.spans.find { |span| span.text.include?('─') }
     assert_equal Tuile::Screen.instance.theme[:pane_frame], hairline.style.fg
   end
+
+  describe '#workspace_digest' do
+    def digest(files: 0, added: 0, deleted: 0, tasks_done: 0, tasks_total: 0)
+      described_class::WorkspaceDigest.new(files: files, added: added, deleted: deleted,
+                                           tasks_done: tasks_done, tasks_total: tasks_total)
+    end
+
+    it 'renders nothing until one is set — the chat shell never sets one' do
+      assert_nil label.workspace_digest
+      refute_includes footer_text.to_s, 'files'
+    end
+
+    it 'carries both counts as their own segments' do
+      label.workspace_digest = digest(files: 3, added: 42, deleted: 7, tasks_done: 2, tasks_total: 5)
+      assert_includes footer_text.to_s, '3 files +42/-7'
+      assert_includes footer_text.to_s, '2/5 tasks'
+    end
+
+    it 'pairs the counts with a slash, like the sidebar summary it stands in for' do
+      label.workspace_digest = digest(files: 1, added: 9, deleted: 4)
+      assert_includes footer_text.to_s, '+9/-4'
+    end
+
+    it 'omits a zero side of the counts' do
+      label.workspace_digest = digest(files: 1, added: 9)
+      assert_includes footer_text.to_s, '1 file +9'
+      refute_includes footer_text.to_s, '-0'
+    end
+
+    it 'says "1 file", not "1 files"' do
+      label.workspace_digest = digest(files: 1, added: 1)
+      refute_includes footer_text.to_s, '1 files'
+    end
+
+    it 'drops the counts entirely for a change carrying none (a mode-only diff)' do
+      label.workspace_digest = digest(files: 2)
+      assert_includes footer_text.to_s, '2 files'
+      refute_includes footer_text.to_s, '2 files +'
+    end
+
+    it 'drops the files segment on a clean tree, keeping the tasks' do
+      label.workspace_digest = digest(tasks_done: 1, tasks_total: 4)
+      refute_includes footer_text.to_s, 'file'
+      assert_includes footer_text.to_s, '1/4 tasks'
+    end
+
+    it 'drops the tasks segment when there are none, keeping the files' do
+      label.workspace_digest = digest(files: 2, added: 3)
+      assert_includes footer_text.to_s, '2 files +3'
+      refute_includes footer_text.to_s, 'tasks'
+    end
+
+    it 'adds nothing at all when every count is zero' do
+      label.workspace_digest = digest
+      refute_includes footer_text.to_s, 'file'
+      refute_includes footer_text.to_s, 'tasks'
+    end
+
+    it 'clears back to nothing when the panes return' do
+      label.workspace_digest = digest(files: 3, added: 1, tasks_done: 1, tasks_total: 2)
+      label.workspace_digest = nil
+      refute_includes footer_text.to_s, 'files'
+      refute_includes footer_text.to_s, 'tasks'
+    end
+
+    it 'sits between the context and the model, where the workspace facts group' do
+      rule = described_class.new(token_log: token_log, context: '~/work/x')
+      rule.rect = Tuile::Rect.new(0, 0, WIDTH, 1)
+      rule.current_model = 'Qwen'
+      rule.workspace_digest = digest(files: 3, added: 1, tasks_done: 1, tasks_total: 2)
+      assert_match(/~\/work\/x · 3 files \+1 · 1\/2 tasks · Qwen/, rule.text.to_s)
+    end
+  end
 end

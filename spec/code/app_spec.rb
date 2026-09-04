@@ -36,6 +36,58 @@ RSpec.describe Code::App do
                  app.send(:build_slash_commands).map(&:name)
   end
 
+  describe 'the workspace digest standing in for a hidden sidebar' do
+    def rule = app.instance_variable_get(:@status_rule)
+    def sidebar = app.sidebar
+
+    def emit_changes(added, deleted)
+      sidebar.git_watcher.send(:emit, Code::GitWatcher::Snapshot.new(
+                                        changes: [Code::GitWatcher::Change.new(
+                                          code: ' M', path: 'a.rb', added: added, deleted: deleted
+                                        )],
+                                        diff_text: '', error: nil
+                                      ))
+    end
+
+    it 'carries nothing while the sidebar is showing — the panes have it' do
+      emit_changes(4, 1)
+      assert_nil rule.workspace_digest
+      refute_includes rule.text.to_s, 'file'
+    end
+
+    it 'moves the counts into the rule when the sidebar is hidden' do
+      emit_changes(42, 7)
+      app.send(:set_sidebar, 'off')
+      assert_includes rule.text.to_s, '1 file +42/-7'
+    end
+
+    it 'picks up data arriving after the sidebar is already hidden' do
+      app.send(:set_sidebar, 'off')
+      emit_changes(3, 0)
+      assert_includes rule.text.to_s, '1 file +3'
+    end
+
+    it 'takes the tasks half from the task pane, not just the git poll' do
+      app.send(:set_sidebar, 'off')
+      sidebar.task_listener.on_event(
+        Pikuri::Tasks::ListChanged.new(items: [
+                                         Pikuri::Tasks::Item.new(id: 1, content: 'a', status: 'completed'),
+                                         Pikuri::Tasks::Item.new(id: 2, content: 'b', status: 'pending')
+                                       ])
+      )
+      assert_includes rule.text.to_s, '1/2 tasks'
+    end
+
+    it 'hands the counts back to the panes when the sidebar returns' do
+      emit_changes(9, 2)
+      app.send(:set_sidebar, 'off')
+      assert_includes rule.text.to_s, '1 file'
+      app.send(:set_sidebar, 'full')
+      assert_nil rule.workspace_digest
+      refute_includes rule.text.to_s, 'file'
+    end
+  end
+
   describe '/sidebar' do
     def sidebar_command = app.send(:build_slash_commands).find { |c| c.name == '/sidebar' }
     def run_sidebar(rest) = sidebar_command.callback.call(rest)

@@ -10,7 +10,13 @@ require 'pikuri-core'
 #      <parked decision>            <plan mode>   <spinner> <context>  <model>    <queued>   <token stats>
 #
 # Empty segments drop out (chat never lights the badge; an idle agent shows no
-# spinner) and with nothing at all to say the row is a plain hairline. During a
+# spinner) and with nothing at all to say the row is a plain hairline. With the
+# coding shell's sidebar narrowed away, the counts its panes would be carrying
+# stand in here ({#workspace_digest=}):
+#
+#   ── ⠹ ~/work/pikuri-tui · 3 files +42/-7 · 2/5 tasks · Qwen 3.6 · 25k/60k ──
+#
+# During a
 # long sub-agent delegation the token slot shows the delegate's own line
 # instead, e.g. +⤷ researcher  8k/60k+, so the readout doesn't freeze while the
 # main agent blocks in the +agent+ tool.
@@ -63,6 +69,14 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # @return [Integer]
   LEAD = 2
 
+  # What {#workspace_digest=} takes: the counts a workspace pane would be
+  # showing if one were on screen. Renders as up to two segments —
+  # +3 files +42/-7+ and +2/5 tasks+ — each dropping out when its own count is
+  # zero, so a clean tree with no tasks adds nothing to the rule.
+  #
+  # @return [Class]
+  WorkspaceDigest = Data.define(:files, :added, :deleted, :tasks_done, :tasks_total)
+
   # The agent's mid-loop input queue; its +#size+ drives the "N queued"
   # segment. +nil+ until the host wires one.
   #
@@ -87,6 +101,12 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # @return [Boolean]
   attr_reader :decision_pending
 
+  # The workspace counts standing in for panes that aren't on screen; +nil+
+  # (the default, and what the chat shell leaves it at) renders no segments.
+  #
+  # @return [WorkspaceDigest, nil]
+  attr_reader :workspace_digest
+
   # Claims the +token_log.on_status_line+ observer slot.
   #
   # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token
@@ -108,6 +128,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     @current_model = nil
     @plan_active = false
     @decision_pending = false
+    @workspace_digest = nil
     @sub_status = nil
     @ticker = nil
     @spinner_frame = nil
@@ -160,6 +181,22 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # @return [void]
   def decision_pending=(pending)
     @decision_pending = pending
+    refresh
+  end
+
+  # Show — or stop showing — the workspace counts. Feed one only while no pane
+  # is carrying them; the rule renders whatever it is given, so deciding *when*
+  # the digest is wanted is the host's call, not the rule's.
+  #
+  #   rule.workspace_digest = Shared::StatusRuleLabel::WorkspaceDigest.new(
+  #     files: 3, added: 42, deleted: 7, tasks_done: 2, tasks_total: 5)
+  #   # => "… · 3 files +42/-7 · 2/5 tasks · …"
+  #   rule.workspace_digest = nil   # the panes are back; drop both segments
+  #
+  # @param digest [WorkspaceDigest, nil]
+  # @return [void]
+  def workspace_digest=(digest)
+    @workspace_digest = digest
     refresh
   end
 
@@ -322,6 +359,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   def tail_text
     segments = []
     segments << @context if @context && !@context.empty?
+    segments.concat(digest_segments)
     segments << @current_model if @current_model && !@current_model.empty?
     pending = @interloper ? @interloper.size : 0
     segments << "#{pending} queued" if pending.positive?
@@ -335,4 +373,34 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
 
     tail.empty? ? @spinner_frame : "#{@spinner_frame} #{tail}"
   end
+
+  # @return [Array<String>] the workspace segments — +"3 files +42/-7"+ and
+  #   +"2/5 tasks"+ — dropping each whose own count is zero, and both when no
+  #   digest is set.
+  def digest_segments
+    digest = @workspace_digest
+    return [] if digest.nil?
+
+    segments = []
+    segments << [pluralize(digest.files, 'file'), change_counts(digest)].reject(&:empty?).join(' ') if
+      digest.files.positive?
+    segments << "#{digest.tasks_done}/#{digest.tasks_total} tasks" if digest.tasks_total.positive?
+    segments
+  end
+
+  # @param digest [WorkspaceDigest]
+  # @return [String] +"+42/-7"+, omitting a zero side and empty when both are
+  #   zero (a mode-only change); the +/+ pairs them the way the coding shell's
+  #   own change summary does.
+  def change_counts(digest)
+    counts = []
+    counts << "+#{digest.added}" if digest.added.positive?
+    counts << "-#{digest.deleted}" if digest.deleted.positive?
+    counts.join('/')
+  end
+
+  # @param count [Integer]
+  # @param noun [String] the singular form.
+  # @return [String] +"1 file"+ / +"3 files"+.
+  def pluralize(count, noun) = "#{count} #{noun}#{'s' unless count == 1}"
 end

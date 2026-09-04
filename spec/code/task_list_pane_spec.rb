@@ -133,4 +133,33 @@ RSpec.describe Code::TaskListPane do
       assert_includes rendered, 'z' * 60
     end
   end
+
+  describe '#tally / #on_tally' do
+    it 'starts at 0/0' do
+      assert_equal [0, 0], window.tally
+    end
+
+    it 'reports done and total, matching the caption' do
+      window.items = [item(1, 'a', 'completed'), item(2, 'b', 'pending')]
+      assert_equal [1, 2], window.tally
+      assert_equal 'Tasks: 1/2', caption
+    end
+
+    it 'fires the callback when the tally moves' do
+      seen = []
+      window.on_tally { |done, total| seen << [done, total] }
+      window.items = [item(1, 'a', 'pending')]
+      window.items = [item(1, 'a', 'completed')]
+      assert_equal [[0, 1], [1, 1]], seen
+    end
+
+    it 'stays quiet when a re-render leaves the tally alone' do
+      window.items = [item(1, 'a', 'pending')]
+      seen = 0
+      window.on_tally { seen += 1 }
+      size!(30)
+      window.items = [item(1, 'renamed but still pending', 'pending')]
+      assert_equal 0, seen
+    end
+  end
 end
