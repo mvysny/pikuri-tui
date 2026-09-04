@@ -976,22 +976,38 @@ Zeitwerk over `lib/` and eager-loads it.
   that bar, delete outright. `ideas/` holds only *pending* thinking;
   anything worth keeping after the work lands moves to a durable home,
   and the transient container disappears.
-- **Three borderless workarounds are waiting on upstream tuile — check them
-  on every tuile bump.** Each is a local patch for something Tuile can't yet
-  express, and each says in its own rdoc what to delete. Nothing here is
-  broken; they are cleanup, not debt to fear.
+- **Four upstream-tuile items are waiting — check them on every tuile bump.**
+  Each is a local patch for something Tuile can't yet express, and each says in
+  its own rdoc what to delete. The first three came out of the borderless
+  facelift and are cleanup, not debt to fear; tuile#17 is the one that stands
+  on a real bug.
 
   | Issue | What we do instead | Retire by deleting |
   |---|---|---|
   | [tuile#9](https://github.com/mvysny/tuile/issues/9) — scrollbar gutter | narrow the wrap, re-pad before the glyph | `Shared::ConversationTextView`'s `SCROLLBAR_GUTTER`, `#wrap_width`, `#paintable_row` |
   | [tuile#10](https://github.com/mvysny/tuile/issues/10) — the bar has no theme color (and no auto-hide) | sidebar panes drop the bar entirely; the conversation keeps a loud one | nothing yet — revisit `scrollbar_visibility` in `Code::TaskListPane` / `Code::GitSummaryPane` / `Shared::ConversationTextView` |
   | [tuile#11](https://github.com/mvysny/tuile/issues/11) — a field ignores `bg_color` | override the (protected) `background` | `Shared::InputPane::Area#background`, replaced by `@area.bg_color = Tuile::Theme.ref(:pane_bg)` |
+  | [tuile#17](https://github.com/mvysny/tuile/issues/17) — no way to hide a component; an empty parent rect strands its children | hide by zero-width rect, propagating it by hand (`Code::WorkspaceSidebar#rect=` assigns both panes rather than short-circuiting) | that hand-propagation and its `return if rect.empty?` comment, replaced by `@sidebar.visible = false` once Tuile has `visible` (GONE semantics) |
 
   Only the tuile#9 pair is genuinely fragile — `#paintable_row` is *private*
   upstream, and the two overrides must stay in step or every painted row comes
-  out the wrong width (there are specs pinning that). The other two ride
+  out the wrong width (there are specs pinning that). tuile#10 and #11 ride
   sanctioned seams and will keep working; they are just more code than the
   feature deserves.
+
+  **Why we hide by zero-width rect rather than by detaching**, which tuile#17
+  would otherwise argue for: `Code::Layout#sidebar_width` returns `0` for a
+  `:hidden` mode *and* for a terminal too narrow to carry both columns. Under a
+  remove-from-parent scheme that second case would mutate the component tree on
+  every resize across the threshold, and re-`add` puts the child back at the
+  end of `children` — which is also paint order. Detaching also fires
+  `on_detached` down the subtree, so any resource keyed to being on screen (the
+  pattern `Component#on_attached` exists for, and `Shared::StatusRuleLabel`'s
+  ticker already uses) would stop when the pane is merely hidden: hiding a pane
+  must not be able to stop its data feed, and `Code::WorkspaceSidebar` owns the
+  `Code::GitWatcher` poll that keeps the status-rule digest alive precisely
+  while the column is hidden. Geometry-as-a-function-of-width is the lesser
+  evil until `visible` exists.
 
 - **Pikuri owns the loop and the tools; we own the UI shell.**
   When changing pikuri-tui, the question is "what does the user
