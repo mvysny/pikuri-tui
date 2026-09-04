@@ -474,10 +474,11 @@ Zeitwerk over `lib/` and eager-loads it.
   frames gone there is no chrome to drive, and owning the widget buys the
   width-aware `─` fill (`on_width_changed`) and the light/dark re-render.
 - `lib/shared/pane_caption_label.rb` — `Shared::PaneCaptionLabel`, a
-  borderless pane's caption row (`Tasks ──────`): the name in the theme's
+  borderless pane's caption row (`Tasks: 2/5 ──────`): the name in the theme's
   Talus hint accent, then a hairline to the right edge — what replaced the
-  caption a `Window` painted into its top border. Used by the coding shell's
-  two sidebar panes.
+  caption a `Window` painted into its top border. `#caption=` re-labels it,
+  which is how the coding shell's two sidebar panes carry a live tally up here
+  instead of spending one of their scarce rows on it.
 - `lib/shared/passive_text_view.rb` — `Shared::PassiveTextView`, a
   `TextView` that displays and nothing more (`focusable?` / `tab_stop?` both
   false). Tuile's `TextView` is a tab stop by default, which is right for the
@@ -614,7 +615,13 @@ Zeitwerk over `lib/` and eager-loads it.
   per-status tone) via the `#items=` verb, plus a nested `Listener` (a
   `Pikuri::Agent::Listener::Base`) translating the `Pikuri::Tasks::ListChanged`
   stream into `#items=` calls; exposes `#listener` for the agent's
-  `ListenerList`. Coding-shell-only.
+  `ListenerList`. One row per task, ellipsized to the pane width and
+  re-rendered on `on_width_changed` — `TextView` word-wraps with no truncate
+  mode, and this pane's rows are its scarcest resource (a fixed
+  `WorkspaceSidebar::TASK_HEIGHT`). Which is also why **completed tasks are
+  dropped rather than dimmed**, their count moving to the caption
+  (`Tasks: 2/5`), and why `ALL_DONE` exists next to `PLACEHOLDER`: a finished
+  list renders empty, and `(no tasks)` would be a lie. Coding-shell-only.
 - `lib/code/plan_mode_listener.rb` —
   `Code::PlanModeListener`, a `Pikuri::Agent::Listener::Base`
   driving the status rule's plan-mode badge off `Pikuri::Code::PlanModeChanged`;
@@ -628,10 +635,19 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/code/git_summary_pane.rb` —
   `Code::GitSummaryPane`, the sidebar "Changes" pane: a borderless
   `Layout::Vertical` domain component stacking a `Shared::PaneCaptionLabel`
-  over a git change summary it draws itself (per-file `XY path +A -D` line,
-  kind-toned label) via `#snapshot=`; fed by `GitWatcher`. Neither sidebar
-  pane carries a scrollbar: nothing in the sidebar takes focus, so no key
-  could drive one.
+  over a git change summary it draws itself via `#snapshot=`, **grouped by
+  directory** — a `lib/code/` header (dimmed, elided from the *left*) over one
+  indented `  M task_list_pa… +31/-8` row per file (the porcelain code carrying
+  the kind tone, the basename left in the default fg as the row's anchor,
+  elided from the *right*, and the counts right-aligned on a column measured
+  from the widest in the snapshot). Grouping is what buys a legible filename at
+  a 24-col sidebar, where `code + counts + gap` leaves only 15 columns of path;
+  headers are *inserted* where `dirname` changes, never `group_by`-ed, since
+  porcelain output is already path-sorted and re-bucketing would move rows
+  under the reader. Caption carries `Changes: 6; +184/-17`, dropping the file
+  count then the totals as the pane narrows. Fed by `GitWatcher`. Neither
+  sidebar pane carries a scrollbar: nothing in the sidebar takes focus, so no
+  key could drive one.
 - `lib/code/git_diff_window.rb` —
   `Code::GitDiffWindow`, the "Git diff" pane (inside `GitDiffPopup`): a `Window`
   domain component that draws a working-tree diff via `#snapshot=`, re-rendering

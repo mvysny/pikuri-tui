@@ -6,11 +6,15 @@ require 'tuile'
 module Code
   # The sidebar's task pane as one cohesive domain component: a borderless
   # {Tuile::Component::Layout::Vertical} stacking a {Shared::PaneCaptionLabel}
-  # over a task list it renders itself - a status glyph per item, a placeholder
-  # when empty, per-status tone - exposing the UI verb {#items=}. The pikuri
-  # seam lives in the nested {Listener}, which translates the agent's
-  # {Pikuri::Tasks::ListChanged} stream into {#items=} calls; {WorkspaceSidebar}
-  # composes the pane and folds {#listener} into the agent's +ListenerList+:
+  # over a one-row-per-task list it renders itself. Mid-way through five tasks
+  # it reads:
+  #
+  #   Tasks: 2/5 ─────────────    <- the caption carries the done/total tally
+  #   ▸ Add the s leader key …    <- in_progress, in the :notice accent
+  #   ○ Put the files/tasks d…    <- pending; the two completed ones aren't listed
+  #
+  # The pikuri seam lives in the nested {Listener}, which translates the agent's
+  # {Pikuri::Tasks::ListChanged} stream into {#items=} calls:
   #
   #   tasks = Code::TaskListPane.new
   #   config.add_listener(tasks.listener)   # into the agent's ListenerList
@@ -26,6 +30,23 @@ module Code
   #
   # Coding-shell-only — the chat / computer shells carry no sidebar.
   #
+  # == Implementation details
+  #
+  # **Completed tasks are dropped, not dimmed.** Rows are the scarce resource
+  # here — the pane is a fixed {WorkspaceSidebar::TASK_HEIGHT} tall, so a narrow
+  # sidebar leaves it five — and a dimmed +✓+ row says nothing the caption's
+  # tally doesn't. That is also why {ALL_DONE} exists: with those rows gone a
+  # finished list renders empty, where {PLACEHOLDER} would claim the agent never
+  # made any tasks.
+  #
+  # **Every task takes exactly one row**, ellipsized to the pane's width.
+  # {Tuile::Component::TextView} word-wraps unconditionally and offers no
+  # truncate mode, so a long task would otherwise spill onto continuation rows
+  # carrying no glyph. Truncation is width-dependent, so the pane keeps the last
+  # snapshot and re-renders on +on_width_changed+; a zero width (unmounted, or a
+  # sidebar column {Layout} collapsed) reads as *unknown* and truncates nothing
+  # until a real one lands.
+  #
   # UI-thread-confined (the nested {Listener} marshals the stream onto the UI
   # thread before calling {#items=}).
   class TaskListPane < Tuile::Component::Layout::Vertical
@@ -36,35 +57,44 @@ module Code
     # @return [String]
     PLACEHOLDER = '(no tasks)'
 
-    # Per-status line marker. The status strings are {Pikuri::Tasks::STATUSES}.
+    # Shown once every task is completed, in the same +:detail+ tone.
+    #
+    # @return [String]
+    ALL_DONE = '(all done)'
+
+    # Per-status line marker, for the statuses that reach a row. The status
+    # strings are {Pikuri::Tasks::STATUSES}; +completed+ has no entry because a
+    # completed task is never listed.
     #
     # @return [Hash{String => String}]
     GLYPHS = {
       'pending'     => '○',
-      'in_progress' => '▸',
-      'completed'   => '✓'
+      'in_progress' => '▸'
     }.freeze
 
-    # The pane's caption row.
+    # The pane's caption row, which gains a +": 2/5"+ done/total tally as soon
+    # as there is anything to tally.
     #
     # @return [String]
     CAPTION = 'Tasks'
 
-    # Stacks a "Tasks" caption row over a fresh scrollable text view and builds
-    # the nested {Listener} bound to +self+, reaching for the installed
-    # +Tuile::Screen+ singleton (fake-able in tests) for its +event_queue+.
+    # Columns a row spends before its content: the status glyph and one space.
+    #
+    # @return [Integer]
+    GLYPH_WIDTH = 2
+
+    # Stacks a "Tasks" caption row over a fresh text view and builds the nested
+    # {Listener} bound to +self+, reaching for the installed +Tuile::Screen+
+    # singleton (fake-able in tests) for its +event_queue+.
     def initialize
       super()
+      @items = []
       # Passive, so Tab stays a two-stop cycle between the transcript and the
-      # prompt — the panes that answer keys.
+      # prompt, and left on Tuile's default +:gone+ scrollbar — with nothing in
+      # the sidebar focusable, no key could drive either one.
       @view = Shared::PassiveTextView.new
-      # No scrollbar: nothing in the sidebar takes focus, so there is no key
-      # that could drive one — inside a frame it read as chrome, but on the
-      # borderless tint a full-height inoperable bar is just noise (tuile#10,
-      # https://github.com/mvysny/tuile/issues/10, on why the bar is as loud
-      # as it is). Even a toned bar stays inoperable here, so this stays
-      # +:gone+ unless the pane becomes focusable.
-      add(Shared::PaneCaptionLabel.new(CAPTION), Fixed[1])
+      @caption_label = Shared::PaneCaptionLabel.new(CAPTION)
+      add(@caption_label, Fixed[1])
       add(@view, Expand[1])
       @listener = Listener.new(pane: self, screen: screen)
     end
@@ -73,42 +103,85 @@ module Code
     #   exposed for tests, production drives it through {#items=} / {#listener}.
     attr_reader :view
 
+    # @return [Shared::PaneCaptionLabel] the caption row carrying the tally;
+    #   exposed for tests.
+    attr_reader :caption_label
+
     # @return [Listener] the task-stream adapter; fold it into the agent's
     #   +ListenerList+.
     attr_reader :listener
 
-    # Rewrite the whole pane from a task snapshot: the {PLACEHOLDER} when empty,
-    # else one styled line per item. Must run on the UI thread (the {Listener}
-    # marshals it there).
+    # Rewrite the whole pane from a task snapshot. Must run on the UI thread
+    # (the {Listener} marshals it there).
     #
     # @param items [Array<Pikuri::Tasks::Item>] a frozen snapshot.
     # @return [void]
     def items=(items)
-      @view.text =
-        if items.empty?
-          screen.theme.detail(PLACEHOLDER)
-        else
-          items.map { |item| render_item(item) }.join("\n")
-        end
+      @items = items
+      render
+    end
+
+    protected
+
+    # Re-renders every row against the new width, which each one is ellipsized
+    # to.
+    #
+    # @return [void]
+    def on_width_changed
+      super
+      render
     end
 
     private
 
-    # One task as a styled line: a status glyph + the content, toned by
-    # status — +in_progress+ in the +:notice+ accent (the one active item),
-    # +completed+ dimmed to +:detail+, +pending+ left in the default
-    # foreground. An unrecognized status degrades to a +?+ glyph and the
+    # Rewrites the caption tally and the rows from the held snapshot.
+    #
+    # @return [void]
+    def render
+      done, live = @items.partition { |item| item.status == 'completed' }
+      @caption_label.caption = @items.empty? ? CAPTION : "#{CAPTION}: #{done.size}/#{@items.size}"
+      @view.text =
+        if @items.empty?
+          dim(PLACEHOLDER)
+        elsif live.empty?
+          dim(ALL_DONE)
+        else
+          join(live.map { |item| render_item(item) })
+        end
+    end
+
+    # One task as a styled row: its glyph, then the content ellipsized to
+    # whatever the width leaves. +in_progress+ takes the +:notice+ accent (the
+    # one active item); an unrecognized status degrades to a +?+ glyph and the
     # default tone rather than raising — it's upstream data, not our state.
     #
     # @param item [Pikuri::Tasks::Item]
-    # @return [String]
+    # @return [Tuile::StyledString]
     def render_item(item)
-      line = "#{GLYPHS.fetch(item.status, '?')} #{item.content}"
-      case item.status
-      when 'in_progress' then screen.theme.notice(line)
-      when 'completed'   then screen.theme.detail(line)
-      else line
-      end
+      content = Tuile::StyledString.plain(item.content)
+      budget = content_width
+      content = content.ellipsize(budget) if budget
+      row = Tuile::StyledString.plain("#{GLYPHS.fetch(item.status, '?')} ") + content
+      item.status == 'in_progress' ? row.with_fg(screen.theme[:notice]) : row
+    end
+
+    # @return [Integer, nil] columns a task's content may occupy, or +nil+ when
+    #   the pane has no width yet and nothing should be truncated.
+    def content_width
+      return nil unless rect.width.positive?
+
+      [rect.width - GLYPH_WIDTH, 1].max
+    end
+
+    # @param text [String]
+    # @return [Tuile::StyledString] +text+ in the placeholder tone.
+    def dim(text) = Tuile::StyledString.styled(text, fg: screen.theme[:detail])
+
+    # @param rows [Array<Tuile::StyledString>] at least one row.
+    # @return [Tuile::StyledString] the rows as one newline-separated block.
+    def join(rows)
+      separator = Tuile::StyledString.plain("\n")
+      rows.inject { |block, row| block + separator + row }
     end
 
     # Translates the agent's {Pikuri::Tasks::ListChanged} stream into

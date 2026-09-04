@@ -13,7 +13,9 @@ require 'tuile'
 # *boundary* — without it a bare word floating above content reads as a list
 # item, not a section head.
 #
-#   pane.add(Shared::PaneCaptionLabel.new('Tasks'), Fixed[1])
+#   caption = Shared::PaneCaptionLabel.new('Tasks')
+#   pane.add(caption, Fixed[1])
+#   caption.caption = 'Tasks: 2/5'   # a pane carrying a live count re-labels it
 #
 # The hairline is +:pane_frame+, derived for the tinted +:pane_bg+ ground every
 # captioned pane sits on. There is no token parameter: every borderless
@@ -31,6 +33,16 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
 
   # @return [String] the pane's name, as painted.
   attr_reader :caption
+
+  # @param caption [String] the pane's new name. Re-renders the row, so the
+  #   hairline re-fills to whatever width the new name leaves.
+  # @return [void]
+  def caption=(caption)
+    return if caption == @caption
+
+    @caption = caption
+    refresh
+  end
 
   protected
 

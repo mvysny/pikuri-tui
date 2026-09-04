@@ -6,24 +6,62 @@ require 'tuile'
 module Code
   # The sidebar "Changes" pane: a borderless
   # {Tuile::Component::Layout::Vertical} stacking a {Shared::PaneCaptionLabel}
-  # over a git change summary it renders itself - one +"XY path  +A -D"+ line
-  # per changed file, the label toned by change kind (new green, deleted red,
-  # modified yellow) and the +/- markers green/red, a degraded notice when git
-  # failed, a placeholder when the tree is clean. A {GitWatcher::Snapshot}
-  # arrives through {#snapshot=} (produced by the {GitWatcher} service); the
-  # pane owns rendering, the service owns polling and data - the data-in split
-  # (see the `cop` skill).
+  # over a git change summary it renders itself, grouped by directory. Six
+  # changed files in a 24-column sidebar read:
+  #
+  #   Changes: 6; +184/-17 ───    <- file count, then the whole tree's totals
+  #   ideas/                      <- a header wherever the directory changes
+  #    ?? sidebar-coll…    +62
+  #   lib/code/
+  #     M task_list_pa… +31/-8    <- porcelain code toned by kind, name plain
+  #     M git_summary_… +24/-6
+  #     M layout.rb     +18/-2
+  #   lib/shared/
+  #     M pane_caption…  +9/-1
+  #   spec/code/
+  #     M task_list_pa…    +40    <- counts right-aligned on one column
+  #
+  # A {GitWatcher::Snapshot} arrives through {#snapshot=} (produced by the
+  # {GitWatcher} service); the pane owns rendering, the service owns polling and
+  # data - the data-in split (see the `cop` skill).
   #
   #   pane = Code::GitSummaryPane.new
   #   pane.snapshot = Code::GitWatcher::Snapshot.new(
-  #     changes: [Code::GitWatcher::Change.new(code: 'M', path: 'a.rb', added: 2, deleted: 1)],
+  #     changes: [Code::GitWatcher::Change.new(code: ' M', path: 'a.rb', added: 2, deleted: 1)],
   #     diff_text: '…', error: nil)
-  #   # => renders "M a.rb  +2 -1"  (themed) under a "Changes" caption
+  #   # => a "./" header over "  M a.rb +2/-1", under a "Changes: 1; +2/-1" caption
+  #
+  # A degraded snapshot (git failed) renders its notice instead, a clean tree
+  # the {PLACEHOLDER}, and both leave the caption bare.
   #
   # A domain component built by subclassing a generic Tuile container and
   # rendering into its own content view: the coding shell's git-changes pane is
   # one unit, not a render-only view hand-captioned by its host. Sits on the
   # sidebar's +:pane_bg+ tint, inherited from {WorkspaceSidebar}.
+  #
+  # == Implementation details
+  #
+  # **Why grouping.** One row per file is forced on us —
+  # {Tuile::Component::TextView} word-wraps unconditionally with no truncate
+  # mode — and at a 24-column sidebar the arithmetic leaves
+  # +24 - 2 (code) - 7 (counts + gap) = 15+ columns of path, which nothing under
+  # +lib/+ fits. Stating the directory once is what buys the filename room
+  # without dropping to bare basenames, where +lib/code/app.rb+,
+  # +lib/chat/app.rb+ and +lib/computer/app.rb+ would all render +M app.rb+.
+  #
+  # **Headers are inserted, never grouped by** — which is only correct because
+  # +git status --porcelain+ output is path-sorted, so a directory's files are
+  # already contiguous. A +group_by+ would shuffle rows under the reader.
+  #
+  # **Elision direction differs by row, deliberately.** A header keeps its tail
+  # (+…/shared/markdown/+ — ancestors are context); a filename keeps its head,
+  # because within one directory this repo's names share suffixes and differ at
+  # the front (+git_diff_wind…+ / +git_diff_popu…+ / +git_diff_rend…+), and
+  # left-elision would spend three of its columns on +.rb+.
+  #
+  # Truncation is width-dependent, so the pane keeps the last snapshot and
+  # re-renders on +on_width_changed+; a zero width (unmounted, or a sidebar
+  # column {Layout} collapsed) reads as *unknown* and truncates nothing.
   #
   # UI-thread-confined (the {WorkspaceSidebar} subscription marshals {#snapshot=}
   # onto the UI thread before calling it).
@@ -38,18 +76,46 @@ module Code
     # @return [String]
     UNTRACKED_CODE = '??'
 
-    # The pane's caption row.
+    # The pane's caption row, which gains a +": 6; +184/-17"+ tally whenever
+    # there are changes to total.
     #
     # @return [String]
     CAPTION = 'Changes'
 
-    # Stacks a "Changes" caption row over a fresh scrollable text view.
+    # The directory header for repo-root files. They need one like every other
+    # group: byte order leaves them scattered through the list (+AGENTS.md+
+    # before +bin/+, +mise.toml+ after +lib/+), so a headerless run would be
+    # read as belonging to whichever header preceded it.
+    #
+    # @return [String]
+    ROOT_GROUP = './'
+
+    # Columns the two porcelain status letters occupy. Both are kept — the X/Y
+    # split is staged-vs-unstaged, which is real information — and a shorter
+    # code is right-justified into them so rows stay aligned.
+    #
+    # @return [Integer]
+    CODE_WIDTH = 2
+
+    # Columns a file row is indented under its directory header.
+    #
+    # @return [Integer]
+    INDENT = 1
+
+    # Columns the caption leaves free so its hairline survives: one space and
+    # at least one +─+.
+    #
+    # @return [Integer]
+    HAIRLINE_ROOM = 2
+
+    # Stacks a "Changes" caption row over a fresh text view.
     def initialize
       super()
+      # Passive and scrollbar-less: nothing in the sidebar is focusable, so
+      # neither a tab stop nor a bar could ever be driven.
       @view = Shared::PassiveTextView.new
-      # No scrollbar — see the note in {TaskListPane}: nothing in the sidebar
-      # takes focus, so a bar here would be inoperable decoration.
-      add(Shared::PaneCaptionLabel.new(CAPTION), Fixed[1])
+      @caption_label = Shared::PaneCaptionLabel.new(CAPTION)
+      add(@caption_label, Fixed[1])
       add(@view, Expand[1])
     end
 
@@ -57,51 +123,187 @@ module Code
     #   exposed for tests, production drives it through {#snapshot=}.
     attr_reader :view
 
-    # Rewrite the pane from a git snapshot: the degraded notice when git failed,
-    # the {PLACEHOLDER} when the tree is clean, else one styled line per changed
-    # file. Ignores the snapshot's diff (that's the {GitDiffWindow}'s half). Must
-    # run on the UI thread.
+    # @return [Shared::PaneCaptionLabel] the caption row carrying the tally;
+    #   exposed for tests.
+    attr_reader :caption_label
+
+    # Rewrite the pane from a git snapshot. Ignores the snapshot's diff (that's
+    # the {GitDiffWindow}'s half). Must run on the UI thread.
     #
     # @param snapshot [GitWatcher::Snapshot]
     # @return [void]
     def snapshot=(snapshot)
-      @view.text =
-        if snapshot.error
-          screen.theme.detail(snapshot.error)
-        elsif snapshot.changes.empty?
-          screen.theme.detail(PLACEHOLDER)
-        else
-          snapshot.changes.map { |change| summary_line(change) }.join("\n")
-        end
+      @snapshot = snapshot
+      render
+    end
+
+    protected
+
+    # Re-renders every row against the new width, which the filenames and
+    # headers are elided to.
+    #
+    # @return [void]
+    def on_width_changed
+      super
+      render
     end
 
     private
 
-    # @param change [Change]
-    # @return [String] +"XY path  +A -D"+ with a themed label and +/- markers.
-    def summary_line(change)
-      markers = []
-      markers << screen.theme.added("+#{change.added}") if change.added.positive?
-      markers << screen.theme.removed("-#{change.deleted}") if change.deleted.positive?
-      label = colorize_label("#{change.code} #{change.path}", change.code)
-      markers.empty? ? label : "#{label}  #{markers.join(' ')}"
+    # @return [void]
+    def render
+      @caption_label.caption = caption_text
+      @view.text = body_text
     end
 
-    # Tones the +"XY path"+ label by change kind so the list scans at a glance:
-    # a +D+ in either column is a deletion (red), an +A+ or the untracked +??+
-    # is new (green), everything else (+M+, +MM+, …) is a modification (yellow).
+    # The caption, degraded to the widest form that still leaves
+    # {HAIRLINE_ROOM}: +"Changes: 6; +184/-17"+, then +"Changes +184/-17"+, then
+    # bare {CAPTION}. Choosing here is what protects the counts — they sit at
+    # the end of the string, which is the end {Shared::PaneCaptionLabel} gives
+    # up first.
     #
-    # @param label [String] the +"XY path"+ text to color.
-    # @param code [String] the two-letter porcelain status code.
     # @return [String]
-    def colorize_label(label, code)
-      if code.include?('D')
-        screen.theme.removed(label)
-      elsif code == UNTRACKED_CODE || code.include?('A')
-        screen.theme.added(label)
-      else
-        screen.theme.notice(label)
+    def caption_text
+      changes = listable_changes
+      return CAPTION if changes.empty?
+
+      counts = "+#{changes.sum(&:added)}/-#{changes.sum(&:deleted)}"
+      forms = ["#{CAPTION}: #{changes.size}; #{counts}", "#{CAPTION} #{counts}", CAPTION]
+      return forms.first unless rect.width.positive?
+
+      forms.find { |form| form.length + HAIRLINE_ROOM <= rect.width } || CAPTION
+    end
+
+    # @return [Array<GitWatcher::Change>] the changes to list — empty before the
+    #   first snapshot and for a degraded one, both of which render a single
+    #   line instead of a list.
+    def listable_changes
+      return [] if @snapshot.nil? || @snapshot.error
+
+      @snapshot.changes
+    end
+
+    # @return [Tuile::StyledString] the degraded notice, the {PLACEHOLDER}, or
+    #   the directory-grouped file list.
+    def body_text
+      return Tuile::StyledString::EMPTY if @snapshot.nil?
+      return dim(@snapshot.error) if @snapshot.error
+      return dim(PLACEHOLDER) if @snapshot.changes.empty?
+
+      counted = @snapshot.changes.map { |change| [change, counts_for(change)] }
+      counts_width = counted.map { |(_, counts)| counts.display_width }.max
+      group = nil
+      rows = []
+      counted.each do |(change, counts)|
+        directory = group_of(change.path)
+        if directory != group
+          group = directory
+          rows << group_row(directory)
+        end
+        rows << change_row(change, counts, counts_width)
       end
+      join(rows)
+    end
+
+    # @param path [String] a repo-relative path.
+    # @return [String] the directory header it belongs under, {ROOT_GROUP} for a
+    #   repo-root file.
+    def group_of(path)
+      directory = File.dirname(path)
+      directory == '.' ? ROOT_GROUP : "#{directory}/"
+    end
+
+    # @param directory [String]
+    # @return [Tuile::StyledString] the header row, dimmed so it recedes behind
+    #   the filenames it introduces.
+    def group_row(directory)
+      elide_left(directory, available_width).with_fg(screen.theme[:detail])
+    end
+
+    # @param change [GitWatcher::Change]
+    # @param counts [Tuile::StyledString] its rendered counts, from {#counts_for}.
+    # @param counts_width [Integer] the widest counts in this snapshot, which
+    #   every row reserves so the numbers align on one right edge. Measured
+    #   rather than fixed because a single file reaches +"+184/-17"+ — 8 columns.
+    # @return [Tuile::StyledString] +"  M task_list_pa… +31/-8"+.
+    def change_row(change, counts, counts_width)
+      code = Tuile::StyledString.styled(change.code.rjust(CODE_WIDTH), fg: kind_color(change.code))
+      name = Tuile::StyledString.plain(File.basename(change.path))
+      budget = name_width(counts_width)
+      name = name.ellipsize(budget) if budget
+      pad = budget ? budget - name.display_width : 0
+      gap = counts_width.positive? ? pad + 1 + (counts_width - counts.display_width) : pad
+      Tuile::StyledString.plain(' ' * INDENT) + code + Tuile::StyledString.plain(' ') +
+        name + Tuile::StyledString.plain(' ' * gap) + counts
+    end
+
+    # @param counts_width [Integer] columns the counts column reserves.
+    # @return [Integer, nil] columns a filename may occupy, or +nil+ when the
+    #   pane has no width yet and nothing should be elided.
+    def name_width(counts_width)
+      return nil unless rect.width.positive?
+
+      reserved = INDENT + CODE_WIDTH + 1 + (counts_width.positive? ? counts_width + 1 : 0)
+      [rect.width - reserved, 1].max
+    end
+
+    # @param change [GitWatcher::Change]
+    # @return [Tuile::StyledString] +"+31/-8"+ — green additions, red deletions,
+    #   and a dim slash binding them into one token rather than two loose
+    #   numbers. A zero side is omitted; a change with neither renders empty.
+    def counts_for(change)
+      theme = screen.theme
+      parts = []
+      parts << Tuile::StyledString.styled("+#{change.added}", fg: theme[:added]) if change.added.positive?
+      parts << Tuile::StyledString.styled("-#{change.deleted}", fg: theme[:removed]) if change.deleted.positive?
+      return Tuile::StyledString::EMPTY if parts.empty?
+
+      separator = Tuile::StyledString.styled('/', fg: theme[:detail])
+      parts.inject { |acc, part| acc + separator + part }
+    end
+
+    # Tones the porcelain code by change kind so the list scans at a glance: a
+    # +D+ in either column is a deletion, an +A+ or the untracked
+    # {UNTRACKED_CODE} is new, everything else (+M+, +MM+, …) a modification.
+    # The code carries the kind rather than the filename — it *is* the kind,
+    # and it leaves the name in the default foreground as the row's anchor.
+    #
+    # @param code [String] the two-letter porcelain status code.
+    # @return [Tuile::Color]
+    def kind_color(code)
+      theme = screen.theme
+      if code.include?('D')
+        theme[:removed]
+      elsif code == UNTRACKED_CODE || code.include?('A')
+        theme[:added]
+      else
+        theme[:notice]
+      end
+    end
+
+    # @param text [String]
+    # @param width [Integer, nil] columns available, or +nil+ for no limit.
+    # @return [Tuile::StyledString] +text+ with a leading +…+ standing in for
+    #   whatever came off its front.
+    def elide_left(text, width)
+      styled = Tuile::StyledString.plain(text)
+      return styled if width.nil? || styled.display_width <= width
+
+      Tuile::StyledString.plain('…') + styled.slice(-(width - 1), width - 1)
+    end
+
+    # @return [Integer, nil] the pane's width, or +nil+ when it has none yet.
+    def available_width = rect.width.positive? ? rect.width : nil
+
+    # @param text [String]
+    # @return [Tuile::StyledString] +text+ in the placeholder tone.
+    def dim(text) = Tuile::StyledString.styled(text, fg: screen.theme[:detail])
+
+    # @param rows [Array<Tuile::StyledString>] at least one row.
+    # @return [Tuile::StyledString] the rows as one newline-separated block.
+    def join(rows)
+      separator = Tuile::StyledString.plain("\n")
+      rows.inject { |block, row| block + separator + row }
     end
   end
 end

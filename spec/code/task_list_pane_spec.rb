@@ -8,6 +8,10 @@ RSpec.describe Code::TaskListPane do
   after  { Tuile::Screen.close }
 
   def rendered = window.view.text.to_s
+  def caption = window.caption_label.caption
+
+  # Gives the pane a real width, so the width-dependent ellipsizing runs.
+  def size!(width = 24) = window.rect = Tuile::Rect.new(0, 0, width, 8)
 
   it 'displays and nothing more: Tab never parks focus on the sidebar' do
     assert_kind_of Shared::PassiveTextView, window.view
@@ -20,9 +24,9 @@ RSpec.describe Code::TaskListPane do
 
   it 'stands up as a borderless "Tasks" caption row over a text view' do
     assert_kind_of Tuile::Component::Layout::Vertical, window
-    caption = window.children.first
-    assert_kind_of Shared::PaneCaptionLabel, caption
-    assert_equal described_class::CAPTION, caption.caption
+    assert_kind_of Shared::PaneCaptionLabel, window.caption_label
+    assert_equal window.caption_label, window.children.first
+    assert_equal described_class::CAPTION, caption
     assert_kind_of Tuile::Component::TextView, window.view
   end
 
@@ -46,20 +50,15 @@ RSpec.describe Code::TaskListPane do
     assert_equal 2, rendered.lines.size
   end
 
-  it 'marks each status with its glyph' do
-    listener.on_event(changed(
-                        item(1, 'pend', 'pending'),
-                        item(2, 'busy', 'in_progress'),
-                        item(3, 'done', 'completed')
-                      ))
+  it 'marks each listed status with its glyph' do
+    listener.on_event(changed(item(1, 'pend', 'pending'), item(2, 'busy', 'in_progress')))
     assert_includes rendered, "#{Code::TaskListPane::GLYPHS['pending']} pend"
     assert_includes rendered, "#{Code::TaskListPane::GLYPHS['in_progress']} busy"
-    assert_includes rendered, "#{Code::TaskListPane::GLYPHS['completed']} done"
   end
 
   it 'rewrites the whole pane from the latest snapshot (last-wins, not append)' do
     listener.on_event(changed(item(1, 'first plan', 'pending')))
-    listener.on_event(changed(item(1, 'first plan', 'completed'), item(2, 'second', 'pending')))
+    listener.on_event(changed(item(1, 'first plan', 'in_progress'), item(2, 'second', 'pending')))
     assert_includes rendered, 'first plan'
     assert_includes rendered, 'second'
     assert_equal 2, rendered.lines.size
@@ -80,5 +79,58 @@ RSpec.describe Code::TaskListPane do
   it 'drives #items= directly (the UI verb the listener calls)' do
     window.items = [item(1, 'direct', 'pending')]
     assert_includes rendered, 'direct'
+  end
+
+  describe 'completed tasks move into the caption' do
+    it 'lists only the live ones, tallying the rest' do
+      window.items = [item(1, 'done one', 'completed'), item(2, 'done two', 'completed'),
+                      item(3, 'still going', 'in_progress')]
+      refute_includes rendered, 'done one'
+      refute_includes rendered, 'done two'
+      assert_includes rendered, 'still going'
+      assert_equal 1, rendered.lines.size
+      assert_equal 'Tasks: 2/3', caption
+    end
+
+    it 'says so when every task is done, rather than claiming there are none' do
+      window.items = [item(1, 'wrapped up', 'completed')]
+      assert_includes rendered, Code::TaskListPane::ALL_DONE
+      refute_includes rendered, Code::TaskListPane::PLACEHOLDER
+      assert_equal 'Tasks: 1/1', caption
+    end
+
+    it 'keeps the caption bare while there is nothing to tally' do
+      window.items = []
+      assert_equal described_class::CAPTION, caption
+    end
+  end
+
+  describe 'one row per task, ellipsized to the pane width' do
+    it 'truncates a long task instead of letting TextView wrap it' do
+      size!
+      window.items = [item(1, 'x' * 60, 'pending')]
+      assert_equal 1, rendered.lines.size
+      assert_equal 24, window.view.text.display_width
+      assert rendered.end_with?('…'), "expected an ellipsis, got #{rendered.inspect}"
+    end
+
+    it 'leaves a task that fits untouched' do
+      size!
+      window.items = [item(1, 'short', 'pending')]
+      assert_equal '○ short', rendered
+    end
+
+    it 're-ellipsizes when the pane is resized' do
+      size!(40)
+      window.items = [item(1, 'y' * 60, 'pending')]
+      assert_equal 40, window.view.text.display_width
+      size!(16)
+      assert_equal 16, window.view.text.display_width
+    end
+
+    it 'truncates nothing while the pane has no width yet' do
+      window.items = [item(1, 'z' * 60, 'pending')]
+      assert_includes rendered, 'z' * 60
+    end
   end
 end
