@@ -160,8 +160,14 @@ module Code
     # @return [void]
     def rect=(new_rect)
       super
-      return if rect.empty?
-
+      # Deliberately no `return if rect.empty?` short-circuit: the panes must be
+      # *told* they are empty, not merely left alone. A stale non-empty child
+      # rect under an empty parent survives every normal repaint (both
+      # +Component#repaint+ and the container cascade refuse an empty rect) —
+      # and then +Screen#needs_full_repaint+, which every popup close fires,
+      # invalidates the whole tree directly and paints the child at its old
+      # coordinates, over whatever now owns them. A zero width makes both
+      # computed rects empty on their own, so there is nothing to special-case.
       tasks_h = [TASK_HEIGHT, rect.height].min
       git_h   = rect.height - tasks_h
       @task_pane.rect = Tuile::Rect.new(rect.left, rect.top, rect.width, tasks_h)

@@ -27,6 +27,23 @@ RSpec.describe Code::WorkspaceSidebar do
       assert sidebar.instance_variable_get(:@task_pane).rect.empty?
       assert sidebar.git_summary_pane.rect.empty?
     end
+
+    # The regression that matters, and the one the example above cannot catch:
+    # it starts from panes that are *already* empty, so it passed even while
+    # #rect= short-circuited and left them pointing at their old columns. A
+    # stale child rect under an empty parent survives every normal repaint and
+    # then paints at those old coordinates the moment any popup close fires
+    # Screen#needs_full_repaint.
+    it 'empties both panes when the column is hidden after having been laid out' do
+      tasks = sidebar.instance_variable_get(:@task_pane)
+      sidebar.rect = Tuile::Rect.new(96, 0, 24, 20)
+      refute_predicate tasks.rect, :empty?
+      refute_predicate sidebar.git_summary_pane.rect, :empty?
+
+      sidebar.rect = Tuile::Rect.new(120, 0, 0, 20)
+      assert_predicate tasks.rect, :empty?
+      assert_predicate sidebar.git_summary_pane.rect, :empty?
+    end
   end
 
   describe 'git diff popup' do
