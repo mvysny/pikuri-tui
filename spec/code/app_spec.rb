@@ -201,9 +201,23 @@ RSpec.describe Code::App do
     assert_equal Pathname.new(Dir.pwd).realpath, Pathname.new(app.project_root.to_s).realpath
   end
 
-  it 'exposes the ConfirmerPopup at #confirmer, bound to this app screen' do
-    assert_kind_of Code::ConfirmerPopup, app.confirmer
+  it 'cycles focus between the prompt and the transcript only (Tab is how a decision is answered)' do
+    # Class names, not the components: a failing assert_equal on two mounted
+    # components dumps the whole screen tree.
+    stops = Array.new(4) { app.screen.focus_next; app.screen.focused.class.name }
+    assert_equal ['Shared::ConversationTextView', 'Shared::InputPane::Area'] * 2, stops
+  end
+
+  it 'hands the caret back to the prompt when ESC leaves the transcript' do
+    app.conversation.focus
+    app.screen.send(:handle_key, Tuile::Keys::ESC)
+    assert_same app.layout.input.area, app.screen.focused
+  end
+
+  it "exposes the TranscriptConfirmer at #confirmer, wired to this app's panes" do
+    assert_kind_of Code::TranscriptConfirmer, app.confirmer
     assert_same app.screen, app.confirmer.instance_variable_get(:@screen)
+    assert_same app.conversation, app.confirmer.instance_variable_get(:@conversation)
   end
 
   it 'starts with no errors logged and a discoverable "^K menu" status-bar hint' do
@@ -236,6 +250,48 @@ RSpec.describe Code::App do
     wait_until { turn_app.conversation.text.to_s.include?('Patch applied.') }
 
     assert_includes turn_app.conversation.text.to_s, 'Patch applied.'
+  end
+
+  # The confirmer App wired is the one the write/bash tools were handed, so
+  # asking through it exercises the whole shell path: question into *this*
+  # app's transcript, answered by a key on *this* app's conversation pane.
+  # (A scripted tool call can't drive it — pikuri-testing doesn't model
+  # tool-call streaming, and this shell's agent streams.)
+  describe 'a confirmation the tools would ask' do
+    let(:request) do
+      Pikuri::Workspace::Confirmer::Request.new(question: 'OK to run this?', detail: 'mkdir -p tmp/x',
+                                                editable: false, change: nil)
+    end
+
+    # #ask parks the calling thread, so it runs where a tool runs: off the UI.
+    def asking(some_app)
+      answer = nil
+      worker = Thread.new { answer = some_app.confirmer.ask(request: request) }
+      wait_until { some_app.confirmer.pending? }
+      yield
+      worker.join(2) || raise('the confirmer never answered')
+      answer
+    end
+
+    it 'asks in the transcript with no popup, and rejects on n' do
+      answer = asking(app) do
+        assert_empty app.screen.popups, 'the question belongs in the transcript, not over it'
+        assert_predicate app.status_rule, :decision_pending
+        assert_includes app.conversation.text.to_s, '⏵ OK to run this?'
+        app.conversation.handle_key('n')
+      end
+
+      assert_equal Pikuri::Workspace::Confirmer::Rejected.new(reason: nil), answer
+      assert_includes app.conversation.text.to_s, '· rejected'
+      refute_predicate app.status_rule, :decision_pending
+    end
+
+    it 'declines it on Ctrl+C, so the interrupt is never swallowed' do
+      answer = asking(app) { press_ctrl_c }
+
+      assert_equal Pikuri::Workspace::Confirmer::Rejected.new(reason: nil), answer
+      refute_predicate app.confirmer, :pending?
+    end
   end
 
   it 'cancels the in-flight turn when Ctrl+C arrives mid-turn' do

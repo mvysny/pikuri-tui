@@ -191,6 +191,10 @@ module Chat
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
         conversation: @conversation
       )
+      # ESC (or q) on the transcript hands the caret back rather than falling
+      # through to the loop's unhandled-key quit. This shell asks no
+      # confirmations, but Tab still reaches the pane.
+      @conversation.on_escape = -> { @input.focus }
 
       @layout = Layout.new(
         conversation: @conversation,

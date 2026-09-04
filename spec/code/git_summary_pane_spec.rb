@@ -9,6 +9,12 @@ RSpec.describe Code::GitSummaryPane do
 
   def rendered = pane.view.text.to_s
 
+  it 'displays and nothing more: Tab never parks focus on the sidebar' do
+    assert_kind_of Shared::PassiveTextView, pane.view
+    refute_predicate pane.view, :tab_stop?
+    refute_predicate pane.view, :focusable?
+  end
+
   def change(code, path, added, deleted)
     Code::GitWatcher::Change.new(code: code, path: path, added: added, deleted: deleted)
   end

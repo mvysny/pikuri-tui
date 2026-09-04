@@ -10,7 +10,7 @@
 # the calling thread*, which is fine for the example thread but wrong for the
 # threads production code legitimately spawns: +Shared::AgentSession+'s
 # per-turn worker and the tool thread that blocks in
-# +Code::ConfirmerPopup#ask+ both submit UI work from off the UI thread, and
+# +Code::TranscriptConfirmer#ask+ both submit UI work from off the UI thread, and
 # inline execution there means +check_locked+ raises and the worker dies.
 #
 # {MarshallingEventQueue} closes that gap: an off-thread submit is queued
@@ -68,7 +68,7 @@ module ThreadedUi
 
   # Drain pending UI work, then spin until the block yields truthy. The turn
   # lifecycle crosses a real worker thread (+Shared::AgentSession+'s per-turn
-  # +Thread.new+, or the thread driving +Code::ConfirmerPopup#ask+), so a spec
+  # +Thread.new+, or the thread driving +Code::TranscriptConfirmer#ask+), so a spec
   # observing what the worker rendered must both pump and wait.
   def wait_until(timeout: 2)
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout

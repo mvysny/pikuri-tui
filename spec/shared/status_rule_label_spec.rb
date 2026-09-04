@@ -124,6 +124,25 @@ RSpec.describe Shared::StatusRuleLabel do
     assert_equal ' Local Qwen ', footer_text.to_s
   end
 
+  it 'names the key that answers a parked decision' do
+    label.decision_pending = true
+    assert_equal ' ⏸ decision — Tab to answer ', footer_text.to_s
+  end
+
+  it 'leads with the parked decision, ahead of the plan badge and the model' do
+    label.current_model = 'Local Qwen'
+    label.plan_active = true
+    label.decision_pending = true
+    assert_equal ' ⏸ decision — Tab to answer · ‖ Plan Mode · Local Qwen ', footer_text.to_s
+  end
+
+  it 'drops the decision badge when answered' do
+    label.current_model = 'Local Qwen'
+    label.decision_pending = true
+    label.decision_pending = false
+    assert_equal ' Local Qwen ', footer_text.to_s
+  end
+
   it "reflects the TokenLog's status_line once an event has been processed" do
     # Event fired before the label exists (the lazy let hasn't constructed
     # it, so the on_status_line observer isn't installed yet) — asserts

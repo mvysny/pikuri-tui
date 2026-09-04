@@ -25,7 +25,7 @@
 # The computer shell is laid out like {Chat::App} — one conversation pane
 # over an input strip, NO sidebar (unlike {Code::App}'s task + git windows).
 # But its tools mutate the real host, so it carries the coding shell's
-# safety machinery: it owns a {Code::ConfirmerPopup} (yielded to the
+# safety machinery: it owns a {Code::TranscriptConfirmer} (yielded to the
 # build block for the +write+ / +bash+ tools), surfaces plan mode (a
 # status-rule badge via {Code::PlanModeListener} + a leader-menu +p+ toggle),
 # and renders +edit+ / +write+ tool calls as diffs through the same

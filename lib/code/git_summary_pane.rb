@@ -46,14 +46,14 @@ module Code
     # Stacks a "Changes" caption row over a fresh scrollable text view.
     def initialize
       super()
-      @view = Tuile::Component::TextView.new
+      @view = Shared::PassiveTextView.new
       # No scrollbar — see the note in {TaskListPane}: nothing in the sidebar
       # takes focus, so a bar here would be inoperable decoration.
       add(Shared::PaneCaptionLabel.new(CAPTION), Fixed[1])
       add(@view, Expand[1])
     end
 
-    # @return [Tuile::Component::TextView] the content view under the caption;
+    # @return [Shared::PassiveTextView] the content view under the caption;
     #   exposed for tests, production drives it through {#snapshot=}.
     attr_reader :view
 

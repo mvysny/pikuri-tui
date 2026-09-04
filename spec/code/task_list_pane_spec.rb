@@ -9,6 +9,12 @@ RSpec.describe Code::TaskListPane do
 
   def rendered = window.view.text.to_s
 
+  it 'displays and nothing more: Tab never parks focus on the sidebar' do
+    assert_kind_of Shared::PassiveTextView, window.view
+    refute_predicate window.view, :tab_stop?
+    refute_predicate window.view, :focusable?
+  end
+
   def changed(*items) = Pikuri::Tasks::ListChanged.new(items: items)
   def item(id, content, status) = Pikuri::Tasks::Item.new(id: id, content: content, status: status)
 

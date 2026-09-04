@@ -88,6 +88,120 @@ RSpec.describe Shared::InputPane do
     assert_empty submitted
   end
 
+  describe 'a captured answer' do
+    let(:answers) { [] }
+    let(:area)    { window.area }
+
+    before do
+      screen = Tuile::Screen.instance
+      screen.content = window
+      window.focus
+    end
+
+    def capture(initial: '')
+      window.capture(marker: '✎', initial: initial) { |text| answers << text }
+    end
+
+    def press(key) = Tuile::Screen.instance.send(:handle_key, key)
+
+    it 'pre-fills the buffer and takes the caret' do
+      capture(initial: 'summarize CVEs')
+      assert_equal 'summarize CVEs', area.text.to_s
+      assert_predicate window, :capturing?
+      assert_same area, Tuile::Screen.instance.focused
+    end
+
+    it 'wears its own marker while borrowed, and gives it back after' do
+      capture
+      assert_includes window.instance_variable_get(:@marker).text.to_s, '✎'
+      press(Tuile::Keys::ENTER)
+      assert_includes window.instance_variable_get(:@marker).text.to_s, described_class::MARKER
+    end
+
+    it 'sends the answer on Enter instead of submitting a turn, then clears' do
+      capture
+      area.text = 'use the other library'
+      press(Tuile::Keys::ENTER)
+      assert_equal ['use the other library'], answers
+      assert_empty submitted
+      assert_equal '', area.text.to_s
+      refute_predicate window, :capturing?
+    end
+
+    it 'sends an emptied buffer as an answer (blank is a decision, not a no-op)' do
+      capture(initial: 'draft')
+      area.text = ''
+      press(Tuile::Keys::ENTER)
+      assert_equal [''], answers
+    end
+
+    it 'cancels with nil on ESC' do
+      capture(initial: 'draft')
+      press(Tuile::Keys::ESC)
+      assert_equal [nil], answers
+      assert_equal '', area.text.to_s
+    end
+
+    it 'cancels with nil on #cancel_capture (what an interrupt calls)' do
+      capture
+      window.cancel_capture
+      assert_equal [nil], answers
+    end
+
+    it 'is a no-op to cancel when nothing is captured' do
+      window.cancel_capture
+      assert_empty answers
+    end
+
+    it 'keeps a leading slash literal — an answer is text, not a command' do
+      capture
+      area.text = '/etc/hosts is the wrong file'
+      press(Tuile::Keys::ENTER)
+      assert_equal ['/etc/hosts is the wrong file'], answers
+    end
+
+    it 'opens no palette for a slash typed into an answer' do
+      menu = Shared::SlashMenuPopup.new(
+        screen: Tuile::Screen.instance,
+        commands: [Shared::SlashCommand.new('/logs', 'open the log', ->(_rest) { nil })],
+        conversation: Shared::ConversationTextView.new
+      )
+      pane = described_class.new(on_submit: ->(_text) {}, slash_menu: menu)
+      Tuile::Screen.instance.content = pane
+      pane.focus
+      pane.capture(marker: '✎') { |text| answers << text }
+      pane.area.text = '/lo'
+      refute_predicate menu, :visible?
+    end
+
+    it 'dismisses a palette left open by the abandoned draft, which would claim ESC' do
+      menu = Shared::SlashMenuPopup.new(
+        screen: Tuile::Screen.instance,
+        commands: [Shared::SlashCommand.new('/logs', 'open the log', ->(_rest) { nil })],
+        conversation: Shared::ConversationTextView.new
+      )
+      pane = described_class.new(on_submit: ->(_text) {}, slash_menu: menu)
+      Tuile::Screen.instance.content = pane
+      pane.focus
+      pane.area.text = '/lo'
+      assert_predicate menu, :visible?
+      pane.capture(marker: '✎') { |text| answers << text }
+      refute_predicate menu, :visible?
+      Tuile::Screen.instance.send(:handle_key, Tuile::Keys::ESC)
+      assert_equal [nil], answers
+    end
+
+    it 'stays out of the history: the answer is not recallable as a turn' do
+      area.text = 'a real turn'
+      press(Tuile::Keys::ENTER)
+      capture
+      area.text = 'an answer'
+      press(Tuile::Keys::ENTER)
+      press(Tuile::Keys::UP_ARROW)
+      assert_equal 'a real turn', area.text.to_s
+    end
+  end
+
   describe 'prompt history' do
     let(:area) { window.area }
 

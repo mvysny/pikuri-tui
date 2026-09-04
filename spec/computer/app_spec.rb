@@ -104,9 +104,10 @@ RSpec.describe Computer::App do
     assert_equal Pathname.new(Dir.pwd).realpath, Pathname.new(app.project_root.to_s).realpath
   end
 
-  it 'exposes the ConfirmerPopup at #confirmer, bound to this app screen' do
-    assert_kind_of Code::ConfirmerPopup, app.confirmer
+  it "exposes the TranscriptConfirmer at #confirmer, wired to this app's panes" do
+    assert_kind_of Code::TranscriptConfirmer, app.confirmer
     assert_same app.screen, app.confirmer.instance_variable_get(:@screen)
+    assert_same app.conversation, app.confirmer.instance_variable_get(:@conversation)
   end
 
   it 'exposes a Code::PlanModeListener at #plan_mode_listener' do

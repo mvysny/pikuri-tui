@@ -4,7 +4,7 @@
 # Entry point for the Tuile coding TUI built on Pikuri::Agent — the
 # in-repo coding agent. Same shape as bin/pikuri-tui-chat, but wired with
 # the six file/shell tools, a project-rooted workspace, the bubblewrap
-# sandbox, and a Tuile modal confirmer instead of the stdin one. The
+# sandbox, and an in-transcript confirmer instead of the stdin one. The
 # pikuri-side wiring is ported from pikuri's own bin/pikuri-code demo;
 # everything Tuile — and, since the bin→App refactor, the whole agent object
 # graph — is Code::App's job. The bin does the genuinely pre-screen boot
@@ -84,7 +84,7 @@ parser = OptionParser.new do |opts|
   opts.on('--writable PATH', 'Additional read+write directory (repeatable).') do |v|
     extra_writable << File.expand_path(v)
   end
-  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n popup for writes + bash).') { cli_confirm = false }
+  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n prompt for writes + bash).') { cli_confirm = false }
   opts.on('--yolo', 'Combines --no-sandbox + --no-confirm + opens the filesystem ' \
                     '(credential denylist only). Use only inside a container.') do
     cli_sandbox = false

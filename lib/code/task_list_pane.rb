@@ -55,7 +55,9 @@ module Code
     # +Tuile::Screen+ singleton (fake-able in tests) for its +event_queue+.
     def initialize
       super()
-      @view = Tuile::Component::TextView.new
+      # Passive, so Tab stays a two-stop cycle between the transcript and the
+      # prompt — the panes that answer keys.
+      @view = Shared::PassiveTextView.new
       # No scrollbar: nothing in the sidebar takes focus, so there is no key
       # that could drive one — inside a frame it read as chrome, but on the
       # borderless tint a full-height inoperable bar is just noise (tuile#10,
@@ -67,7 +69,7 @@ module Code
       @listener = Listener.new(pane: self, screen: screen)
     end
 
-    # @return [Tuile::Component::TextView] the content view under the caption;
+    # @return [Shared::PassiveTextView] the content view under the caption;
     #   exposed for tests, production drives it through {#items=} / {#listener}.
     attr_reader :view
 

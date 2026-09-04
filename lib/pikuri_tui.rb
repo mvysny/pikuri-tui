@@ -37,7 +37,7 @@ loader.inflector.inflect(
 
 # The coding ({Code}) and computer ({Computer}) shells depend on the heavier
 # pikuri gems — pikuri-workspace defines +Pikuri::Workspace::Confirmer+ (the
-# {Code::ConfirmerPopup} superclass), and pikuri-code backs the rest of the
+# {Code::TranscriptConfirmer} superclass), and pikuri-code backs the rest of the
 # boot wiring. The computer subtree reuses the +Code::*+ adapters (confirmer /
 # diff formatters) and so needs the same gems; it references no +Pikuri::Os::*+
 # or +Pikuri::Thunderbird::*+ constant at load time (only +Code::*+ /

@@ -29,9 +29,9 @@ against a local llama.cpp server, with specs and Woodpecker CI in
 place. `bin/pikuri-tui-code` (the `Code` namespace) is
 the in-repo coding shell: the same Tuile UI plus a project-rooted
 workspace, the bubblewrap sandbox, the six file/shell tools wired
-with a modal y/n confirmer (`Code::ConfirmerPopup`) on writes and
-bash (provably passive bash commands auto-approve via pikuri's
-`Pikuri::Code::Bash::PassiveCommandDetector`, leaving the popup for mutations;
+with an in-transcript y/n confirmer (`Code::TranscriptConfirmer`) on writes
+and bash (provably passive bash commands auto-approve via pikuri's
+`Pikuri::Code::Bash::PassiveCommandDetector`, leaving the question for mutations;
 read-only git additionally auto-approves once the user affirms a
 one-time, persisted git-config trust prompt — `Code::TrustStore`),
 sub-agent-only network tools, the skill / command / task / MCP /
@@ -58,8 +58,8 @@ but quarantined: the web tools (`web_search` / `web_scrape` / `fetch`)
 are registered sub-agent-only, so the main agent holds no direct egress
 and delegates via the `agent` tool to an isolated
 `Pikuri::SubAgent::RESEARCHER` (web tools, no filesystem), with the
-`Code::ConfirmerPopup` gating each research task before it runs;
-`--no-internet` drops the researcher. It owns a `Code::ConfirmerPopup`
+`Code::TranscriptConfirmer` gating each research task before it runs;
+`--no-internet` drops the researcher. It owns a `Code::TranscriptConfirmer`
 on writes/bash, surfaces plan mode (status-rule badge + leader `p` toggle),
 and renders `edit` / `write` diffs — all reusing the coding shell's
 `Code::*` adapters verbatim, ported from pikuri's
@@ -126,18 +126,23 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   `Shared::PaneCaptionLabel` rule where a `Window` caption used to sit. The
   three consequences worth knowing before touching any of it:
   - **Only modal popups keep frames** (`Code::GitDiffPopup`, the log popup,
-    `Code::ConfirmerPopup`, the leader menu). A popup floating over the app
-    needs an edge; a pane in the layout does not.
+    the leader menu, the slash palette). A popup floating over the app needs an
+    edge; a pane in the layout does not.
   - **We don't paint the primary pane's background**, so the app still
     blends with the user's terminal theme and stays translucent under a
     transparent one. Under transparency the tinted secondaries go solid —
     "translucent transcript, solid furniture" — which is intended.
-  - **Focus needs no chrome cue here.** The prompt is the only focus target
-    in all three shells (the popups are modal), so the caret is the cue and
-    the prompt's tint is a permanent spatial anchor, not a focus state.
-    Don't tie the tint to focus, and don't add the labeled focus chips a
-    multi-pane borderless app would need — if a second focusable pane ever
-    lands, *that* is when the chip question opens.
+  - **Focus needs no chrome cue here — the vanishing caret is the cue.**
+    There are exactly two focus targets in all three shells: the prompt, and
+    the conversation pane when a `Code::TranscriptConfirmer` question is
+    waiting to be answered there. An unfocused `TextView` publishes no cursor
+    position, so moving to the transcript makes the caret *disappear* — which
+    says "your keys go to the transcript now" more plainly than a chip would.
+    So the prompt's tint stays a permanent spatial anchor, not a focus state:
+    don't tie the tint to focus, and don't add the labeled focus chips a
+    multi-pane borderless app would need. Keep every display-only pane out of
+    the Tab order (`Shared::PassiveTextView`, which the sidebar's two panes
+    use) so Tab stays a two-stop cycle between the panes that answer keys.
 - **Chrome accents are Talus, not Tuile's teal — and the tool lines are the
   same coat.** `Shared::AppTheme` overrides `hint_color` with `#a89c8e`
   (dark) / `#6f6558` (light) — kuri's own coat from
@@ -159,6 +164,28 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   streams: the conversation pane is what the user reads; the log
   pane is what we read when something's wrong.
 
+- **A confirmation is asked in the transcript, and focus is what arms it.**
+  The `Code::TranscriptConfirmer` question lands as a block in the
+  conversation pane; `y`/`n`/`e`/`r` answer it only while that pane holds
+  focus. This is the one surface these shells open *unbidden* (the leader
+  menu, the log and diff popups, the slash palette are all user-initiated), so
+  it is the one that must not be able to steal a keystroke — and focus solves
+  that structurally rather than by timing: prose goes to the prompt,
+  decisions go to the transcript, and no amount of typing can answer a
+  question nobody has read. Three consequences, each load-bearing:
+  - **Dismissal is not decline.** Tabbing away or scrolling leaves the
+    decision parked; only an explicit key answers it. Decline-by-default
+    therefore lives in exactly two places — `Ctrl+C` and quit, both via
+    `#reject_pending!`. Skip either and a parked tool leaves `Ctrl+C` looking
+    broken, because the worker is blocked on the answer.
+  - **A parked decision must be loud**, since an inline block *can* be
+    ignored where a modal could not: that is the `Shared::StatusRuleLabel`
+    badge's whole job.
+  - **Prose is typed only at the prompt.** A rejection reason or a rewritten
+    sub-agent task borrows it (`Shared::InputPane#capture`); don't reintroduce
+    a text-entry popup.
+  Don't "fix" a keystroke mishap here with a grace window or a timer — a pause
+  doesn't prove attention, and a swallowed key is how this went wrong before.
 - **Design with components (COP); let each component's
   responsibility decide what it touches.** Follow
   [component-oriented programming](https://mvysny.github.io/component-oriented-programming/):
@@ -170,7 +197,7 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   is not a constraint we impose from outside — it falls out of what
   the component is *for*. A conversation pane that renders the
   agent's event stream, the `Shared::StatusRuleLabel`, the
-  `Code::ConfirmerPopup`, and the `Shared::Model::*` adapters all
+  `Code::TranscriptConfirmer`, and the `Shared::Model::*` adapters all
   legitimately own their Pikuri wiring (build their own listener,
   register their own confirmer); a pure layout container like
   `Chat::Layout` simply never needs it. There is no "keep Pikuri out
@@ -357,8 +384,8 @@ Zeitwerk over `lib/` and eager-loads it.
   paints the inherited `effective_bg_color` instead — a second shade inside
   the pane would read as the box we removed, and the pair would flip the
   prompt's shade as focus moves. The well is a spatial anchor, not a focus
-  cue; with nothing else in these shells focusable the caret is cue enough. A
-  `Layout` cascades no focus, so `#focus` forwards onto the
+  cue; the caret is, and it says everything by vanishing when focus moves to
+  the transcript. A `Layout` cascades no focus, so `#focus` forwards onto the
   area itself. With an optional `slash_menu:` it also arbitrates slash-command
   entry (opens/filters the palette on change, runs a command on Enter for a
   leading-`/` buffer instead of submitting a turn, forwards Up/Down/ESC while
@@ -372,7 +399,19 @@ Zeitwerk over `lib/` and eager-loads it.
   pane — PageUp/PageDown scroll it half a screen (Tuile's
   `TextView#scroll_half_page_up` / `#scroll_half_page_down`) without the caret
   leaving the prompt, and a visible slash palette gets those keys first, since
-  only the prompt knows it is up. Shared by all three shells.
+  only the prompt knows it is up. `#capture` borrows the prompt for a one-off
+  answer instead of a turn (a swapped marker, a pre-filled buffer, Enter →
+  the callback, ESC → the callback with `nil`, no history entry, a leading
+  `/` left literal) — which is why this app has no text-entry popup: the
+  `Code::TranscriptConfirmer`'s reason / edit prose is typed in the one place
+  prose is safe. `#cancel_capture` ends one as if ESC were pressed, for an
+  interrupt. Shared by all three shells.
+- `lib/shared/pending_decision.rb` — `Shared::PendingDecision`, one human
+  decision awaiting an answer in the transcript: a rendered `body`, the
+  `Choice`es on offer (key / label / outcome symbol), and the `on_choice`
+  callback that reports the picked one, plus the `#cue` line spelling the keys
+  out. Immutable, UI-free and Pikuri-free — the body arrives already rendered,
+  because what a decision *looks* like is the asking side's business.
 - `lib/shared/prompt_history.rb` — `Shared::PromptHistory`, the prompt's
   in-memory record of what was submitted this session (turns, injections and
   slash commands alike), with the unsent draft pinned below the newest entry;
@@ -420,8 +459,11 @@ Zeitwerk over `lib/` and eager-loads it.
   `─── readout ───` rule separating the conversation from the prompt in all
   three shells, and the agent readout it carries: a static `context:` segment
   (the coding / computer shells' root), model name, mid-turn spinner,
-  queued-injection count, token snapshot, and a plan-mode badge. Empty
-  segments drop out and an empty readout leaves an unbroken hairline. The row
+  queued-injection count, token snapshot, and two badges — a parked
+  `Code::TranscriptConfirmer` decision (leading, with the key that answers it:
+  a turn is blocked, so it is the loudest thing the rule ever says) and the
+  plan-mode posture. Empty segments drop out and an empty readout leaves an
+  unbroken hairline. The row
   carries `:pane_bg` like the prompt below it, so it reads as that block's top
   edge rather than as a divider on the terminal ground. Also
   duck-types as an agent listener — its `#on_event` catches `ModelSwitched`
@@ -436,6 +478,12 @@ Zeitwerk over `lib/` and eager-loads it.
   Talus hint accent, then a hairline to the right edge — what replaced the
   caption a `Window` painted into its top border. Used by the coding shell's
   two sidebar panes.
+- `lib/shared/passive_text_view.rb` — `Shared::PassiveTextView`, a
+  `TextView` that displays and nothing more (`focusable?` / `tab_stop?` both
+  false). Tuile's `TextView` is a tab stop by default, which is right for the
+  transcript and wrong for a summary pane: a focus stop that ignores every key
+  is a hole in the Tab order. Used by the sidebar's two panes, so Tab stays a
+  two-stop cycle between the transcript and the prompt.
 - `lib/shared/tint.rb` — `Shared::Tint`, derives the borderless-chrome colors
   from the terminal's reported background RGB: `.pane_bg` (the secondary-pane
   tint, one `DELTA` step of HSL lightness *toward mid-grey*, hue held, with a
@@ -496,6 +544,15 @@ Zeitwerk over `lib/` and eager-loads it.
   matched path the block has no room for). `#scroll_half_page_up` /
   `#scroll_half_page_down` page the viewport for a host holding focus elsewhere
   (the prompt's PageUp/PageDown); paging back to the bottom re-arms tailing.
+  It is also where a human decision is *asked*: `#pending_decision=` appends a
+  `Shared::PendingDecision`'s body with its key cue and claims those keys,
+  `#settle_pending_decision` rewrites the cue as the outcome (repeatable, for
+  an outcome reached in two steps) and disarms them. Those keys are live only
+  while this pane holds focus — the one state fact the whole confirmer design
+  rests on. `#on_escape` lets the host hand the caret back to the prompt, which
+  it must: Tuile's event loop *stops* on an unclaimed ESC — or `q`, hence
+  `LEAVE_KEYS` carrying both — which is fine when nothing is focused and a
+  footgun on a pane the user now tabs to routinely.
 - `Chat` — namespace (implicit — no `lib/chat.rb`, autovivified from
   `lib/chat/`) for the chat front-end (`Chat::App` + `Chat::Layout`); the
   baseline shell the `Code` / `Computer` siblings were copied from.
@@ -512,7 +569,7 @@ Zeitwerk over `lib/` and eager-loads it.
   parallel `Code::*` copies.
 - `lib/code/app.rb` — `Code::App`, the Tuile
   shell for `bin/pikuri-tui-code`; like `Chat::App` but adds the
-  `Code::ConfirmerPopup`, the `Code::WorkspaceSidebar` (tasks + git changes +
+  `Code::TranscriptConfirmer`, the `Code::WorkspaceSidebar` (tasks + git changes +
   diff popup), plan-mode toggle, and the full three-namespace slash palette
   (built-ins, then `Shared::FileCommands`, then the skill half
   `Code::SkillActivationListener` keeps current). Like the other two shells it
@@ -587,12 +644,24 @@ Zeitwerk over `lib/` and eager-loads it.
   `Code::GitDiffRenderer`, renders a plain `git diff` into
   `DiffRenderer`'s two-tier inline form so the popup matches the
   `edit`/`write` tool diffs.
-- `lib/code/confirmer_popup.rb` —
-  `Code::ConfirmerPopup`, a `Pikuri::Workspace::Confirmer`
-  rendered as a modal Tuile popup instead of stdin; gates the
-  `Write` / `Bash` / `agent` tools with approve / edit / reject, painting a
-  request's `Confirmer::Change` through `Code::DiffRenderer` so a write is
-  reviewed as the same diff the transcript later shows.
+- `lib/code/transcript_confirmer.rb` —
+  `Code::TranscriptConfirmer`, a `Pikuri::Workspace::Confirmer` that asks in
+  the conversation pane instead of stdin or a popup; gates the
+  `Write` / `Bash` / `agent` tools with approve / edit / reject, and the
+  answer keys are live only while the transcript holds focus — the property
+  that makes them safe to spell `y`/`n`, since prose can only ever reach the
+  prompt. The two typing outcomes (a steering reason, a rewritten sub-agent
+  task) borrow the prompt via `Shared::InputPane#capture` rather than opening
+  a text-entry popup. `#reject_pending!` is how `Ctrl+C` and quit stay
+  answerable while a tool is parked: dismissal no longer declines, so those
+  two are the only places decline-by-default still lives.
+- `lib/code/confirm_renderer.rb` —
+  `Code::ConfirmRenderer`, paints one sanitized request as the transcript
+  block `Code::TranscriptConfirmer` asks with (warnings, question, payload,
+  and a write's `Confirmer::Change` through `Code::DiffRenderer` so a change
+  is reviewed as the same diff the transcript later shows); screen-agnostic
+  like `Shared::TrifectaRenderer`, and it renders no key cue — the offered
+  outcomes belong to the `Shared::PendingDecision`.
 - `lib/code/trust_store.rb` —
   `Code::TrustStore`, the persisted set of git-config-trusted
   project roots that gate read-only-git auto-approval; asked at most once
@@ -811,7 +880,7 @@ Zeitwerk over `lib/` and eager-loads it.
   `FakeScreen` (tuile 0.10.0 dropped the fake's bypass of `check_locked`),
   and `Tuile::FakeEventQueue#submit` runs its block *inline on the calling
   thread* — so production code submitting from a worker (`Shared::AgentSession`'s
-  per-turn thread, the tool thread blocking in `Code::ConfirmerPopup#ask`)
+  per-turn thread, the tool thread parked in `Code::TranscriptConfirmer#ask`)
   raises there and the worker dies silently, leaving the example to time out
   on a render that never happened. `spec/support/marshalling_fake_screen.rb`
   fixes the seam rather than the symptom: `fake_screen` mounts a screen whose
@@ -904,7 +973,7 @@ Zeitwerk over `lib/` and eager-loads it.
   `Shared::ConversationTextView`, `Shared::AgentSession`,
   `Shared::StatusBar`, `Shared::RootLayout`,
   `Shared::LeaderMenu`, `Shared::SlashMenuPopup`, `Shared::SlashCommand`,
-  `Shared::FileCommands`,
+  `Shared::FileCommands`, `Shared::PendingDecision`, `Shared::PassiveTextView`,
   `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the computer shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this

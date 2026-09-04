@@ -6,8 +6,8 @@ require 'pikuri-core'
 # The one-row rule separating the conversation pane from the prompt, carrying
 # the agent's status readout. A busy rule reads:
 #
-#   ── ⠹ ‖ Plan Mode · ~/work/pikuri-tui · Local Qwen 3.6 · 2 queued · 25k/60k ──
-#      <spinner> <plan mode?>  <context>     <model>      <queued>  <token stats>
+#   ── ⏸ decision — Tab to answer · ‖ Plan Mode · ⠹ ~/work/pikuri-tui · Qwen 3.6 · 2 queued · 25k/60k ──
+#      <parked decision>            <plan mode>   <spinner> <context>  <model>    <queued>   <token stats>
 #
 # Empty segments drop out (chat never lights the badge; an idle agent shows no
 # spinner) and with nothing at all to say the row is a plain hairline. During a
@@ -81,6 +81,14 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # @return [Boolean]
   attr_reader :plan_active
 
+  # Whether a tool is parked waiting for a human answer in the transcript; when
+  # +true+ the readout leads with a notice-toned "⏸ decision" badge naming the
+  # key that gets there. The turn cannot proceed until it is answered, so this
+  # is the loudest thing the rule ever says.
+  #
+  # @return [Boolean]
+  attr_reader :decision_pending
+
   # Claims the +token_log.on_status_line+ observer slot.
   #
   # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token
@@ -101,6 +109,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     @interloper = nil
     @current_model = nil
     @plan_active = false
+    @decision_pending = false
     @sub_status = nil
     @ticker = nil
     @spinner_frame = nil
@@ -146,6 +155,13 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # @return [void]
   def plan_active=(active)
     @plan_active = active
+    refresh
+  end
+
+  # @param pending [Boolean] whether a decision is waiting to be answered.
+  # @return [void]
+  def decision_pending=(pending)
+    @decision_pending = pending
     refresh
   end
 
@@ -278,19 +294,30 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     Tuile::StyledString.styled('─' * width, fg: screen.theme[:pane_frame])
   end
 
-  # The status readout: the plan-mode badge (notice-toned, so it pops against
-  # the dim chrome) leading a hint-toned tail of spinner / model / queue /
-  # tokens. Either side may be empty.
+  # The status readout: the badges (notice-toned, so they pop against the dim
+  # chrome) leading a hint-toned tail of spinner / model / queue / tokens. Any
+  # part may be empty.
   #
   # @return [Tuile::StyledString, nil] +nil+ when there is nothing to say.
   def build_readout
     hint = screen.theme.hint_color
     tail = tail_text
-    rest = Tuile::StyledString.plain(tail).with_fg(hint) unless tail.empty?
-    return rest unless @plan_active
+    parts = badges
+    parts << Tuile::StyledString.plain(tail).with_fg(hint) unless tail.empty?
+    return nil if parts.empty?
 
-    badge = Tuile::StyledString.plain('‖ Plan Mode').with_fg(screen.theme[:notice])
-    rest ? badge + Tuile::StyledString.plain(' · ').with_fg(hint) + rest : badge
+    separator = Tuile::StyledString.plain(' · ').with_fg(hint)
+    parts.inject { |readout, part| readout + separator + part }
+  end
+
+  # @return [Array<Tuile::StyledString>] the lit badges, most urgent first: a
+  #   parked decision outranks the plan-mode posture.
+  def badges
+    notice = screen.theme[:notice]
+    badges = []
+    badges << Tuile::StyledString.plain('⏸ decision — Tab to answer').with_fg(notice) if @decision_pending
+    badges << Tuile::StyledString.plain('‖ Plan Mode').with_fg(notice) if @plan_active
+    badges
   end
 
   # @return [String] the plain (uncolored) spinner + segment tail.

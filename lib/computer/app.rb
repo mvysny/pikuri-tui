@@ -13,8 +13,8 @@ module Computer
   #
   # Laid out like {Chat::App} — one conversation Window over an input strip,
   # NO sidebar — but it carries the coding shell's safety machinery because
-  # the agent's file/bash tools mutate the real host: a {Code::ConfirmerPopup}
-  # gates +write+ / +bash+, plan mode surfaces as a status-rule badge
+  # the agent's file/bash tools mutate the real host: a
+  # {Code::TranscriptConfirmer} gates +write+ / +bash+, plan mode surfaces as a status-rule badge
   # ({Code::PlanModeListener} + a leader-menu +p+ toggle), and +edit+ / +write+
   # render as diffs. It reuses the +Code::*+ adapters directly rather than
   # re-copying them (see {Computer} for the duplicate-only-the-shell
@@ -64,11 +64,11 @@ module Computer
   # thread and delegates the off-thread turn lifecycle — worker thread,
   # mid-turn injection, concurrency guard, spinner, Ctrl+C escalation — to a
   # composed {Shared::AgentSession} (see its threading contract). Enter routes
-  # to +session.submit+, Ctrl+C to +session.interrupt+, leader +c+ to
-  # +session.clear_conversation+. The {Code::ConfirmerPopup} bridges the other
-  # way: a tool on the worker thread calls +confirm?+, which submits the popup
-  # to the UI thread and blocks the worker until the user answers (see its
-  # docs).
+  # to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
+  # +session.clear_conversation+. The {Code::TranscriptConfirmer} bridges the
+  # other way: a tool on the worker thread calls +confirm?+, which submits the
+  # question to the UI thread and parks the worker until the user answers (see
+  # its docs).
   #
   # UI-thread-confined.
   class App
@@ -134,7 +134,7 @@ module Computer
     #   (via {#toggle_plan_mode} or the model's enter/exit tools).
     attr_reader :plan_mode_listener
 
-    # @return [Code::ConfirmerPopup] the modal confirmer wired into the
+    # @return [Code::TranscriptConfirmer] the in-transcript confirmer wired into the
     #   +write+ / +bash+ tools; exposed for tests and for callers that want to
     #   inspect how those tools were gated.
     attr_reader :confirmer
@@ -283,7 +283,13 @@ module Computer
         conversation: @conversation
       )
 
-      @confirmer = Code::ConfirmerPopup.new(screen: @screen)
+      @confirmer = Code::TranscriptConfirmer.new(
+        screen: @screen, conversation: @conversation,
+        status_rule: @status_rule, input: @input
+      )
+      # ESC on the transcript (where the user answers a confirmation) hands the
+      # caret back rather than falling through to the loop's unhandled-key quit.
+      @conversation.on_escape = -> { @input.focus }
       @plan_mode_listener = Code::PlanModeListener.new(status_rule: @status_rule, screen: @screen)
 
       @layout = Layout.new(
@@ -330,7 +336,7 @@ module Computer
                   Pikuri::Code::Bash::Sandbox::NONE
                 end
 
-      # The Tuile modal confirmer for writes + bash, unless confirmations are
+      # The in-transcript confirmer for writes + bash, unless confirmations are
       # disabled (--no-confirm / --yolo), in which case approve everything.
       # Pikuri::Os::Extension pairs this human confirmer with a
       # PassiveCommandDetector (allow_git: true) internally, so provably
@@ -435,19 +441,30 @@ module Computer
     #   (the default), so it can't stack over an open popup. The {Shared::Log::UI} owns
     #   this binding because its hint also carries the unread-error tally —
     #   the only always-visible status-bar surface.
-    # - +Ctrl+C+ runs the {Shared::AgentSession#interrupt} escalation (cancel turn ->
-    #   unfocus -> quit). The one direct accelerator kept: it is the urgent
-    #   mid-turn interrupt, not a command we want behind a chord. Also
+    # - +Ctrl+C+ runs {#interrupt}. The one direct accelerator kept: it is the
+    #   urgent mid-turn interrupt, not a command we want behind a chord. Also
     #   +over_popups: false+: a popup means the user isn't interacting with
     #   the LLM, so Ctrl+C is the popup's business, not ours. The trade-off
     #   is that you can't cancel a running turn while a popup happens to be
-    #   open — close it (ESC/q) first — and that a {Code::ConfirmerPopup}
-    #   is dismissed by declining (ESC/q), not by Ctrl+C.
+    #   open — close it (ESC/q) first.
     #
     # @return [void]
     def register_shortcuts
-      @screen.register_global_shortcut(Tuile::Keys::CTRL_C) { @session.interrupt }
+      @screen.register_global_shortcut(Tuile::Keys::CTRL_C) { interrupt }
       @log_ui.install_shortcut { @leader_menu.open }
+    end
+
+    # +Ctrl+C+: decline a parked confirmation if there is one, else run the
+    # {Shared::AgentSession#interrupt} escalation (cancel turn -> unfocus ->
+    # quit).
+    #
+    # The decision comes first because a parked tool has the worker blocked, so
+    # cancelling the turn alone would look like nothing happened until the
+    # decision was answered.
+    #
+    # @return [void]
+    def interrupt
+      @session.interrupt unless @confirmer.reject_pending!
     end
 
     # Build the {Shared::LeaderMenu} for the computer shell: logs, plan mode, switch
@@ -506,6 +523,9 @@ module Computer
     #
     # @return [void]
     def quit
+      # Decline anything parked first: a tool blocked on an answer would
+      # otherwise be abandoned mid-operation rather than told no.
+      @confirmer.reject_pending!
       @screen.event_queue.stop
     end
 

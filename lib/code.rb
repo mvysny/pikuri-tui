@@ -2,8 +2,8 @@
 
 # Namespace for the +bin/pikuri-tui-code+ TUI: the in-repo coding-agent
 # shell ({Code::App}), its vertical-split root layout ({Code::Layout}), and
-# the modal y/n confirmer ({Code::ConfirmerPopup}) the +Write+ / +Bash+ tools
-# prompt through.
+# the in-transcript y/n confirmer ({Code::TranscriptConfirmer}) the +Write+ /
+# +Bash+ tools ask through.
 #
 # == Why a parallel copy of +Chat::+ and not a shared base
 #
@@ -12,9 +12,9 @@
 # but the two shells are kept as independent copies rather than factored
 # onto a common base: the project's "thin shell, readable not obfuscated"
 # ceiling doesn't ask for the DRY win, and the coding shell's one genuine
-# addition — a confirmation popup on the write/bash tools — is cheaper as a
+# addition — a confirmation gate on the write/bash tools — is cheaper as a
 # little duplication than a base-class abstraction. The computer shell later made
-# the same call (reusing this namespace's {ConfirmerPopup} / diff adapters,
+# the same call (reusing this namespace's {TranscriptConfirmer} / diff adapters,
 # which are cross-cutting tool wiring, not shell scaffolding). Only pieces
 # that carry *no* shell-specific divergence are extracted into {Shared}
 # instead of copied ({Shared::InputPane}, {Shared::StatusRuleLabel}, …);

@@ -611,4 +611,91 @@ RSpec.describe Shared::ConversationTextView do
       refute_includes rendered, "#{pad}= 42"
     end
   end
+
+  describe 'asking a decision' do
+    let(:picked) { [] }
+
+    def decision(*keys)
+      choices = keys.map do |key|
+        Shared::PendingDecision::Choice.new(key: key, label: "do #{key}", outcome: :"#{key}_picked")
+      end
+      Shared::PendingDecision.new(body: '⏵ OK to run this?', choices: choices,
+                                  on_choice: ->(outcome) { picked << outcome })
+    end
+
+    it 'appends the body with the key cue under it' do
+      pane.pending_decision = decision('y', 'n')
+      assert_includes rendered, '⏵ OK to run this?'
+      assert_includes rendered, '(y) do y   (n) do n'
+    end
+
+    it 'reports the picked outcome and consumes the key' do
+      pane.pending_decision = decision('y', 'n')
+      assert_equal true, pane.handle_key('n')
+      assert_equal [:n_picked], picked
+    end
+
+    it 'declines a key it was not offered, leaving the scroll ladder alone' do
+      pane.pending_decision = decision('y')
+      assert_equal false, pane.handle_key('z')
+      assert_empty picked
+    end
+
+    it 'answers nothing when no decision is asked — y is just a key' do
+      assert_equal false, pane.handle_key('y')
+      assert_empty picked
+    end
+
+    it 'keeps the question and swaps the cue for the outcome once settled' do
+      pane.pending_decision = decision('y', 'n')
+      pane.settle_pending_decision('approved')
+      assert_includes rendered, '⏵ OK to run this?'
+      assert_includes rendered, '· approved'
+      refute_includes rendered, '(y) do y'
+    end
+
+    it 'stops answering once settled' do
+      pane.pending_decision = decision('y')
+      pane.settle_pending_decision('approved')
+      assert_nil pane.pending_decision
+      assert_equal false, pane.handle_key('y')
+      assert_empty picked
+    end
+
+    it 'settles again for an outcome that took two steps' do
+      pane.pending_decision = decision('r')
+      pane.settle_pending_decision('rejecting — type a reason')
+      pane.settle_pending_decision('rejected: wrong directory')
+      assert_includes rendered, '· rejected: wrong directory'
+      refute_includes rendered, 'type a reason'
+    end
+
+    it 'raises when settling a decision that was never asked (our bug, not a no-op)' do
+      assert_raises(RuntimeError) { pane.settle_pending_decision('approved') }
+    end
+
+    it 'drops the asked decision when the conversation is cleared' do
+      pane.pending_decision = decision('y')
+      pane.clear
+      assert_nil pane.pending_decision
+      assert_equal false, pane.handle_key('y')
+    end
+  end
+
+  describe 'leaving the pane' do
+    it 'runs on_escape — the host hands the caret back to the prompt' do
+      escaped = 0
+      pane.on_escape = -> { escaped += 1 }
+      described_class::LEAVE_KEYS.each { |key| assert_equal true, pane.handle_key(key) }
+      assert_equal described_class::LEAVE_KEYS.length, escaped
+    end
+
+    it 'claims q as well as ESC, so neither stops the event loop from here' do
+      assert_includes described_class::LEAVE_KEYS, 'q'
+    end
+
+    it 'leaves them unclaimed with no handler wired' do
+      described_class::LEAVE_KEYS.each { |key| assert_equal false, pane.handle_key(key) }
+    end
+  end
 end

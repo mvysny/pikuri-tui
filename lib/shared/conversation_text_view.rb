@@ -34,6 +34,23 @@ require 'tuile'
 # writing into this same pane without sharing the parent's open blocks (see
 # {Listener#for_sub_agent}).
 #
+# The one exception is {#pending_decision} — the pane must hold it, because the
+# pane is what the answering keys arrive at.
+#
+# == Asking a human decision
+#
+# A tool that needs a human answer renders the question here rather than into a
+# modal popup, and the answer keys are live only while this pane holds focus:
+#
+#   conversation.pending_decision = decision      # body + "(y) approve …"
+#   # user Tabs here (the prompt's caret vanishes — that is the focus cue),
+#   # presses y; decision.on_choice fires with :approve
+#   conversation.settle_pending_decision('approved')
+#
+# Focus is what arms the keys, and that is the whole safety property: prose
+# typed at the prompt is a different focus target, so no amount of typing can
+# answer a question the user has not looked at.
+#
 # == Markdown flag
 #
 # +markdown:+ (default +true+) gates the assistant render path: when off, the
@@ -68,6 +85,16 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @return [Integer]
   SCROLLBAR_GUTTER = 1
 
+  # Keys that mean "I'm done reading here", both routed to {#on_escape}.
+  #
+  # +q+ rides along with ESC because Tuile's event loop *stops* on either one
+  # when no component claims it — a quit-on-one-keystroke that is fine when
+  # nothing is focused and a footgun on a pane the user tabs to routinely, all
+  # the more so with a tool parked on a decision here.
+  #
+  # @return [Array<String>]
+  LEAVE_KEYS = [Tuile::Keys::ESC, 'q'].freeze
+
   LOG = Pikuri.logger_for('markdown')
   private_constant :LOG
 
@@ -97,12 +124,26 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # +Tuile::Screen.fake+ for tests). Its +event_queue+ marshals the render
     # calls back from the agent's worker thread.
     @listener = Listener.new(view: self, screen: screen, indent: 0)
+    @pending_decision = nil
+    @decision_region = nil
+    @decision_body = nil
+    @on_escape = nil
   end
 
   # @return [Listener] the transcript listener bound to this pane, created once
   #   at construction. The host includes it in the agent's +ListenerList+;
   #   pikuri mints indented siblings off it via {Listener#for_sub_agent}.
   attr_reader :listener
+
+  # @return [Shared::PendingDecision, nil] the decision this pane is currently
+  #   asking, +nil+ when there is none. While set, {#handle_key} claims that
+  #   decision's keys.
+  attr_reader :pending_decision
+
+  # @return [Proc, nil] zero-arg callable run when the user leaves this pane
+  #   ({LEAVE_KEYS}) — normally "put focus back on the prompt". Leave it unset
+  #   and those keys fall through unclaimed, which stops the event loop.
+  attr_accessor :on_escape
 
   # @return [Hash{String => #render_call, #render_result}] the per-tool
   #   formatters, consulted by the {Listener} on each tool call.
@@ -249,7 +290,91 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     end
   end
 
+  # Ask +decision+ in the transcript: append its body with the key cue under it,
+  # and claim those keys until the decision is settled.
+  #
+  #   ⏵ OK to run `rm -rf build`?
+  #   (y) approve   (n) reject   (r) reject w/ reason
+  #
+  # Passing +nil+ disarms the keys without touching the block — for a decision
+  # whose answer is still being typed elsewhere.
+  #
+  # @param decision [Shared::PendingDecision, nil] the decision to ask.
+  # @return [void]
+  def pending_decision=(decision)
+    @pending_decision = decision
+    return if decision.nil?
+
+    @decision_body = decision.body
+    @decision_region = create_region
+    write_decision(screen.theme.notice(decision.cue))
+  end
+
+  # Rewrite the asked decision's cue line as +text+, the record of how it went,
+  # and disarm its keys. Repeatable: an outcome reached in two steps (reject,
+  # then a typed reason) settles once per step.
+  #
+  #   conversation.settle_pending_decision('approved')   # · approved
+  #
+  # @param text [String] the outcome, plain; this applies the tone.
+  # @return [void]
+  # @raise [RuntimeError] if no decision was ever asked into this pane.
+  def settle_pending_decision(text)
+    raise 'no decision block to settle' if @decision_region.nil?
+
+    @pending_decision = nil
+    write_decision(screen.theme.detail("· #{text}"))
+  end
+
+  # Claims the asked decision's keys, then {LEAVE_KEYS}, then falls back to
+  # {Tuile::Component::TextView}'s scroll ladder.
+  #
+  # The decision keys are live *only* while this pane holds focus, which is what
+  # makes them safe to spell +y+ / +n+: prose typed at the prompt is a different
+  # focus target and can never reach here.
+  #
+  # @param key [String]
+  # @return [Boolean] +true+ if the key was consumed here.
+  def handle_key(key)
+    return true if choose(key)
+
+    if LEAVE_KEYS.include?(key) && @on_escape
+      @on_escape.call
+      return true
+    end
+
+    super
+  end
+
+  # Drops every region, the asked decision's included.
+  #
+  # @return [void]
+  def clear
+    super
+    @pending_decision = nil
+    @decision_region = nil
+    @decision_body = nil
+  end
+
   private
+
+  # @param key [String]
+  # @return [Boolean] whether the key picked an outcome for the asked decision.
+  def choose(key)
+    choice = @pending_decision&.choice_for(key)
+    return false if choice.nil?
+
+    @pending_decision.on_choice.call(choice.outcome)
+    true
+  end
+
+  # Rewrite the decision block as its body over +tail+.
+  #
+  # @param tail [String] the toned cue or outcome line.
+  # @return [void]
+  def write_decision(tail)
+    @decision_region.text = "#{@decision_body}\n#{tail}"
+  end
 
   # Columns {#wrap_width} holds back for the gutter: {SCROLLBAR_GUTTER} when
   # there is a scrollbar *and* room for both it and the gap, else none. The

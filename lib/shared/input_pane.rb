@@ -18,10 +18,12 @@ require 'tuile'
 # {Area#background} paints the inherited tint instead (see there, and tuile#11
 # — https://github.com/mvysny/tuile/issues/11).
 #
-# The well is a permanent spatial anchor, not a focus cue. With nothing else in
-# these shells focusable (the popups are modal), the caret is the only focus
-# cue needed, which is why this pane carries no counterpart to the labeled
-# chips a multi-pane borderless app would need.
+# The well is a permanent spatial anchor, not a focus cue — the *caret* is the
+# focus cue, and it does the whole job. Focus leaves the prompt only for the
+# {Shared::ConversationTextView} (to answer a {Shared::PendingDecision}), and an
+# unfocused {Tuile::Component::TextView} publishes no cursor position, so the
+# caret simply vanishes: "your keys go to the transcript now", stated without
+# the labeled chips a multi-pane borderless app would need.
 #
 # The host builds one, drops it into the layout, and focuses it — {#focus}
 # forwards to the private {Area}, since a {Tuile::Component::Layout} has no
@@ -43,6 +45,10 @@ require 'tuile'
 # With a +conversation+, PageUp/PageDown page that pane half a screen — the
 # transcript reads back without the caret leaving the prompt. A visible palette
 # gets those keys first, to page its own list.
+#
+# {#capture} borrows the prompt for a one-off answer (the reason for rejecting a
+# tool call, a rewritten sub-agent task) instead of a turn. That is why this app
+# has no text-entry popup: prose belongs in the one place prose is safe.
 #
 # Shared by all three shells.
 #
@@ -97,6 +103,7 @@ class Shared::InputPane < Tuile::Component::Layout
     # baked into its text and does need {#on_theme_changed}.
     self.bg_color = Tuile::Theme.ref(:pane_bg)
     slash_menu.anchor = self if slash_menu
+    @capture_marker = nil
     rebuild_marker
   end
 
@@ -112,6 +119,45 @@ class Shared::InputPane < Tuile::Component::Layout
   #
   # @return [void]
   def focus = @area.focus
+
+  # Borrow the prompt for one answer instead of a turn: swap the marker, hand
+  # the buffer +initial+, and route the next Enter (or ESC) to +on_finish+
+  # rather than to +on_submit+. The answer is not recorded in the history and a
+  # leading +/+ stays literal — it is text, not a command.
+  #
+  #   input.capture(marker: '✎', initial: task) do |text|
+  #     text.nil? ? reject : approve(text)   # nil = the user pressed ESC
+  #   end
+  #
+  # @param marker [String] glyph shown in place of {MARKER} while capturing, so
+  #   the prompt doesn't look like it is waiting for a message.
+  # @param initial [String] pre-fill text.
+  # @yieldparam text [String, nil] the submitted text (+""+ when the user sent
+  #   an empty buffer), or +nil+ when the user cancelled with ESC.
+  # @return [void]
+  def capture(marker:, initial: '', &on_finish)
+    @capture_marker = marker
+    rebuild_marker
+    @area.capture(initial: initial) do |text|
+      @capture_marker = nil
+      rebuild_marker
+      on_finish.call(text)
+    end
+    # The caller may be answering from another pane, and a borrowed prompt with
+    # no caret in it would look inert.
+    focus
+  end
+
+  # @return [Boolean] whether the prompt is currently borrowed by {#capture}.
+  def capturing? = @area.capturing?
+
+  # End a {#capture} as if the user had pressed ESC — its callback runs with
+  # +nil+. A no-op when the prompt isn't captured.
+  #
+  # @return [void]
+  def cancel_capture
+    @area.finish_capture(nil) if @area.capturing?
+  end
 
   # Lays the marker and the editable area out across the tinted well: the
   # marker on the first row at the very left edge, the area filling the rest
@@ -160,8 +206,41 @@ class Shared::InputPane < Tuile::Component::Layout
       @conversation = conversation
       @history = Shared::PromptHistory.new
       @recalling = false
-      self.on_change = ->(text) { slash_menu.sync(text) unless @recalling } if slash_menu
+      @capture = nil
+      # No palette while capturing: a captured answer is prose, so a leading
+      # slash is a character and not the start of a command.
+      self.on_change = ->(text) { slash_menu.sync(text) unless @recalling || @capture } if slash_menu
       self.on_escape = method(:escape)
+    end
+
+    # Route the next Enter / ESC to +on_finish+ instead of submitting a turn.
+    #
+    # @param initial [String] pre-fill text.
+    # @yieldparam text [String, nil] submitted text, or +nil+ on ESC.
+    # @return [void]
+    def capture(initial:, &on_finish)
+      # A palette left open by the abandoned draft would claim ESC, and ESC is
+      # how the capture is cancelled. Closed before the flag goes up, since the
+      # flag is what suppresses the sync.
+      @slash_menu&.sync('')
+      @capture = on_finish
+      set_text_quietly(initial)
+    end
+
+    # @return [Boolean] whether a {#capture} is in progress.
+    def capturing? = !@capture.nil?
+
+    # End the capture, empty the buffer, then hand +value+ to its callback — in
+    # that order, so a callback that starts a second capture wins.
+    #
+    # @param value [String, nil] the answer, or +nil+ when cancelled.
+    # @return [Boolean] always true; Enter/ESC during a capture is ours.
+    def finish_capture(value)
+      capture = @capture
+      @capture = nil
+      set_text_quietly('')
+      capture.call(value)
+      true
     end
 
     # Route keys with the slash palette in mind, then fall through to
@@ -174,6 +253,10 @@ class Shared::InputPane < Tuile::Component::Layout
     # @param key [String]
     # @return [Boolean] +true+ if the key was consumed here.
     def handle_key(key)
+      # A capture owns Enter outright: no palette, no blank-buffer no-op — an
+      # empty answer is a meaningful one (a reason skipped, a task cleared).
+      return finish_capture(text.dup) if @capture && key == Tuile::Keys::ENTER && active?
+
       if @slash_menu
         return @slash_menu.handle_nav_key(key) if nav_key?(key) && @slash_menu.visible?
         return submit_command if key == Tuile::Keys::ENTER && active? && text.start_with?('/')
@@ -220,6 +303,8 @@ class Shared::InputPane < Tuile::Component::Layout
     # @param key [String]
     # @return [Boolean] +true+ if the key was consumed here.
     def handle_text_input_key(key)
+      return super if @capture # a captured answer isn't a turn, so it has no history to walk
+
       if key == Tuile::Keys::UP_ARROW && caret_row.zero?
         return true if recall_older
       elsif key == Tuile::Keys::DOWN_ARROW && caret_row == row_count - 1
@@ -263,7 +348,9 @@ class Shared::InputPane < Tuile::Component::Layout
     #
     # @return [void]
     def escape
-      if @history.at_draft?
+      if @capture
+        finish_capture(nil)
+      elsif @history.at_draft?
         self.text = ''
       else
         recall(@history.jump_to_draft)
@@ -292,10 +379,19 @@ class Shared::InputPane < Tuile::Component::Layout
     def recall(entry)
       return false if entry.nil?
 
-      @recalling = true
-      self.text = entry
-      self.caret = text.length
+      set_text_quietly(entry)
       true
+    end
+
+    # Replace the buffer with the caret at its end, without letting the slash
+    # palette react.
+    #
+    # @param value [String]
+    # @return [void]
+    def set_text_quietly(value)
+      @recalling = true
+      self.text = value
+      self.caret = text.length
     ensure
       @recalling = false
     end
@@ -350,6 +446,6 @@ class Shared::InputPane < Tuile::Component::Layout
   # Re-renders the marker label; its accent is baked into the text.
   # @return [void]
   def rebuild_marker
-    @marker.text = screen.theme.hint(MARKER)
+    @marker.text = screen.theme.hint(@capture_marker || MARKER)
   end
 end

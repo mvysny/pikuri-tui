@@ -30,7 +30,7 @@ require 'tuile'
 #   plus the slash-menu command names and the coding shell's diff headers.
 #   {CHESTNUT} / {CHESTNUT_SHADE}.
 # - +:notice+ — the +! reason+ fallback line and the
-#   {Code::ConfirmerPopup} sanitizer warnings (a "read this carefully"
+#   {Code::ConfirmRenderer} sanitizer warnings (a "read this carefully"
 #   amber).
 # - +:error+ — the +! ClassName: message+ turn-failure line, the
 #   +! cancelled+ notice, the +^C cancel+ shortcut hint, and the
