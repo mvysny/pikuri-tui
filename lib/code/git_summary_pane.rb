@@ -160,18 +160,27 @@ module Code
     # {HAIRLINE_ROOM}: +"Changes: 6; +184/-17"+, then +"Changes +184/-17"+, then
     # bare {CAPTION}. Choosing here is what protects the counts — they sit at
     # the end of the string, which is the end {Shared::PaneCaptionLabel} gives
-    # up first.
+    # up first. The totals carry the same tones as the per-file counts under
+    # them ({#counts_for}); the prose is left plain for the caption's accent.
     #
-    # @return [String]
+    # @return [Tuile::StyledString]
     def caption_text
       changes = listable_changes
-      return CAPTION if changes.empty?
+      bare = Tuile::StyledString.plain(CAPTION)
+      return bare if changes.empty?
 
-      counts = "+#{changes.sum(&:added)}/-#{changes.sum(&:deleted)}"
-      forms = ["#{CAPTION}: #{changes.size}; #{counts}", "#{CAPTION} #{counts}", CAPTION]
+      counts = counts_for(changes.sum(&:added), changes.sum(&:deleted))
+      # A tree changed only by renames totals 0/0, which {#counts_for} renders
+      # as nothing at all — so the file count is the whole tally there.
+      forms = if counts.display_width.zero?
+                [Tuile::StyledString.plain("#{CAPTION}: #{changes.size}"), bare]
+              else
+                [Tuile::StyledString.plain("#{CAPTION}: #{changes.size}; ") + counts,
+                 Tuile::StyledString.plain("#{CAPTION} ") + counts, bare]
+              end
       return forms.first unless rect.width.positive?
 
-      forms.find { |form| form.length + HAIRLINE_ROOM <= rect.width } || CAPTION
+      forms.find { |form| form.display_width + HAIRLINE_ROOM <= rect.width } || bare
     end
 
     # @return [Array<GitWatcher::Change>] the changes to list — empty before the
@@ -190,7 +199,7 @@ module Code
       return dim(@snapshot.error) if @snapshot.error
       return dim(PLACEHOLDER) if @snapshot.changes.empty?
 
-      counted = @snapshot.changes.map { |change| [change, counts_for(change)] }
+      counted = @snapshot.changes.map { |change| [change, counts_for(change.added, change.deleted)] }
       counts_width = counted.map { |(_, counts)| counts.display_width }.max
       group = nil
       rows = []
@@ -247,15 +256,16 @@ module Code
       [rect.width - reserved, 1].max
     end
 
-    # @param change [GitWatcher::Change]
+    # @param added [Integer] lines added, by one file or by the whole tree.
+    # @param deleted [Integer] lines deleted.
     # @return [Tuile::StyledString] +"+31/-8"+ — green additions, red deletions,
     #   and a dim slash binding them into one token rather than two loose
-    #   numbers. A zero side is omitted; a change with neither renders empty.
-    def counts_for(change)
+    #   numbers. A zero side is omitted; neither side renders empty.
+    def counts_for(added, deleted)
       theme = screen.theme
       parts = []
-      parts << Tuile::StyledString.styled("+#{change.added}", fg: theme[:added]) if change.added.positive?
-      parts << Tuile::StyledString.styled("-#{change.deleted}", fg: theme[:removed]) if change.deleted.positive?
+      parts << Tuile::StyledString.styled("+#{added}", fg: theme[:added]) if added.positive?
+      parts << Tuile::StyledString.styled("-#{deleted}", fg: theme[:removed]) if deleted.positive?
       return Tuile::StyledString::EMPTY if parts.empty?
 
       separator = Tuile::StyledString.styled('/', fg: theme[:detail])

@@ -485,7 +485,12 @@ Zeitwerk over `lib/` and eager-loads it.
   Talus hint accent, then a hairline to the right edge — what replaced the
   caption a `Window` painted into its top border. `#caption=` re-labels it,
   which is how the coding shell's two sidebar panes carry a live tally up here
-  instead of spending one of their scarce rows on it.
+  instead of spending one of their scarce rows on it. It takes a
+  `StyledString` as readily as a `String`, and fills the accent *under* it —
+  spans carrying a foreground of their own keep it — so a pane can tone part
+  of its own tally (`Code::GitSummaryPane`'s `+184`/`-17`) and leave the prose
+  to the accent. That fill is a local `#under_fg`: Tuile has `under_bg` but
+  its `with_fg` overrides every span, which would flatten those tones.
 - `lib/shared/passive_text_view.rb` — `Shared::PassiveTextView`, a
   `TextView` that displays and nothing more (`focusable?` / `tab_stop?` both
   false). Tuile's `TextView` is a tab stop by default, which is right for the
@@ -670,7 +675,9 @@ Zeitwerk over `lib/` and eager-loads it.
   headers are *inserted* where `dirname` changes, never `group_by`-ed, since
   porcelain output is already path-sorted and re-bucketing would move rows
   under the reader. Caption carries `Changes: 6; +184/-17`, dropping the file
-  count then the totals as the pane narrows. Fed by `GitWatcher`. Neither
+  count then the totals as the pane narrows; the totals go through the same
+  `#counts_for` as the per-file counts, so they carry the same green/red/dim
+  tones. Fed by `GitWatcher`. Neither
   sidebar pane carries a scrollbar: nothing in the sidebar takes focus, so no
   key could drive one.
 - `lib/code/git_diff_window.rb` —

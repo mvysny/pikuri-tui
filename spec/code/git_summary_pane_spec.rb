@@ -9,7 +9,7 @@ RSpec.describe Code::GitSummaryPane do
 
   def rendered = pane.view.text.to_s
   def rows = rendered.lines.map(&:chomp)
-  def caption = pane.caption_label.caption
+  def caption = pane.caption_label.caption.to_s
 
   # Gives the pane a real width, so the width-dependent eliding runs.
   def size!(width = 24) = pane.rect = Tuile::Rect.new(0, 0, width, 12)
@@ -168,6 +168,22 @@ RSpec.describe Code::GitSummaryPane do
       size!(10)
       pane.snapshot = snapshot(changes: [change(' M', 'a.rb', 1000, 1000)])
       assert_equal described_class::CAPTION, caption
+    end
+
+    it 'tones the totals like the per-file counts under them, prose left plain' do
+      size!
+      pane.snapshot = snapshot(changes: [change(' M', 'a.rb', 100, 10),
+                                         change(' M', 'b.rb', 84, 7)])
+      toned = pane.caption_label.caption.spans.to_h { |span| [span.text, span.style.fg] }
+      assert_equal theme[:added], toned['+184']
+      assert_equal theme[:removed], toned['-17']
+      assert_nil toned['Changes: 2; '], 'prose must stay unset so the caption accent fills it'
+    end
+
+    it 'drops the totals rather than trailing an empty tally when nothing changed lines' do
+      size!
+      pane.snapshot = snapshot(changes: [change('R ', 'a.rb', 0, 0)])
+      assert_equal 'Changes: 1', caption
     end
   end
 

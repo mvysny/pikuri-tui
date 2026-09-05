@@ -33,6 +33,29 @@ RSpec.describe Shared::PaneCaptionLabel do
     assert_equal 'Tasks', label.text.to_s
   end
 
+  describe 'a caption that brings its own tones' do
+    let(:theme) { Tuile::Screen.instance.theme }
+    let(:tally) do
+      Tuile::StyledString.plain('Changes: 2; ') + Tuile::StyledString.styled('+184', fg: theme[:added])
+    end
+
+    def toned = label.text.spans.to_h { |span| [span.text, span.style.fg] }
+
+    it 'fills the accent under the untoned spans and leaves the toned ones alone' do
+      label.rect = Tuile::Rect.new(0, 0, 24, 1)
+      label.caption = tally
+      assert_equal theme.hint_color, toned['Changes: 2; ']
+      assert_equal theme[:added], toned['+184']
+    end
+
+    it 'measures the fill on the whole caption, tones and all' do
+      label.rect = Tuile::Rect.new(0, 0, 24, 1)
+      label.caption = tally
+      # 24 columns less "Changes: 2; +184" and the space before the rule.
+      assert_equal "Changes: 2; +184 #{'─' * 7}", label.text.to_s
+    end
+  end
+
   it 're-tones on a light/dark flip, since both colors are baked into the text' do
     label.rect = Tuile::Rect.new(0, 0, 20, 1)
     Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT

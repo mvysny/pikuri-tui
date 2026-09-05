@@ -17,6 +17,13 @@ require 'tuile'
 #   pane.add(caption, Fixed[1])
 #   caption.caption = 'Tasks: 2/5'   # a pane carrying a live count re-labels it
 #
+# The accent is filled *under* the caption, not painted over it, so a pane that
+# tones part of its own tally keeps those tones and leaves the prose to the
+# accent:
+#
+#   caption.caption = Tuile::StyledString.plain('Changes: 13; ') +
+#                     Tuile::StyledString.styled('+147', fg: theme[:added]) + …
+#
 # The hairline is +:pane_frame+, derived for the tinted +:pane_bg+ ground every
 # captioned pane sits on. There is no token parameter: every borderless
 # surface in these shells that carries chrome is a tinted secondary — the one
@@ -24,18 +31,20 @@ require 'tuile'
 #
 # UI-thread-confined.
 class Shared::PaneCaptionLabel < Tuile::Component::Label
-  # @param caption [String] the pane's name.
+  # @param caption [String, Tuile::StyledString] the pane's name.
   def initialize(caption)
     super()
     @caption = caption
     refresh
   end
 
-  # @return [String] the pane's name, as painted.
+  # @return [String, Tuile::StyledString] the pane's name, as set.
   attr_reader :caption
 
-  # @param caption [String] the pane's new name. Re-renders the row, so the
-  #   hairline re-fills to whatever width the new name leaves.
+  # @param caption [String, Tuile::StyledString] the pane's new name; spans
+  #   carrying a foreground of their own keep it, the rest take the accent.
+  #   Re-renders the row, so the hairline re-fills to whatever width the new
+  #   name leaves.
   # @return [void]
   def caption=(caption)
     return if caption == @caption
@@ -70,9 +79,26 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
   # @return [void]
   def refresh
     theme = screen.theme
-    text = Tuile::StyledString.plain(@caption).with_fg(theme.hint_color)
-    fill = rect.width - @caption.length - 1
+    caption = @caption.is_a?(Tuile::StyledString) ? @caption : Tuile::StyledString.plain(@caption)
+    text = under_fg(caption, theme.hint_color)
+    fill = rect.width - caption.display_width - 1
     text += Tuile::StyledString.styled(" #{'─' * fill}", fg: theme[:pane_frame]) if fill.positive?
     self.text = text
+  end
+
+  # +text+ with +fg+ on the spans that carry none, the rest untouched. The
+  # foreground counterpart of +Tuile::StyledString#under_bg+, which Tuile has
+  # while its +with_fg+ overrides every span — that would flatten the tones a
+  # caption brought with it.
+  #
+  # @param text [Tuile::StyledString]
+  # @param fg [Tuile::Color]
+  # @return [Tuile::StyledString]
+  def under_fg(text, fg)
+    Tuile::StyledString.new(text.spans.map do |span|
+      next span unless span.style.fg.nil?
+
+      Tuile::StyledString::Span.new(text: span.text, style: span.style.merge(fg: fg))
+    end)
   end
 end
