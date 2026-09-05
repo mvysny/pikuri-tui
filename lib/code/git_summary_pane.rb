@@ -160,8 +160,8 @@ module Code
     # {HAIRLINE_ROOM}: +"Changes: 6; +184/-17"+, then +"Changes +184/-17"+, then
     # bare {CAPTION}. Choosing here is what protects the counts — they sit at
     # the end of the string, which is the end {Shared::PaneCaptionLabel} gives
-    # up first. The totals carry the same tones as the per-file counts under
-    # them ({#counts_for}); the prose is left plain for the caption's accent.
+    # up first. Only the totals are toned; the prose stays unset so
+    # {Shared::PaneCaptionLabel} can fill its accent under it.
     #
     # @return [Tuile::StyledString]
     def caption_text
@@ -170,8 +170,7 @@ module Code
       return bare if changes.empty?
 
       counts = counts_for(changes.sum(&:added), changes.sum(&:deleted))
-      # A tree changed only by renames totals 0/0, which {#counts_for} renders
-      # as nothing at all — so the file count is the whole tally there.
+      # A rename-only tree totals 0/0, which {#counts_for} renders as nothing.
       forms = if counts.display_width.zero?
                 [Tuile::StyledString.plain("#{CAPTION}: #{changes.size}"), bare]
               else
@@ -260,7 +259,7 @@ module Code
     # @param deleted [Integer] lines deleted.
     # @return [Tuile::StyledString] +"+31/-8"+ — green additions, red deletions,
     #   and a dim slash binding them into one token rather than two loose
-    #   numbers. A zero side is omitted; neither side renders empty.
+    #   numbers. A zero side is omitted; two zero sides render empty.
     def counts_for(added, deleted)
       theme = screen.theme
       parts = []

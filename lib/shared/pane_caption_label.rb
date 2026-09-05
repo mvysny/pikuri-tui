@@ -16,13 +16,11 @@ require 'tuile'
 #   caption = Shared::PaneCaptionLabel.new('Tasks')
 #   pane.add(caption, Fixed[1])
 #   caption.caption = 'Tasks: 2/5'   # a pane carrying a live count re-labels it
-#
-# The accent is filled *under* the caption, not painted over it, so a pane that
-# tones part of its own tally keeps those tones and leaves the prose to the
-# accent:
-#
 #   caption.caption = Tuile::StyledString.plain('Changes: 13; ') +
-#                     Tuile::StyledString.styled('+147', fg: theme[:added]) + …
+#                     Tuile::StyledString.styled('+147', fg: theme[:added])
+#
+# The accent is filled *under* the caption rather than painted over it, so the
+# toned half of that tally survives and only the prose picks the accent up.
 #
 # The hairline is +:pane_frame+, derived for the tinted +:pane_bg+ ground every
 # captioned pane sits on. There is no token parameter: every borderless
@@ -41,8 +39,7 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
   # @return [String, Tuile::StyledString] the pane's name, as set.
   attr_reader :caption
 
-  # @param caption [String, Tuile::StyledString] the pane's new name; spans
-  #   carrying a foreground of their own keep it, the rest take the accent.
+  # @param caption [String, Tuile::StyledString] the pane's new name.
   #   Re-renders the row, so the hairline re-fills to whatever width the new
   #   name leaves.
   # @return [void]
@@ -86,10 +83,9 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
     self.text = text
   end
 
-  # +text+ with +fg+ on the spans that carry none, the rest untouched. The
-  # foreground counterpart of +Tuile::StyledString#under_bg+, which Tuile has
-  # while its +with_fg+ overrides every span — that would flatten the tones a
-  # caption brought with it.
+  # +text+ with +fg+ on the spans that carry none, the rest untouched — the
+  # foreground counterpart of +Tuile::StyledString#under_bg+, which upstream
+  # has no fg sibling for (+with_fg+ overrides every span).
   #
   # @param text [Tuile::StyledString]
   # @param fg [Tuile::Color]
