@@ -61,9 +61,9 @@ RSpec.describe Code::DiffRenderer do
   end
 
   describe 'two-tier coloring' do
-    # "value = 10" → "value = 20": only the "1"/"2" digit differs, so it
-    # aligns as a modified pair — the rest of the line carries the line tier,
-    # the differing digit the span tier.
+    # "value = 10" → "value = 20": only the number differs, so the pair aligns
+    # as a modification — the rest of the line carries the line tier, the
+    # changed word the span tier.
     let(:rendered) { render("value = 10", "value = 20", width: 20, color: true) }
     let(:del_line) { rendered.split("\n")[0] }
     let(:add_line) { rendered.split("\n")[1] }
@@ -77,16 +77,16 @@ RSpec.describe Code::DiffRenderer do
       assert_equal [palette.line_del], bgs_for(del_line, 'value = ').uniq
     end
 
-    it 'paints the changed character of a removed line in the bright span tier' do
-      assert_equal [palette.span_del], bgs_for(del_line, '1')
+    it 'paints the changed word of a removed line in the bright span tier' do
+      assert_equal [palette.span_del] * 2, bgs_for(del_line, '10')
     end
 
     it 'paints the unchanged part of an added line in the dim line tier' do
       assert_equal [palette.line_add], bgs_for(add_line, 'value = ').uniq
     end
 
-    it 'paints the changed character of an added line in the bright span tier' do
-      assert_equal [palette.span_add], bgs_for(add_line, '2')
+    it 'paints the changed word of an added line in the bright span tier' do
+      assert_equal [palette.span_add] * 2, bgs_for(add_line, '20')
     end
 
     it 'tints the gutter so the bar is continuous' do
@@ -120,6 +120,54 @@ RSpec.describe Code::DiffRenderer do
     it 'does not emphasize any span on a pure addition' do
       line = render("", "brand new", width: 20, color: true)
       assert_equal [palette.line_add], bgs_for(line, 'brand new').uniq
+    end
+  end
+
+  describe 'word-level emphasis' do
+    # Character-level alignment would light "i", "s", "t" and "ant"
+    # separately inside "instant"; the whole word is the unit.
+    let(:rendered) do
+      render('the instant a pane is hidden', 'the moment a pane is hidden', width: 40, color: true)
+    end
+    let(:add_line) { rendered.split("\n")[1] }
+
+    it 'lights the whole changed word, with no gaps inside it' do
+      assert_equal [palette.span_add] * 6, bgs_for(add_line, 'moment')
+    end
+
+    it 'leaves the words it shares with the other side on the line tier' do
+      assert_equal [palette.line_add], bgs_for(add_line, ' a pane is hidden').uniq
+    end
+  end
+
+  describe 'a modified pair with too little in common gets no span tier' do
+    # sdiff pairs modified lines positionally, so a rewritten paragraph aligns
+    # sides that share nothing; emphasizing their stray letters in common is
+    # what speckles a reflowed block into confetti.
+    let(:rendered) do
+      render('Each is a local patch for something Tuile cannot yet express',
+             '`Component#visible = false` means gone — no paint, no focus',
+             width: 70, color: true)
+    end
+
+    it 'paints the removed line in the line tier alone' do
+      assert_equal [palette.line_del], bgs_for(rendered.split("\n")[0], 'local patch').uniq
+    end
+
+    it 'paints the added line in the line tier alone' do
+      assert_equal [palette.line_add], bgs_for(rendered.split("\n")[1], 'no paint').uniq
+    end
+
+    it 'still splits the pair into a removed row and an added row' do
+      assert_equal 2, rendered.split("\n").length
+      assert parse(rendered.split("\n")[0]).to_s.start_with?('- ')
+      assert parse(rendered.split("\n")[1]).to_s.start_with?('+ ')
+    end
+
+    it 'keeps the span tier for a pair that is a genuine edit of one line' do
+      line = render('  @width = [width, 1].max', '  @width = [width, 1].max.clamp(1, 9)',
+                    width: 60, color: true).split("\n")[1]
+      assert_equal [palette.span_add], bgs_for(line, '.clamp').uniq
     end
   end
 

@@ -16,11 +16,18 @@ module Code
   # dim red for removals, dim green for additions, padded to {#width} so the
   # tint reads as a solid bar, not just a smudge behind the text). Within a
   # *modified* pair — a removed line that {Diff::LCS.sdiff} aligned against a
-  # similar added line — the characters that actually differ get a second,
-  # brighter background (the +span+ tier). Pure additions and pure deletions
-  # (no aligned counterpart) carry only the line tier; there's nothing "more
-  # changed" than the whole line. This mirrors the diff polarity Claude Code
-  # uses: subtle whole-line tint, saturated changed-span.
+  # similar added line — the *words* that differ get a second, brighter
+  # background (the +span+ tier):
+  #
+  #   - the ❰instant❱ a pane is ❰simply❱ hidden, the poll stops.
+  #   + the ❰moment❱ a pane is ❰merely❱ hidden, the poll stops.
+  #         ❰…❱ = span tier; every other cell of the row is the line tier.
+  #
+  # This mirrors the diff polarity Claude Code uses: subtle whole-line tint,
+  # saturated changed-span. Three kinds of row carry the line tier alone,
+  # because there is nothing "more changed" than the whole line: a pure
+  # addition, a pure deletion, and a modified pair whose sides are too unalike
+  # to have words in common ({MIN_PAIR_SIMILARITY}).
   #
   # The +-+ / +++ / + + gutter markers carry the add/remove/context meaning
   # independently of color, so the output stays readable when +NO_COLOR+
@@ -42,6 +49,18 @@ module Code
   # +#to_ansi+, so it only ever contains the SGR alphabet
   # {Tuile::StyledString.parse} models — the conversation +TextView+
   # re-parses it without surprises.
+  #
+  # == Implementation details
+  #
+  # {Diff::LCS.sdiff} aligns modified lines *positionally*, not by content, so
+  # a rewritten paragraph yields +!+ pairs whose two sides share nothing at
+  # all. Emphasis is kept off those by the pair of rules delta settles on:
+  #
+  # * spans align over *words* ({TOKEN}), never characters, so a highlight
+  #   lands on +❰instant❱+ rather than +❰i❱n❰s❱t❰ant❱+;
+  # * a pair holding less than {MIN_PAIR_SIMILARITY} of its longer side in
+  #   common gets no span tier (delta spells the same bar the other way round,
+  #   as +max-line-distance 0.6+).
   class DiffRenderer
     # The four background tones a diff paints: the dim whole-line tier and
     # the bright changed-span tier, for additions and removals.
@@ -59,6 +78,19 @@ module Code
     # Default cap on rendered diff lines before the overflow tail kicks in.
     # @return [Integer]
     DEFAULT_MAX_LINES = 40
+
+    # How much of a modified pair's longer side must survive unchanged before
+    # the span tier is painted over it at all.
+    # @return [Float]
+    MIN_PAIR_SIMILARITY = 0.4
+
+    # The unit spans align over: a word, a run of whitespace, or any single
+    # other character. Partitions a line exactly, so the tokens' lengths sum
+    # back to the line's — which is what lets {#similar_enough?} score a pair
+    # against a plain +String#length+.
+    # @return [Regexp]
+    TOKEN = /[[:alnum:]_]+|[[:space:]]+|./
+    private_constant :TOKEN
 
     # The 2-column gutter prefix per row kind. The marker char distinguishes
     # add / remove / context when color is stripped.
@@ -137,8 +169,8 @@ module Code
 
     # Align +old_lines+ against +new_lines+ with {Diff::LCS.sdiff} and turn
     # each aligned change into one or two {Row}s. A +!+ (modified pair)
-    # becomes a removed row + an added row, each with character-level
-    # emphasis; everything else is a single row with no emphasis.
+    # becomes a removed row + an added row; everything else is a single row
+    # with no emphasis.
     #
     # @param old_lines [Array<String>]
     # @param new_lines [Array<String>]
@@ -150,37 +182,69 @@ module Code
         when '=' then rows << Row.new(kind: :context, segments: [[change.old_element, false]])
         when '-' then rows << Row.new(kind: :del, segments: [[change.old_element, false]])
         when '+' then rows << Row.new(kind: :add, segments: [[change.new_element, false]])
-        when '!'
-          rows << Row.new(kind: :del, segments: char_segments(change.old_element, change.new_element, :del))
-          rows << Row.new(kind: :add, segments: char_segments(change.old_element, change.new_element, :add))
+        when '!' then rows.concat(modified_rows(change.old_element, change.new_element))
         end
       end
       rows
     end
 
-    # Character-level diff of one modified line pair, projected onto one
-    # side. Returns +[text, emphasized]+ segments where emphasized runs are
-    # the characters unique to this side (the inserted/deleted text);
-    # +=+-aligned characters are unemphasized. Adjacent same-emphasis
-    # characters are coalesced into one segment.
+    # The removed row then the added row for one modified pair, carrying
+    # word-level span emphasis only when the two sides are alike enough to
+    # earn it ({MIN_PAIR_SIMILARITY}).
     #
     # @param old_line [String]
     # @param new_line [String]
+    # @return [Array<Row>] two rows, +:del+ first.
+    def modified_rows(old_line, new_line)
+      changes = Diff::LCS.sdiff(tokens(old_line), tokens(new_line))
+      unless similar_enough?(changes, old_line, new_line)
+        return [Row.new(kind: :del, segments: [[old_line, false]]),
+                Row.new(kind: :add, segments: [[new_line, false]])]
+      end
+
+      [Row.new(kind: :del, segments: side_segments(changes, :del)),
+       Row.new(kind: :add, segments: side_segments(changes, :add))]
+    end
+
+    # @param line [String]
+    # @return [Array<String>] +line+ split into {TOKEN} units.
+    def tokens(line) = line.scan(TOKEN)
+
+    # Whether a modified pair holds enough text in common to be worth
+    # per-word emphasis: the unchanged tokens' length over the longer side's.
+    #
+    # @param changes [Array<Diff::LCS::ContextChange>] the token-level sdiff.
+    # @param old_line [String]
+    # @param new_line [String]
+    # @return [Boolean]
+    def similar_enough?(changes, old_line, new_line)
+      longest = [old_line.length, new_line.length].max
+      return true if longest.zero?
+
+      common = changes.sum { |change| change.action == '=' ? change.old_element.length : 0 }
+      common.fdiv(longest) >= MIN_PAIR_SIMILARITY
+    end
+
+    # Project a token-level diff onto one side as +[text, emphasized]+
+    # segments: tokens unique to this side are emphasized, +=+-aligned ones
+    # are not, and adjacent same-emphasis tokens coalesce into one segment.
+    #
+    # @param changes [Array<Diff::LCS::ContextChange>] the token-level sdiff.
     # @param side [Symbol] +:del+ (project onto the old line) or +:add+.
     # @return [Array(String, Boolean)]
-    def char_segments(old_line, new_line, side)
+    def side_segments(changes, side)
       drop = side == :del ? '+' : '-'
       pick = side == :del ? :old_element : :new_element
       segments = []
-      Diff::LCS.sdiff(old_line.chars, new_line.chars).each do |change|
+      changes.each do |change|
         next if change.action == drop
 
-        char = change.public_send(pick)
-        next if char.nil?
+        token = change.public_send(pick)
+        next if token.nil?
 
         emphasized = change.action != '='
         segments << [+'', emphasized] if segments.empty? || segments.last[1] != emphasized
-        segments.last[0] << char
+        segments.last[0] << token
       end
       segments.empty? ? [['', false]] : segments
     end

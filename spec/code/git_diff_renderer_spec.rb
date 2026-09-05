@@ -88,11 +88,12 @@ RSpec.describe Code::GitDiffRenderer do
       assert add_line.to_s.start_with?('+ '), "expected a '+ ' added line, got #{add_line.to_s.inspect}"
     end
 
-    it 'paints the inserted characters in the green span tier' do
-      # "hi" → "hello there": the inserted run is "ello there" (the "h" is
-      # shared, the "i" deleted).
-      col = add_line.to_s.index('ello there')
-      assert_equal theme[:diff_span_add], add_line.slice(col, 1).spans.first.style.bg
+    it 'paints the inserted words in the green span tier' do
+      # "hi" → "hello there": the quotes and the indent are shared, the words
+      # between them are not.
+      col = add_line.to_s.index('hello there')
+      bgs = (col...(col + 'hello there'.length)).map { |i| add_line.slice(i, 1).spans.first.style.bg }
+      assert_equal [theme[:diff_span_add]], bgs.uniq
     end
 
     it 'tints the rest of the added line in the green line tier' do
