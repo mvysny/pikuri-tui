@@ -42,8 +42,7 @@ module Code
   # palette: the caller always supplies one. The tool formatters build it
   # from the *active* {Shared::AppTheme}'s four +:diff_*+ tokens at render time, so
   # the tones track the OS light/dark appearance — both {Shared::AppTheme::DARK}
-  # and {Shared::AppTheme::LIGHT} define a tuned variant (dim bars + bright spans on
-  # dark; light tints + stronger spans on light).
+  # and {Shared::AppTheme::LIGHT} define a variant.
   #
   # Output is built from {Tuile::StyledString} spans and emitted via
   # +#to_ansi+, so it only ever contains the SGR alphabet

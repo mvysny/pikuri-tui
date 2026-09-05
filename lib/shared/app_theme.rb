@@ -66,6 +66,18 @@ require 'tuile'
 #   additions and removals. Read as {Tuile::Color}s (the renderer applies
 #   them as backgrounds via +StyledString+ +bg:+), not via a text helper.
 #   Distinct from +:added+/+:removed+, which are foreground count markers.
+#   All eight are +delta+'s own defaults verbatim (its
+#   +DARK_THEME_MINUS_COLOR+ family), so a diff here reads as the one in
+#   lazygit. Two properties of that palette are easy to "improve" away and
+#   worth keeping: the tones are *pure* — no grey floor in the off-hue
+#   channels, which is what keeps a wide bar a tint rather than a lit-up
+#   area — and on light the *green* carries roughly twice the perceptual
+#   weight of the red (ΔE 31 vs 13 against paper), so additions lead and
+#   removals whisper. Balancing the two by eye is what makes red shout.
+#   Caveat inherited along with them: the dark pair assumes a near-black
+#   ground, so on a mid-dark terminal (One Dark, Gruvbox) the +line+ tier
+#   lands at or just under the background and the bar reads as a dark hole
+#   rather than a wash.
 #
 # The markdown body palette ({Shared::Markdown::AnsiConverter}'s header
 # / emphasis / code SGR codes) is deliberately NOT a theme token: that
@@ -184,10 +196,10 @@ class Shared::AppTheme < Tuile::Theme
     user:     Tuile::Color.new([255, 255, 255]),
     added:    Tuile::Color::GREEN,
     removed:  Tuile::Color::RED,
-    diff_line_add: Tuile::Color.rgb(25, 55, 30),
-    diff_line_del: Tuile::Color.rgb(60, 30, 30),
-    diff_span_add: Tuile::Color.rgb(40, 110, 45),
-    diff_span_del: Tuile::Color.rgb(120, 40, 40),
+    diff_line_add: Tuile::Color.hex('#002800'),
+    diff_line_del: Tuile::Color.hex('#3f0001'),
+    diff_span_add: Tuile::Color.hex('#006000'),
+    diff_span_del: Tuile::Color.hex('#901011'),
     pane_bg:    Tuile::Color.hex('#121212'),
     pane_frame: Tuile::Color.hex('#333333')
   }.freeze
@@ -208,10 +220,10 @@ class Shared::AppTheme < Tuile::Theme
     user:     Tuile::Color.new([0, 0, 0]),
     added:    Tuile::Color::DARK_GREEN,
     removed:  Tuile::Color::RED3,
-    diff_line_add: Tuile::Color.rgb(225, 250, 228),
-    diff_line_del: Tuile::Color.rgb(255, 228, 230),
-    diff_span_add: Tuile::Color.rgb(170, 230, 175),
-    diff_span_del: Tuile::Color.rgb(250, 180, 185),
+    diff_line_add: Tuile::Color.hex('#d0ffd0'),
+    diff_line_del: Tuile::Color.hex('#ffe0e0'),
+    diff_span_add: Tuile::Color.hex('#a0efa0'),
+    diff_span_del: Tuile::Color.hex('#ffc0c0'),
     pane_bg:    Tuile::Color.hex('#f0f0f0'),
     pane_frame: Tuile::Color.hex('#cccccc')
   }.freeze
