@@ -45,10 +45,10 @@ RSpec.describe Code::Layout do
     assert_equal Tuile::Theme.ref(:pane_bg), layout.separator.bg_color
   end
 
-  it 'collapses the sidebar and its separator on a terminal too narrow for both' do
+  it 'hides the sidebar and its separator on a terminal too narrow for both' do
     layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
-    assert sidebar.rect.empty?
-    assert layout.separator.rect.empty?
+    refute_predicate sidebar, :visible?
+    refute_predicate layout.separator, :visible?
     assert_equal 40 - described_class::CONTENT_INSET, conversation.rect.width
   end
 
@@ -83,9 +83,19 @@ RSpec.describe Code::Layout do
     it 'drops the sidebar and its separator entirely when hidden' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
       layout.sidebar_mode = :hidden
-      assert_predicate sidebar.rect, :empty?
-      assert_predicate layout.separator.rect, :empty?
+      refute_predicate sidebar, :visible?
+      refute_predicate layout.separator, :visible?
       assert_equal WIDE - described_class::CONTENT_INSET, conversation.rect.width
+    end
+
+    it 'gives the column its geometry back when it comes out of hiding' do
+      layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      full = sidebar.rect
+      layout.sidebar_mode = :hidden
+      layout.sidebar_mode = :full
+      assert_predicate sidebar, :visible?
+      assert_equal full, sidebar.rect
+      assert_equal Tuile::Rect.new(full.left - 1, 0, 1, top_height), layout.separator.rect
     end
 
     it 're-splits immediately, without waiting for a resize' do
@@ -119,7 +129,7 @@ RSpec.describe Code::Layout do
       # 24-column sidebar and its separator are taken out.
       layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
       layout.sidebar_mode = :narrow
-      assert_predicate sidebar.rect, :empty?
+      refute_predicate sidebar, :visible?
       assert_equal 40, input.rect.width
     end
 
@@ -167,7 +177,7 @@ RSpec.describe Code::Layout do
       assert_equal 0, seen
     end
 
-    it 'answers sidebar_visible? on the rect, not the mode — a narrow mode can still collapse' do
+    it 'answers sidebar_visible? on the column, not the mode — a narrow mode can still collapse' do
       layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
       layout.sidebar_mode = :narrow
       assert_equal :narrow, layout.sidebar_mode

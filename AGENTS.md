@@ -381,12 +381,12 @@ Zeitwerk over `lib/` and eager-loads it.
   that rebinds Enter to submit-and-clear (blank buffers are a no-op), running
   to `TRAILING_PAD` columns short of the right edge. `MARKER_WIDTH` is the
   buffer's column and so the transcript's inset — the two line up with the
-  `❯` in the margin below. Tinted regardless of focus, which takes an
-  override: Tuile's `AbstractStringField` paints its own well
-  (`active_bg_color` focused / `input_bg_color` otherwise), so `Area#background`
-  paints the inherited `effective_bg_color` instead — a second shade inside
-  the pane would read as the box we removed, and the pair would flip the
-  prompt's shade as focus moves. The well is a spatial anchor, not a focus
+  `❯` in the margin below. Tinted regardless of focus: Tuile's
+  `AbstractStringField` would paint a well of its own (`active_bg_color`
+  focused / `input_bg_color` otherwise), so the `Area` is built with
+  `bg_color = Component::BG_INHERIT` and takes the pane's tint instead — a
+  second shade inside the pane would read as the box we removed, and the pair
+  would flip the prompt's shade as focus moves. The well is a spatial anchor, not a focus
   cue; the caret is, and it says everything by vanishing when focus moves to
   the transcript. A `Layout` cascades no focus, so `#focus` forwards onto the
   area itself. With an optional `slash_menu:` it also arbitrates slash-command
@@ -535,14 +535,7 @@ Zeitwerk over `lib/` and eager-loads it.
   `Pikuri::Agent::Listener::Base` that holds the per-stream state and mints
   indented siblings for sub-agents). The app's *primary* pane: unframed and
   untinted, keeping the terminal's own background, with the tinted secondaries
-  around it doing the setting-off. It also holds a one-column
-  `SCROLLBAR_GUTTER` between the wrapped text and the scrollbar, which Tuile
-  has no option for: `#wrap_width` narrows the wrap and the *private*
-  `#paintable_row` puts the columns back as blanks, the pair keeping every
-  painted row exactly `rect.width` wide. Those two must stay in step, and that
-  `paintable_row` override is the one place in this repo leaning on a private
-  Tuile method — the gutter option asked for in
-  [tuile#9](https://github.com/mvysny/tuile/issues/9) would retire both. Exposes
+  around it doing the setting-off. Exposes
   `#listener` for the host to compose
   into the agent's `ListenerList`, plus `#render_notice` (a dim, non-error
   transcript line, sibling of `#render_turn_error`); a `SystemInjected` event renders as a
@@ -620,9 +613,11 @@ Zeitwerk over `lib/` and eager-loads it.
   panes ellipsize to their own width, so `:narrow` needs no second rendering
   mode; the `MIN_SIDEBAR_WIDTH` / `MIN_CONVERSATION_WIDTH` starve floors still
   apply, so an explicit `:narrow` on a 40-column terminal still collapses.
-  Session-only — no config key, no persistence across runs. `#sidebar_visible?`
-  answers on the sidebar's *rect*, not the mode (a `:narrow` column can still
-  be starved out), and `#on_sidebar_visibility` fires on the flip — needed
+  Session-only — no config key, no persistence across runs. A column with no
+  room is hidden outright (`Tuile::Component#visible=`, keeping the rect it
+  last had), so `#sidebar_visible?` answers on the sidebar's *visibility*, not
+  the mode (a `:narrow` column can still be starved out), and
+  `#on_sidebar_visibility` fires on the flip — needed
   because a plain **resize** can collapse the column with no host involved,
   which is what lets `Code::App` move the counts into the status rule.
 - `lib/code/workspace_sidebar.rb` — `Code::WorkspaceSidebar`, the tasks + git
@@ -976,38 +971,29 @@ Zeitwerk over `lib/` and eager-loads it.
   that bar, delete outright. `ideas/` holds only *pending* thinking;
   anything worth keeping after the work lands moves to a durable home,
   and the transient container disappears.
-- **Four upstream-tuile items are waiting — check them on every tuile bump.**
-  Each is a local patch for something Tuile can't yet express, and each says in
-  its own rdoc what to delete. The first three came out of the borderless
-  facelift and are cleanup, not debt to fear; tuile#17 is the one that stands
-  on a real bug.
+- **Hide a pane with `visible=`, never by detaching it.**
+  `Tuile::Component#visible = false` means *gone* — no paint, no focus, no
+  keys, no mouse, no space in a `Layout::Box` — while the component keeps its
+  parent, its rect and everything it is running, and fires no lifecycle hook.
+  That last clause is the whole reason the alternative is wrong here.
+  `Layout::Box#remove` plus `#add(…, at:)` (which upstream documents as *the*
+  way to hide a box child) fires `on_detached` down the subtree, so any
+  resource keyed to being on screen — the pattern `Component#on_attached`
+  exists for, and `Shared::StatusRuleLabel`'s ticker already uses — would stop
+  the moment a pane is merely hidden. `Code::WorkspaceSidebar` owns the
+  `Code::GitWatcher` poll that keeps the status-rule digest alive *precisely*
+  while the column is hidden, so hiding must never be able to stop a data feed.
+  Detaching would also churn the tree on every resize across
+  `MIN_SIDEBAR_WIDTH`, since `Code::Layout#sidebar_width` returns `0` for a
+  `:hidden` mode and for a starved terminal alike.
 
-  | Issue | What we do instead | Retire by deleting |
-  |---|---|---|
-  | [tuile#9](https://github.com/mvysny/tuile/issues/9) — scrollbar gutter | narrow the wrap, re-pad before the glyph | `Shared::ConversationTextView`'s `SCROLLBAR_GUTTER`, `#wrap_width`, `#paintable_row` |
-  | [tuile#10](https://github.com/mvysny/tuile/issues/10) — the bar has no theme color (and no auto-hide) | sidebar panes drop the bar entirely; the conversation keeps a loud one | nothing yet — revisit `scrollbar_visibility` in `Code::TaskListPane` / `Code::GitSummaryPane` / `Shared::ConversationTextView` |
-  | [tuile#11](https://github.com/mvysny/tuile/issues/11) — a field ignores `bg_color` | override the (protected) `background` | `Shared::InputPane::Area#background`, replaced by `@area.bg_color = Tuile::Theme.ref(:pane_bg)` |
-  | [tuile#17](https://github.com/mvysny/tuile/issues/17) — no way to hide a component; an empty parent rect strands its children | hide by zero-width rect, propagating it by hand (`Code::WorkspaceSidebar#rect=` assigns both panes rather than short-circuiting) | that hand-propagation and its `return if rect.empty?` comment, replaced by `@sidebar.visible = false` once Tuile has `visible` (GONE semantics) |
-
-  Only the tuile#9 pair is genuinely fragile — `#paintable_row` is *private*
-  upstream, and the two overrides must stay in step or every painted row comes
-  out the wrong width (there are specs pinning that). tuile#10 and #11 ride
-  sanctioned seams and will keep working; they are just more code than the
-  feature deserves.
-
-  **Why we hide by zero-width rect rather than by detaching**, which tuile#17
-  would otherwise argue for: `Code::Layout#sidebar_width` returns `0` for a
-  `:hidden` mode *and* for a terminal too narrow to carry both columns. Under a
-  remove-from-parent scheme that second case would mutate the component tree on
-  every resize across the threshold, and re-`add` puts the child back at the
-  end of `children` — which is also paint order. Detaching also fires
-  `on_detached` down the subtree, so any resource keyed to being on screen (the
-  pattern `Component#on_attached` exists for, and `Shared::StatusRuleLabel`'s
-  ticker already uses) would stop when the pane is merely hidden: hiding a pane
-  must not be able to stop its data feed, and `Code::WorkspaceSidebar` owns the
-  `Code::GitWatcher` poll that keeps the status-rule digest alive precisely
-  while the column is hidden. Geometry-as-a-function-of-width is the lesser
-  evil until `visible` exists.
+  Related, for any container that computes its own child rects: **never
+  short-circuit `rect=` on an empty rect.** Children left pointing at the
+  columns they used to hold survive every normal repaint, and then paint at
+  those stale coordinates the moment a popup close fires
+  `Screen#needs_full_repaint`. Tuile now drops anything under an empty-rect
+  ancestor, so that is inert rather than wrong — but the container still owes
+  its children the empty rect (`Code::WorkspaceSidebar#rect=`).
 
 - **Pikuri owns the loop and the tools; we own the UI shell.**
   When changing pikuri-tui, the question is "what does the user

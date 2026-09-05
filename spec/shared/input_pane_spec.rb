@@ -49,12 +49,18 @@ RSpec.describe Shared::InputPane do
     screen.content = window
     window.rect = Tuile::Rect.new(0, 0, 40, described_class::HEIGHT)
     tint = screen.theme[:pane_bg]
-    # Tuile's AbstractStringField would paint input_bg_color here, and
-    # active_bg_color once focused; the prompt must show the pane's tint in
-    # both states (a shade flip on focus is exactly what we removed).
-    assert(window.area.__send__(:background, 'hi').spans.all? { |span| span.style.bg == tint })
+    # The buffer's own column, read off the painted cells rather than off
+    # bg_color: Tuile's AbstractStringField resolves a well of its own
+    # (input_bg_color, active_bg_color once focused) unless BG_INHERIT sends it
+    # to the parent, and a shade flip on focus is exactly what we removed.
+    buffer_cell = lambda do
+      screen.needs_full_repaint
+      screen.repaint
+      screen.buffer.cell(described_class::MARKER_WIDTH, 0).style.bg
+    end
+    assert_equal tint, buffer_cell.call
     window.focus
-    assert(window.area.__send__(:background, 'hi').spans.all? { |span| span.style.bg == tint })
+    assert_equal tint, buffer_cell.call
     refute_equal screen.theme.active_bg_color, tint
   end
 

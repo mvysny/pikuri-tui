@@ -65,9 +65,9 @@ module Code
     # @return [Float]
     SIDEBAR_FRACTION = 0.4
 
-    # Below this sidebar width the column is too narrow to read, so the
-    # layout collapses it (width 0, sidebar and separator both invisible) and
-    # gives the whole width to the conversation column.
+    # Below this sidebar width the column is too narrow to read, so the layout
+    # hides it (sidebar and separator both) and gives the whole width to the
+    # conversation column.
     #
     # @return [Integer]
     MIN_SIDEBAR_WIDTH = 24
@@ -168,7 +168,7 @@ module Code
     #   for a +:hidden+ {#sidebar_mode} *and* for a terminal too narrow to carry
     #   both columns, which is why callers should ask this rather than compare
     #   {#sidebar_mode}.
-    def sidebar_visible? = !@sidebar.rect.empty?
+    def sidebar_visible? = @sidebar.visible?
 
     # Registers a callback fired whenever {#sidebar_visible?} flips, so a host
     # can stand something in for the vanished panes. Needed because visibility
@@ -212,8 +212,7 @@ module Code
     # rule, both full width; what is left splits into a conversation column and
     # a sidebar column ({#sidebar_width}) with the {#separator} between them.
     # With no room for a readable sidebar, {#sidebar_width} returns +0+ and both
-    # the sidebar and the separator take empty rects ({Tuile::Component} treats
-    # a zero-area rect as invisible), leaving the conversation full width.
+    # are hidden ({#place_sidebar}), leaving the conversation full width.
     #
     # Also runs on a {#sidebar_mode=} change, when the rect itself has not
     # moved — which is why the geometry is here rather than inline in {#rect=}.
@@ -225,17 +224,32 @@ module Code
       top_h = rect.height - input_h - rule_h
 
       right_w = sidebar_width(rect.width)
-      gap_w = right_w.positive? ? 1 : 0
-      left_w = rect.width - right_w - gap_w
+      left_w = rect.width - (right_w.positive? ? right_w + 1 : 0)
 
       @conversation.rect = Tuile::Rect.new(rect.left + CONTENT_INSET, rect.top,
                                            [left_w - CONTENT_INSET, 0].max, top_h)
-      @separator.rect = Tuile::Rect.new(rect.left + left_w, rect.top, gap_w, top_h)
-      @sidebar.rect = Tuile::Rect.new(rect.left + left_w + gap_w, rect.top, right_w, top_h)
       @status_rule.rect = Tuile::Rect.new(rect.left, rect.top + top_h, rect.width, rule_h)
       @input.rect = Tuile::Rect.new(rect.left, rect.top + top_h + rule_h, rect.width, input_h)
-      rebuild_separator
+      place_sidebar(left_w, top_h, right_w)
       announce_sidebar_visibility
+    end
+
+    # Places the sidebar column and its {#separator}, or hides both — a hidden
+    # component keeps the rect it last had, so the hiding branch assigns none.
+    #
+    # @param left_w [Integer] columns the conversation column occupies.
+    # @param top_h [Integer] rows in the upper region.
+    # @param right_w [Integer] {#sidebar_width}; +0+ hides the column.
+    # @return [void]
+    def place_sidebar(left_w, top_h, right_w)
+      showing = right_w.positive?
+      if showing
+        @separator.rect = Tuile::Rect.new(rect.left + left_w, rect.top, 1, top_h)
+        @sidebar.rect = Tuile::Rect.new(rect.left + left_w + 1, rect.top, right_w, top_h)
+        rebuild_separator
+      end
+      @separator.visible = showing
+      @sidebar.visible = showing
     end
 
     # Fires {#on_sidebar_visibility} when the sidebar has just appeared or
@@ -252,7 +266,7 @@ module Code
     end
 
     # Rebuilds the separator column: one +:pane_frame+ +│+ per row of the upper
-    # region. A collapsed sidebar leaves it empty.
+    # region.
     #
     # @return [void]
     def rebuild_separator

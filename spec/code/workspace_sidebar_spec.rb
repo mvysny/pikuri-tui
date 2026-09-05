@@ -28,13 +28,10 @@ RSpec.describe Code::WorkspaceSidebar do
       assert sidebar.git_summary_pane.rect.empty?
     end
 
-    # The regression that matters, and the one the example above cannot catch:
-    # it starts from panes that are *already* empty, so it passed even while
-    # #rect= short-circuited and left them pointing at their old columns. A
-    # stale child rect under an empty parent survives every normal repaint and
-    # then paints at those old coordinates the moment any popup close fires
-    # Screen#needs_full_repaint.
-    it 'empties both panes when the column is hidden after having been laid out' do
+    # The example above starts from panes that are *already* empty, so it stays
+    # green even if #rect= short-circuits and leaves them pointing at the
+    # columns they used to hold. This one lays the column out first.
+    it 'empties both panes when the column is emptied after having been laid out' do
       tasks = sidebar.instance_variable_get(:@task_pane)
       sidebar.rect = Tuile::Rect.new(96, 0, 24, 20)
       refute_predicate tasks.rect, :empty?

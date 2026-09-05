@@ -11,12 +11,11 @@ require 'tuile'
 #
 # The whole rect paints +:pane_bg+ — this is a *secondary* surface, set off
 # against the untinted {Shared::ConversationTextView} above it — and it does so
-# regardless of focus. That takes an override: Tuile's
-# {Tuile::Component::AbstractStringField} paints its own "well"
-# (+active_bg_color+ focused, +input_bg_color+ otherwise), which would both
-# fight this pane's tint and flip the prompt's shade as focus moves, so
-# {Area#background} paints the inherited tint instead (see there, and tuile#11
-# — https://github.com/mvysny/tuile/issues/11).
+# regardless of focus. Left alone, Tuile's
+# {Tuile::Component::AbstractStringField} would paint a well of its own
+# (+active_bg_color+ focused, +input_bg_color+ otherwise) — a second shade
+# inside the pane, flipping as focus moves — so the {Area} is built with
+# +bg_color = BG_INHERIT+ and takes this pane's tint instead.
 #
 # The well is a permanent spatial anchor, not a focus cue — the *caret* is the
 # focus cue, and it does the whole job. Focus leaves the prompt only for the
@@ -103,6 +102,7 @@ class Shared::InputPane < Tuile::Component::Layout
     # follows a light/dark flip with no hook of our own; the marker's tone is
     # baked into its text and does need {#on_theme_changed}.
     self.bg_color = Tuile::Theme.ref(:pane_bg)
+    @area.bg_color = Tuile::Component::BG_INHERIT
     slash_menu.anchor = self if slash_menu
     @capture_marker = nil
     rebuild_marker
@@ -269,32 +269,6 @@ class Shared::InputPane < Tuile::Component::Layout
     end
 
     protected
-
-    # Paint the buffer on the *pane's* tint rather than on a well of the
-    # field's own. {Tuile::Component::AbstractStringField} defaults to
-    # +active_bg_color+ when focused and +input_bg_color+ otherwise; both are
-    # wrong here. This prompt is not a field sitting in a form — it is the
-    # whole tinted secondary surface, so a second shade inside it reads as a
-    # box we deliberately removed, and the focused/unfocused pair would make
-    # the prompt flip shade as focus moves (which, with the prompt as the only
-    # focus target, would just be flicker around a modal popup).
-    #
-    # +effective_bg_color+ resolves the {Tuile::Theme::Ref} the pane set, so
-    # this tracks a light/dark flip and a re-derived tint with no hook.
-    #
-    # Overriding +background+ is a *sanctioned* seam (it is protected, not
-    # private), so unlike the {Shared::ConversationTextView} gutter this is not
-    # fragile — but tuile#11 (https://github.com/mvysny/tuile/issues/11) asks
-    # for an explicitly-set +bg_color+ to win over the well instead. If that
-    # lands, delete this method and set the ref on the {Area} itself:
-    #
-    #   @area.bg_color = Tuile::Theme.ref(:pane_bg)
-    #
-    # @param text [String] the row to render.
-    # @return [Tuile::StyledString] +text+ on the inherited pane tint.
-    def background(text)
-      Tuile::StyledString.styled(text, bg: effective_bg_color)
-    end
 
     # Claim Up/Down for history recall, but only in the first/last row and only
     # when the store has something to give. Anything else — an exhausted edge

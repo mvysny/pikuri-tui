@@ -5,13 +5,13 @@ source 'https://rubygems.org'
 ruby '>= 3.3'
 
 # Component-oriented terminal UI framework. The shared API has stabilized, so
-# we consume the released gem. The floor is 0.14.0: it renames Popup#size to
-# #declared_size (GitDiffPopup and both ConfirmerPopup boxes pass it) and makes
-# Popup always-modal, so ListDropdown — hence SlashMenuPopup — hangs off the new
-# Overlay instead. It also carries everything the 0.13.0 floor was for: the
-# framework status bar is deleted, so Shared::StatusBar draws our own bottom row
-# and drives it from Screen#on_focus_changed=.
-gem 'tuile', '~> 0.14'
+# we normally consume the released gem; temporarily on `path: '../tuile'` for
+# co-development against the unreleased Component#visible= (tuile#17's redesign)
+# that Code::Layout hides the sidebar column with, and the Layout::Box /
+# Screen#repaint half of that same fix, which is what stops a hidden pane
+# painting back at stale coordinates on the next full repaint. CI can't build
+# against a path gem; un-pin to `gem 'tuile', '~> 0.15'` once that ships.
+gem 'tuile', path: '../tuile'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching

@@ -69,20 +69,6 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @return [Integer]
   MAX_TOOL_RESULT_CHARS = 200
 
-  # Blank columns held between the wrapped text and the scrollbar glyph.
-  # {Tuile::Component::TextView} pads its rows to the full width less the
-  # scrollbar's one column, so by default the last character of a wrapped line
-  # sits flush against the bar; unframed, that reads as text colliding with
-  # chrome. Tuile has no gutter option, so {#wrap_width} and {#paintable_row}
-  # add one here (see those two for the seam).
-  #
-  # Filed upstream as tuile#9 — https://github.com/mvysny/tuile/issues/9. When
-  # that lands, this constant and both overrides go, replaced by whatever
-  # option it settles on.
-  #
-  # @return [Integer]
-  SCROLLBAR_GUTTER = 1
-
   # Keys that mean "I'm done reading here", both routed to {#on_escape}.
   #
   # +q+ rides along with ESC because Tuile's event loop *stops* on either one
@@ -108,12 +94,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     @markdown = markdown
     @tool_formatters = tool_formatters
     self.auto_scroll = true
-    # Kept even though the bar is loud (it paints in the terminal's default
-    # foreground, and covers the whole track whenever the content fits — see
-    # tuile#10, https://github.com/mvysny/tuile/issues/10): unlike the coding
-    # shell's sidebar panes this one is genuinely scrollable, by the prompt's
-    # PageUp/PageDown. Revisit once that issue gives the bar a theme color or
-    # an auto-hide.
+    # Unlike the coding shell's sidebar panes this one is genuinely scrollable,
+    # by the prompt's PageUp/PageDown.
     self.scrollbar_visibility = :visible
     # The leaf listener this pane builds directly isn't a component, so it
     # takes the screen explicitly — this pane hands it its own inherited
@@ -151,21 +133,12 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   def theme = screen.theme
 
   # Render width for a fresh streaming buffer: the pane's wrap width (its own
-  # width less the scrollbar and {SCROLLBAR_GUTTER}), floored at 1 so a
+  # width less the columns the scrollbar claims), floored at 1 so a
   # not-yet-laid-out pane doesn't pass a non-positive width to
   # {Shared::Markdown::Renderer}.
   #
   # @return [Integer]
   def buffer_width = [wrap_width, 1].max
-
-  # Tuile's wrap width less {SCROLLBAR_GUTTER}, so wrapped lines stop short of
-  # the scrollbar instead of butting against it. {Tuile::Component::TextView}
-  # pads every row to this, and {#paintable_row} puts the reclaimed columns
-  # back as blanks — the pair keeps each painted row exactly +rect.width+ wide,
-  # which is the contract the base class's row painting relies on.
-  #
-  # @return [Integer]
-  def wrap_width = super - gutter_width
 
   # Append one logical block to the pane: create a fresh region and assign
   # +text+ (prefixed with +indent+ spaces on its first line). Each
@@ -367,38 +340,6 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @return [void]
   def write_decision(tail)
     @decision_region.text = "#{@decision_body}\n#{tail}"
-  end
-
-  # Columns {#wrap_width} holds back for the gutter: {SCROLLBAR_GUTTER} when
-  # there is a scrollbar *and* room for both it and the gap, else none. The
-  # guard is what keeps the {#paintable_row} contract at a degenerate width —
-  # a one- or two-column pane spends everything it has on the bar itself.
-  #
-  # @return [Integer]
-  def gutter_width
-    scrollbar_visible? && rect.width > SCROLLBAR_GUTTER + 1 ? SCROLLBAR_GUTTER : 0
-  end
-
-  # Re-inserts the {#gutter_width} columns as blanks, between the padded text
-  # row and the scrollbar glyph, so the row still spans exactly +rect.width+.
-  #
-  # This overrides a *private* {Tuile::Component::TextView} method — the only
-  # seam Tuile offers for a scrollbar gutter, and the reason the pairing with
-  # {#wrap_width} is spelled out on both. If a tuile upgrade changes this
-  # method's shape, the gutter is what breaks; the durable fix is the gutter
-  # option asked for in tuile#9 (https://github.com/mvysny/tuile/issues/9), at
-  # which point this override and {#wrap_width}'s both go.
-  #
-  # @param index [Integer] 0-based index into the wrapped rows.
-  # @param row_in_viewport [Integer] 0-based row within the viewport.
-  # @param scrollbar [Tuile::VerticalScrollBar, nil]
-  # @return [Tuile::StyledString] a row exactly +rect.width+ columns wide.
-  def paintable_row(index, row_in_viewport, scrollbar)
-    return super if scrollbar.nil?
-
-    gutter = ' ' * gutter_width
-    super(index, row_in_viewport, nil) +
-      Tuile::StyledString.plain("#{gutter}#{scrollbar.scrollbar_char(row_in_viewport)}")
   end
 
   # Prepend +indent+ spaces to a block, handling both +String+ blocks (theme

@@ -37,7 +37,7 @@ RSpec.describe Shared::SlashMenuPopup do
   it 'tints the panel with the ComboBox dropdown tint (:input_bg_color)' do
     assert_equal Tuile::Theme.ref(:input_bg_color), menu.bg_color
     # inherited down to the list so the rows + blank filler read as one panel
-    assert_equal Tuile::Screen.instance.theme.input_bg_color, list.effective_bg_color
+    assert_equal Tuile::Screen.instance.theme.input_bg_color, list.__send__(:effective_bg_color)
   end
 
   describe '#sync opens, filters and closes off the buffer' do

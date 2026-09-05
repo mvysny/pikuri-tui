@@ -38,36 +38,15 @@ RSpec.describe Shared::ConversationTextView do
     end
   end
 
-  # The gutter rides two overrides that must stay in step — one narrows the
-  # wrap, the other puts the columns back as blanks — and the base class
-  # relies on every painted row being exactly rect.width wide.
-  describe 'the scrollbar gutter' do
-    def row_width(width)
-      pane.rect = Tuile::Rect.new(0, 0, width, 3)
-      pane.add_block('x' * 200)
-      pane.__send__(:paintable_row, 0, 0, Tuile::VerticalScrollBar.new(3, row_count: 9, scroll_top_row: 0))
-        .display_width
-    end
-
-    it 'stops the wrapped text short of the scrollbar by SCROLLBAR_GUTTER' do
+  describe '#buffer_width' do
+    it 'is the wrap width — the pane less the columns the scrollbar claims' do
       pane.rect = Tuile::Rect.new(0, 0, 40, 3)
-      # 40 columns less the scrollbar's one and the gutter's one.
-      assert_equal 38, pane.wrap_width
+      # 40 columns less the bar's own and the blank Tuile reserves beside it.
       assert_equal 38, pane.buffer_width
     end
 
-    it 'paints a row exactly rect.width wide, gutter included' do
-      assert_equal 40, row_width(40)
-    end
-
-    it 'holds that contract at widths too small for a gutter' do
-      [1, 2, 3].each { |width| assert_equal width, row_width(width), "at width #{width}" }
-    end
-
-    it 'gives the gutter back when the scrollbar is gone' do
-      pane.scrollbar_visibility = :gone
-      pane.rect = Tuile::Rect.new(0, 0, 40, 3)
-      assert_equal 40, pane.wrap_width
+    it 'floors at 1 before the pane is laid out, so no renderer sees width 0' do
+      assert_equal 1, pane.buffer_width
     end
 
     it 'honors markdown: false' do
@@ -562,12 +541,12 @@ RSpec.describe Shared::ConversationTextView do
   # here rather than in a screenshot.
   describe 'painted indentation' do
     # Wide enough that nothing wraps: the bug is about the indent, not the wrap.
-    # Read back one column short of the pane so the scrollbar gutter's glyph
-    # stays out of the compared text.
+    # Read back short of the two columns the scrollbar claims (its glyph plus
+    # the blank Tuile reserves) so neither lands in the compared text.
     def painted(view)
       view.rect = Tuile::Rect.new(0, 0, 60, 6)
       view.repaint
-      text_area = Tuile::Rect.new(0, 0, view.rect.width - 1, view.rect.height)
+      text_area = Tuile::Rect.new(0, 0, view.rect.width - 2, view.rect.height)
       Tuile::Screen.instance.buffer.region_text(text_area).map(&:rstrip)
     end
 

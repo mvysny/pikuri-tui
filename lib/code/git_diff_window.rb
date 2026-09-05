@@ -88,8 +88,9 @@ module Code
       raw
     end
 
-    # Content text width for the rendered bars: the window width less its border
-    # and scrollbar gutter, floored at 1 so a not-yet-laid-out pane (width 0, e.g.
+    # Content text width for the rendered bars: the window width less its left
+    # border and the two columns the scrollbar claims (it takes the right
+    # border's column), floored at 1 so a not-yet-laid-out pane (width 0, e.g.
     # while the popup is closed) still renders - {#on_width_changed} redraws at the
     # real width once the popup lays the pane out.
     #
