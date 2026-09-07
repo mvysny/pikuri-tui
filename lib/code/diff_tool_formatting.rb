@@ -23,11 +23,8 @@ module Code
 
     # Render the call-time diff block: a themed header line
     # (+"✎ Edit(lib/foo.rb)"+) over the {DiffRenderer} diff of +old+ → +new+.
-    #
-    # The header carries the same +Verb(argument)+ shape
-    # {Shared::ConversationTextView::Listener} gives every other tool call, so a
-    # diff block reads as one of the family rather than as a second convention;
-    # {GLYPH} is what still marks it as a file mutation.
+    # The header keeps the +Verb(argument)+ shape every other tool call has, so
+    # a diff reads as one of the family rather than a second convention.
     #
     # @param verb [String] the action shown in the header (+"Edit"+,
     #   +"Write"+, +"Create"+).

@@ -61,7 +61,7 @@ class Shared::LeaderMenu
   #   @return [String] the single follow-up key that runs this action.
   # @!attribute [r] label
   #   @return [String, #call] the action's label, shown after the key glyph;
-  #     a callable is resolved at {#open} time — see {#add}.
+  #     a callable is resolved at {#open} time.
   # @!attribute [r] callback
   #   @return [Proc, Method] the zero-arg callable run on pick.
   Action = Data.define(:key, :label, :callback) do

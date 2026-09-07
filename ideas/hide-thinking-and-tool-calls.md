@@ -313,7 +313,7 @@ Small deviations from the sketch above, all deliberate:
 
 Docs propagated: AGENTS.md Scope decisions (a new bullet: what the toggle must
 keep true) + the `Shared::ConversationTextView` Layout entry + the leader/slash
-roster line; the pane's class rdoc gained a `== Tool-line form` section and the
+roster line; the pane's class rdoc gained a `== Display flags` section and the
 `Listener`'s variant list a fourth departure; `Shared::AppTheme`'s `:tool`
 token rdoc re-worded off the old `→ call` / `= result` shape.
 
@@ -360,9 +360,9 @@ Everything on the pikuri-tui side is propagated already — AGENTS.md's Scope
 decisions (one bullet for what a density toggle must keep true, one for the
 tool lines) and its Layout entries for `Shared::ConversationTextView`,
 `Shared::UIToggleMenu`, `Shared::LeaderMenu` and `Shared::Config`; the pane's
-`== Reasoning visibility` / `== Tool-line form` rdoc sections, including the
-`O_replay` trap next to the decision-block contract; and the `[ui]` rdoc's
-note on why session-only and a state file were passed over.
+`== Display flags` rdoc section, which carries the `O_replay` trap in one
+line; and the `[ui]` rdoc's note on why session-only and a state file were
+passed over.
 
 So: delete this file once **pikuri-web has taken its copy of the design** and
 Part 2 v2 has landed. Nothing further to back-port from here on the

@@ -34,10 +34,10 @@ require 'tuile'
 # writing into this same pane without sharing the parent's open blocks (see
 # {Listener#for_sub_agent}).
 #
-# *Display* state is the pane's own, though: {#pending_decision} (the pane is
-# what the answering keys arrive at), {#tool_detail}, and the redrawable-block
-# register behind {#add_kinded_block} — a flag on a listener would be copied
-# into every sub-agent sibling at mint time and go stale.
+# *Display* state is the pane's own, though: {#pending_decision}, because the
+# pane is what the answering keys arrive at, and the display flags below with
+# their block register, because a flag on a listener would be copied into every
+# sub-agent sibling at mint time and go stale.
 #
 # == Asking a human decision
 #
@@ -51,38 +51,27 @@ require 'tuile'
 # different focus target, so no amount of typing can answer a question the user
 # has not looked at.
 #
-# == Tool-line form
+# == Display flags
 #
-# A tool call and its observation are drawn in one of two forms, flipped at
-# runtime by {#toggle_tool_detail}:
+# Two flags reshape what is already in the transcript, not just what arrives
+# next. {#tool_detail=} picks a tool line's form:
 #
 #   Bash(rm -rf build)                      # :short — what happened
 #     OK, 340 B
 #   → bash(command="rm -rf build")          # :verbose — the argument dump
 #     = rm: cannot remove 'build': Permis…
 #
-# Both live side by side in {Listener} and the flip redraws the blocks already
-# in the transcript, so the raw form of a call is reachable *after* reading its
-# short one. That is the whole point: a filter applied as events arrive would
-# only ever reach the next call.
+# and {#show_thinking=} shows or hides every reasoning block. Both work by
+# re-running each affected block's thunk ({#add_kinded_block}), because both
+# answer a *retrospective* question — "that call looked wrong, show me its
+# arguments". Never reach for +#clear+ plus a replay instead: +#clear+ drops
+# the region a parked {#pending_decision} is asking in, so the question would
+# vanish while the tool thread stays blocked on its answer.
 #
-# == Reasoning visibility
-#
-# {#show_thinking=} shows or hides every reasoning block at once, including
-# the ones already in the transcript — hidden means the region's text is
-# +""+, which collapses its footprint without detaching it. While hidden the
-# listener drops the delta stream outright and lets the +Thinking+ bookend
-# land as a hidden block, so a reveal shows the full reasoning rather than
-# whatever the deltas got through. One cost, accepted: reasoning cancelled
-# mid-stream has no bookend, so hiding it and revealing it again shows only
-# what had streamed.
-#
-# Do not "simplify" the reveal into +#clear+ plus a replay of recorded events.
-# +#clear+ drops the region {#pending_decision} is asking in, so a toggle
-# pressed while a confirmer question is parked would erase the question while
-# the tool thread stays blocked on its answer — a hang with no visible cause.
-# It would also clobber open streamed blocks mid-turn, lose a cancel's
-# preserved partial, and reset the scroll.
+# Hiding reasoning also stops the listener streaming it, so a reveal shows the
+# +Thinking+ bookend's full text rather than the streamed prefix. The one cost:
+# reasoning cancelled mid-stream never gets a bookend, so hiding and revealing
+# it shows only what had streamed.
 #
 # == Markdown flag
 #
@@ -118,10 +107,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #   rendered through {Shared::Markdown::Renderer}; when +false+, echoed
   #   verbatim and streamed through {Shared::Markdown::PassthroughBuffer}. The
   #   thinking path always recolors to gray.
-  # @param show_thinking [Boolean] whether reasoning blocks start shown
-  #   (+[ui] show_thinking+); flipped at runtime by {#toggle_thinking}.
-  # @param tool_detail [Symbol] the {TOOL_DETAIL_MODES} form to start on
-  #   (+[ui] tool_lines+).
+  # @param show_thinking [Boolean] whether reasoning blocks start shown.
+  # @param tool_detail [Symbol] the {TOOL_DETAIL_MODES} form to start on.
   # @param tool_formatters [Hash{String => #render_call, #render_result}]
   #   per-tool-name formatters that replace the default +Name(argument)+ /
   #   +OK, size+ rendering for those tools (the +edit+ / +write+ diff views).
@@ -202,10 +189,14 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # producing the block's text, filed under +kind+ so {#rerender} can re-run it
   # when the form it draws changes.
   #
-  #   view.add_kinded_block(kind: :tool, indent: 2) { short? ? short_line : raw_line }
+  #   view.add_kinded_block(kind: :tool, indent: @indent) do
+  #     short? ? short_call_line(name, arguments) : verbose_call_line(name, arguments)
+  #   end
   #
-  # The thunk closes over the event's content, so a redraw picks up the pane's
-  # *current* width, theme and display flags.
+  # Closing over the event's content is what makes a redraw pick up the pane's
+  # *current* width, theme and flags. A thunk answers only "what does this block
+  # say" — whether the kind is currently hidden is the pane's business, and a
+  # hidden one is never called.
   #
   # @param kind [Symbol] the redraw group.
   # @param indent [Integer] leading spaces on the block's first line.
@@ -225,10 +216,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     @kinded_blocks.each { |block| draw_kinded(block) if block.kind == kind }
   end
 
-  # Show or hide every reasoning block in the transcript, this one included.
-  # Hiding assigns +""+, which collapses a region's visible footprint without
-  # detaching it, so the block's place — and its thunk — survive to be
-  # revealed again.
+  # Show or hide every reasoning block, the ones already in the transcript
+  # included. Hiding assigns +""+, which collapses a region's visible footprint
+  # without detaching it, so the block's place — and its thunk — survive.
   #
   # @param flag [Boolean]
   # @return [void]
@@ -245,11 +235,12 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     @show_thinking
   end
 
-  # Apply a +/thinking+ argument — +on+ / +off+, or blank to toggle — and
-  # report what happened for the command to echo. The echo names the config
-  # key, since the flip is a session override that is never written back.
+  # Apply a +/thinking+ argument — +on+ / +off+, or blank to toggle — and report
+  # what happened for the command to echo.
   #
   #   conversation.select_thinking('off')   # => "Thinking hidden for this session …"
+  #
+  # The echo names the config key, since a flip lasts only for the session.
   #
   # @param argument [String] the rest of the typed line.
   # @return [String] the outcome line.
@@ -330,11 +321,10 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # off — so the gray tint applies in both modes. The reasoning tone is
   # snapshot at build time, like the width.
   #
-  # The region is also registered as a +:thinking+ block, its thunk re-rendering
-  # the buffer's own accumulated +#source+. That is what lets {#show_thinking=}
-  # reach reasoning that has already streamed — whether the buffer went on to be
-  # finalized, preserved, or is still open — without the pane holding a second
-  # copy of the text.
+  # The region registers as a +:thinking+ block whose thunk re-renders the
+  # buffer's own +#source+ — which is what lets {#show_thinking=} reach
+  # reasoning that already streamed, whether its buffer went on to be finalized,
+  # preserved, or is still open.
   #
   # @param indent [Integer] leading spaces baked into the render proc.
   # @return [Array(Tuile::Component::TextView::Region, #append)] the region and
@@ -478,9 +468,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   private_constant :KindedBlock
 
   # Draw one registered block, or collapse it to nothing when its kind is
-  # currently hidden. The thunk is not consulted while hidden — visibility is
-  # the pane's business, so a thunk only ever has to answer "what does this
-  # block say".
+  # hidden.
   #
   # @param block [KindedBlock]
   # @return [void]
@@ -488,9 +476,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     text = hidden_kind?(block.kind) ? '' : block.render.call
     block.region.text = indent_block(text, block.indent)
   rescue StandardError => e
-    # A reveal re-runs the Markdown renderer over reasoning that rendered fine
-    # once; a kramdown surprise on the way back must not take the event loop
-    # down with it. The block keeps whatever it was showing.
+    # A reveal re-runs the Markdown renderer over content that rendered fine
+    # once, so this catches a kramdown surprise on the way back.
     LOG.warn("redrawing a #{block.kind} block failed (#{e.class}: #{e.message}); leaving it as it was")
   end
 
@@ -604,15 +591,11 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #    {Pikuri::Agent::Event::Thinking}) finalizes the open buffer (replacing
   #    the preview if the delta stream was truncated) or, with no deltas,
   #    renders directly.
-  # 4. A tool call and its observation render in the pane's current
-  #    {Shared::ConversationTextView::TOOL_DETAIL_MODES} form: +:short+
-  #    ({#short_call_line} / {#short_result_line}) says *what happened*, which
-  #    is what a transcript read while the agent works wants; +:verbose+
-  #    ({#verbose_call_line} / {#verbose_result_line}) is the terminal
-  #    listener's argument dump, kept for debugging. Each block goes in as a
-  #    thunk, so the toggle redraws the ones already on screen. The +:short+
-  #    pair is composed here only until pikuri's tools compose their own
-  #    summaries, at which point it becomes a deletion.
+  # 4. Tool lines default to a short +Bash(rm -rf build)+ / +OK, 340 B+ pair
+  #    rather than the terminal listener's argument dump, which survives here
+  #    as the pane's +:verbose+ form. The short pair is composed in this class
+  #    only until pikuri's tools compose their own summaries, at which point it
+  #    becomes a deletion.
   #
   # +Tokens+ / +ContextCap+ stay silent (their consumer is
   # +Pikuri::Agent::Listener::TokenLog+).
@@ -623,7 +606,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # in order.
   class Listener < Pikuri::Agent::Listener::Base
     # Leading spaces a sub-agent's listener prepends to every block, so its
-    # stream reads as indented under the parent's +→ agent(...)+ call. Mirrors
+    # stream reads as indented under the parent's +Agent(...)+ call. Mirrors
     # +Pikuri::Agent::Listener::Terminal+'s +SUB_AGENT_PADDING+. The pad lands
     # on the first line only; sub-agent recursion is blocked (depth never
     # exceeds 1), so a fixed indent reads cleanly.
@@ -721,9 +704,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
         @view.add_block(@view.theme.user("> #{content}"), indent: @indent)
       in Pikuri::Agent::Event::ThinkingDelta(content:)
         @assistant.wipe
-        # Hidden reasoning streams nowhere: no region is opened, and a stream
-        # opened before the flip stops growing where it stands. The bookend
-        # below carries the full text, so nothing is lost for a later reveal.
+        # Dropping the delta loses nothing: the bookend below carries the full
+        # text, and lands as a hidden block for a later reveal.
         if @view.show_thinking
           @thinking.append(content)
           @thinking_streamed = true
@@ -731,8 +713,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
       in Pikuri::Agent::Event::Thinking(content:)
         if @thinking.open?
           @thinking.finalize(content)
-          # finalize writes straight to its region, around the pane's
-          # visibility gate — put it back under the gate.
+          # finalize writes straight to its region, around the pane's gate.
           @view.rerender(kind: :thinking) unless @view.show_thinking
         elsif !@thinking_streamed
           @view.add_kinded_block(kind: :thinking, indent: @indent) { @view.render_thinking(content) }
@@ -865,16 +846,15 @@ class Shared::ConversationTextView < Tuile::Component::TextView
 
     # The +:short+ result line for a tool with no formatter of its own:
     #
-    #   OK, 4.9 kB                                        # dim
+    #   OK, 12.4 kB                                       # dim
     #   Error: exit 1: rm: cannot remove 'build': …       # error-toned
     #
-    # The size is the one structural fact worth carrying: it separates a +read+
-    # that returned nothing from one that returned plenty. Whether the tool
-    # failed is read off the +Error:+ prefix, which is a heuristic — pikuri's
-    # +Tool#run+ returns recoverable failures as +"Error: …"+ strings (a genuine
-    # raise aborts the turn and never reaches a +ToolResult+), but a +read+ of a
-    # file whose first line starts that way misreports. Accepted until pikuri
-    # sends a real summary; the +:verbose+ form shows the observation either way.
+    # The size separates a +read+ that returned nothing from one that returned
+    # plenty. Failure is read off the +Error:+ prefix, because pikuri's
+    # +Tool#run+ returns recoverable failures as +"Error: …"+ strings and a
+    # genuine raise aborts the turn without ever reaching a +ToolResult+. It is
+    # still a heuristic — a +read+ of a file that opens that way misreports —
+    # and one that pikuri's own summaries will retire.
     #
     # @param content [String] the tool observation.
     # @return [String] the toned line.
@@ -886,8 +866,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     end
 
     # The +:verbose+ call line — the terminal listener's argument dump,
-    # +→ bash(command="rm -rf build")+. Every value goes through +inspect+,
-    # which is what makes this form display-safe.
+    # +→ bash(command="rm -rf build")+. The arguments skip {#safe} because
+    # +inspect+ already escapes them.
     #
     # @param name [String]
     # @param arguments [Hash]
@@ -937,13 +917,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
       value.nil? ? '' : cap(safe(value.to_s), TOOL_ARGUMENT_MAX_CHARS)
     end
 
-    # Neutralize model-composed text and flatten it to one line.
-    #
-    # Sanitizing is not optional on any path that prints a value raw (the
-    # +:short+ lines, the +:verbose+ observation): a path carrying +ESC[+ would
-    # otherwise recolor the transcript from inside a tool argument. Only
-    # {#verbose_call_line}'s arguments are safe without it, and only because
-    # +inspect+ escapes them.
+    # Neutralize model-composed text and flatten it to one line. Every path that
+    # prints a tool value raw owes the transcript this call: a filename carrying
+    # +ESC[+ recolors everything after it otherwise.
     #
     # @param text [String]
     # @return [String]

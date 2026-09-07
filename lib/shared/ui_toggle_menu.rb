@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
-# The transcript-density submenu, opened from the leader menu's +u+ entry in
-# all three shells. A second {Shared::LeaderMenu} whose labels carry live
-# state, lazyvim's +<leader>u+ retargeted at Tuile:
+# The transcript-density submenu — a {Shared::LeaderMenu} whose labels carry
+# live state, lazyvim's +<leader>u+ retargeted at Tuile. Hang it off the
+# leader menu:
+#
+#   ui = Shared::UIToggleMenu.new(screen: screen, conversation: conversation)
+#   menu.add('u', 'UI toggles') { ui.open }
 #
 #   Ctrl+K  u
 #   ┌ UI ─────────────────────┐
@@ -10,19 +13,13 @@
 #   │ v  tool lines: short    │
 #   └─────────────────────────┘
 #
-#   ui = Shared::UIToggleMenu.new(screen: screen, conversation: conversation)
-#   menu.add('u', 'UI toggles') { ui.open }
+# Each entry flips one {Shared::ConversationTextView} display flag, a session
+# override of a +[ui]+ config default that is never written back.
 #
-# Both entries flip a display flag on the conversation pane, which redraws
-# what is already in the transcript. A submenu rather than two more top-level
-# leader keys: display preferences are a family, they read best next to each
-# other with their current values showing, and the top level stays a list of
-# *actions* (open the logs, clear the conversation) rather than a mix of
-# actions and settings. It earns the extra keystroke only because there are
-# two of them — one toggle belongs at the top level.
-#
-# Every entry here is a *session* override of a +[ui]+ config default and is
-# never written back (see {Shared::Config}).
+# A submenu rather than two more top-level keys, and worth the extra keystroke
+# only because there are two: it keeps the leader menu a list of *actions*
+# (open the logs, clear the conversation) rather than a mix of actions and
+# settings, and puts the two preferences where they read against each other.
 #
 # UI-thread-confined.
 class Shared::UIToggleMenu

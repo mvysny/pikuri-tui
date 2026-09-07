@@ -21,20 +21,18 @@ require 'tomlrb'
 #   show_thinking = false     # start with reasoning blocks collapsed
 #   tool_lines    = "verbose" # start on the raw argument dump
 #
-# One table for all three shells — no +[chat.ui]+ / +[code.ui]+, because
+# One table for all three shells — no +[chat.ui]+ / +[code.ui]+ — because
 # transcript density is a preference per *person* far more than per shell.
-# Both keys set the *starting* value of a runtime toggle
-# ({Shared::UIToggleMenu}); flipping one is a session override and is never
-# written back, the same file-sets-default / runtime-overrides shape
-# +sandbox+ and +confirm+ have. Passed over for that reason: a session-only
-# setting with no file key (re-typing it every boot would grate) and a
-# rewrite-in-place preferences store under +Pikuri::Paths.state+ (it would
-# be the first such store here and grows into a settings system; it can
-# replace this table later without the pane noticing, since the pane only
-# ever sees a resolved value).
+# Each key sets the *starting* value of a {Shared::UIToggleMenu} toggle;
+# flipping one lasts the session and is never written back, the same
+# file-sets-default / runtime-overrides shape +sandbox+ and +confirm+ have.
+# Making them session-only with no file key at all would have meant re-typing
+# a taste every boot; a rewrite-in-place preferences store can still replace
+# this table later without the pane noticing, since the pane is handed only a
+# resolved value.
 #
 # The conversation pane's +markdown:+ flag is the same shape and has no key
-# here yet — it is the natural third +[ui]+ entry when someone wants it.
+# here yet — the natural third entry when someone wants it.
 #
 # == Precedence
 #
