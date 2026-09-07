@@ -68,6 +68,10 @@ require 'tuile'
 # the region a parked {#pending_decision} is asking in, so the question would
 # vanish while the tool thread stays blocked on its answer.
 #
+# Neither flag keeps scroll bookkeeping: Tuile clamps +scroll_top_row+ on every
+# region rewrite and re-tails a following view, so collapsing a screenful under
+# a scrolled-up reader lands where it should.
+#
 # Hiding reasoning also stops the listener streaming it, so a reveal shows the
 # +Thinking+ bookend's full text rather than the streamed prefix. The one cost:
 # reasoning cancelled mid-stream never gets a bookend, so hiding and revealing
