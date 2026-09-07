@@ -252,7 +252,8 @@ module Computer
       }
 
       @conversation = Shared::ConversationTextView.new(
-        markdown: @markdown, tool_formatters: @tool_formatters
+        markdown: @markdown, show_thinking: @config.show_thinking,
+        tool_detail: @config.tool_lines, tool_formatters: @tool_formatters
       )
       # The filesystem root was the conversation window's border caption before
       # the frames went away; the rule's leading segment reads it just as well.
@@ -289,6 +290,7 @@ module Computer
       )
       # ESC on the transcript (where the user answers a confirmation) hands the
       # caret back rather than falling through to the loop's unhandled-key quit.
+      @ui_toggles = Shared::UIToggleMenu.new(screen: @screen, conversation: @conversation)
       @conversation.on_escape = -> { @input.focus }
       @plan_mode_listener = Code::PlanModeListener.new(status_rule: @status_rule, screen: @screen)
 
@@ -479,7 +481,7 @@ module Computer
       menu = Shared::LeaderMenu.new(screen: @screen)
       menu.add('l', 'logs') { @log_ui.open }
       menu.add('p', 'plan mode') { toggle_plan_mode }
-      menu.add('v', 'tool line detail') { @conversation.toggle_tool_detail }
+      menu.add('u', 'UI toggles') { @ui_toggles.open }
       menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
       menu.add('c', 'clear conversation + context') { @session.clear_conversation }
       menu.add('q', 'quit') { quit }
@@ -505,6 +507,8 @@ module Computer
         Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
                                  ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
         Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' }),
+        Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
+                                 ->(rest) { @conversation.select_thinking(rest) }),
         Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
                                  ->(rest) { @conversation.select_tool_detail(rest) })
       ]

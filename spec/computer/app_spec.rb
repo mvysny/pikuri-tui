@@ -67,7 +67,7 @@ RSpec.describe Computer::App do
   end
 
   it 'registers the computer slash commands mirroring the leader menu (single connection: no /model, no /diff)' do
-    assert_equal ['/logs', '/trifecta', '/plan', '/tools', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/plan', '/thinking', '/tools', '/clear', '/exit', '/quit'],
                  app.send(:build_slash_commands).map(&:name)
   end
 
@@ -87,7 +87,7 @@ RSpec.describe Computer::App do
     def palette = app.instance_variable_get(:@slash_menu).instance_variable_get(:@commands).map(&:name)
 
     it 'appends them after the built-ins, and lets a built-in win a collision' do
-      assert_equal ['/logs', '/trifecta', '/plan', '/tools', '/clear', '/exit', '/quit', '/wh'], palette
+      assert_equal ['/logs', '/trifecta', '/plan', '/thinking', '/tools', '/clear', '/exit', '/quit', '/wh'], palette
     end
 
     it 'runs one as an expanded user turn' do
@@ -242,9 +242,9 @@ RSpec.describe Computer::App do
       assert_includes app.status_bar.text.to_s, '^K menu'
     end
 
-    it 'offers logs, plan mode, tool detail, clear and quit for a single-model shell (no git diff)' do
+    it 'offers logs, plan mode, UI toggles, clear and quit for a single-model shell (no git diff)' do
       keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l p v c q], keys
+      assert_equal %w[l p u c q], keys
     end
 
     it 'adds a switch-model action when more than one model is configured' do
@@ -252,7 +252,7 @@ RSpec.describe Computer::App do
         ComputerStubAgent.new(model: 'm1')
       end
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l p v m c q], keys
+      assert_equal %w[l p u m c q], keys
     end
 
     it "picking 'c' clears the agent's conversation" do

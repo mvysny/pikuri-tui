@@ -63,6 +63,57 @@ describe Shared::Config do
       assert_nil c.search.exa_key
       assert_nil c.search.engines
     end
+
+    it 'starts the transcript with reasoning shown and tool lines short' do
+      c = load_bare
+      assert c.show_thinking
+      assert_equal :short, c.tool_lines
+    end
+  end
+
+  describe 'the [ui] table' do
+    it 'reads both transcript-density defaults' do
+      with_dirs do |home, _|
+        write_config(home, "[ui]\nshow_thinking = false\ntool_lines = \"verbose\"\n")
+        c = described_class.load(env: env_for(home))
+        refute c.show_thinking
+        assert_equal :verbose, c.tool_lines
+      end
+    end
+
+    it 'rejects an unknown key' do
+      with_dirs do |home, _|
+        write_config(home, "[ui]\nshow_thnking = false\n")
+        err = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
+        assert_includes err.message, 'ui: unknown key(s): show_thnking'
+      end
+    end
+
+    it 'rejects a non-boolean show_thinking' do
+      with_dirs do |home, _|
+        write_config(home, "[ui]\nshow_thinking = \"no\"\n")
+        err = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
+        assert_includes err.message, 'ui.show_thinking must be true or false'
+      end
+    end
+
+    # Checked against the pane's own list rather than a copy here, so the two
+    # can't drift.
+    it 'rejects a tool_lines form the conversation pane does not have' do
+      with_dirs do |home, _|
+        write_config(home, "[ui]\ntool_lines = \"loud\"\n")
+        err = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
+        assert_includes err.message, 'ui.tool_lines must be one of: short, verbose'
+      end
+    end
+
+    it 'rejects [ui] written as anything but a table' do
+      with_dirs do |home, _|
+        write_config(home, "ui = 1\n")
+        err = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
+        assert_includes err.message, '`ui` must be a table'
+      end
+    end
   end
 
   describe 'CLI overrides (the safety switches, highest precedence)' do

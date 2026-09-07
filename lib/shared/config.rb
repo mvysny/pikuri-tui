@@ -11,9 +11,30 @@ require 'tomlrb'
 #   config.sandbox       # coding/OS sandbox switch (flag > file > default)
 #
 # It holds the resolved model connections, the web-search selection,
-# the coding shell's sandbox / confirm switches, and its MCP server list,
-# merged from the XDG config search path with the bins' CLI overrides on
-# top.
+# the coding shell's sandbox / confirm switches, its MCP server list, and
+# the +[ui]+ transcript-density defaults, merged from the XDG config search
+# path with the bins' CLI overrides on top.
+#
+# == The +[ui]+ table
+#
+#   [ui]
+#   show_thinking = false     # start with reasoning blocks collapsed
+#   tool_lines    = "verbose" # start on the raw argument dump
+#
+# One table for all three shells — no +[chat.ui]+ / +[code.ui]+, because
+# transcript density is a preference per *person* far more than per shell.
+# Both keys set the *starting* value of a runtime toggle
+# ({Shared::UIToggleMenu}); flipping one is a session override and is never
+# written back, the same file-sets-default / runtime-overrides shape
+# +sandbox+ and +confirm+ have. Passed over for that reason: a session-only
+# setting with no file key (re-typing it every boot would grate) and a
+# rewrite-in-place preferences store under +Pikuri::Paths.state+ (it would
+# be the first such store here and grows into a settings system; it can
+# replace this table later without the pane noticing, since the pane only
+# ever sees a resolved value).
+#
+# The conversation pane's +markdown:+ flag is the same shape and has no key
+# here yet — it is the natural third +[ui]+ entry when someone wants it.
 #
 # == Precedence
 #
@@ -197,6 +218,11 @@ class Shared::Config
   DEFAULT_SANDBOX = true
   # @return [Boolean] confirm on unless a file or +--no-confirm+ says otherwise.
   DEFAULT_CONFIRM = true
+  # @return [Boolean] reasoning blocks are shown unless +[ui]+ says otherwise.
+  DEFAULT_SHOW_THINKING = true
+  # @return [Symbol] the tool-line form to start on; one of
+  #   {Shared::ConversationTextView::TOOL_DETAIL_MODES}.
+  DEFAULT_TOOL_LINES = :short
 
   # Config file basename and the per-app subdirectory under each XDG
   # config root.
@@ -241,12 +267,17 @@ class Shared::Config
     mcp = (code['mcp'] || []).each_with_index.map { |h, i| build_mcp(h, i) }
     check_unique!(mcp.map(&:id), 'code.mcp id')
 
+    ui = merged['ui'] || {}
+    validate_ui!(ui)
+
     new(
-      llms:    llms,
-      search:  build_search(merged['search']),
-      sandbox: pick(overrides[:sandbox], code['sandbox'], DEFAULT_SANDBOX),
-      confirm: pick(overrides[:confirm], code['confirm'], DEFAULT_CONFIRM),
-      mcp:     mcp
+      llms:          llms,
+      search:        build_search(merged['search']),
+      sandbox:       pick(overrides[:sandbox], code['sandbox'], DEFAULT_SANDBOX),
+      confirm:       pick(overrides[:confirm], code['confirm'], DEFAULT_CONFIRM),
+      mcp:           mcp,
+      show_thinking: pick(ui['show_thinking'], DEFAULT_SHOW_THINKING),
+      tool_lines:    pick(ui['tool_lines']&.to_sym, DEFAULT_TOOL_LINES)
     )
   end
 
@@ -255,12 +286,17 @@ class Shared::Config
   # @param sandbox [Boolean] resolved coding sandbox switch.
   # @param confirm [Boolean] resolved coding confirmer switch.
   # @param mcp [Array<McpServer>] coding-shell MCP servers (may be empty).
-  def initialize(llms:, search:, sandbox:, confirm:, mcp:)
+  # @param show_thinking [Boolean] resolved +[ui]+ reasoning-block default.
+  # @param tool_lines [Symbol] resolved +[ui]+ tool-line form.
+  def initialize(llms:, search:, sandbox:, confirm:, mcp:,
+                 show_thinking: DEFAULT_SHOW_THINKING, tool_lines: DEFAULT_TOOL_LINES)
     @llms    = llms.freeze
     @search  = search
     @sandbox = sandbox
     @confirm = confirm
     @mcp     = mcp.freeze
+    @show_thinking = show_thinking
+    @tool_lines    = tool_lines
     freeze
   end
 
@@ -274,6 +310,11 @@ class Shared::Config
   attr_reader :confirm
   # @return [Array<McpServer>] coding-shell MCP servers, declaration order.
   attr_reader :mcp
+  # @return [Boolean] whether reasoning blocks start shown (+[ui]+ > default).
+  attr_reader :show_thinking
+  # @return [Symbol] the tool-line form to start on (+[ui]+ > default), one of
+  #   {Shared::ConversationTextView::TOOL_DETAIL_MODES}.
+  attr_reader :tool_lines
 
   # @return [Llm] the boot connection (the first); the rest are
   #   reachable at runtime through the leader menu's model picker.
@@ -346,7 +387,7 @@ class Shared::Config
   end
 
   def self.validate_top!(merged)
-    unknown = merged.keys - %w[llm search code]
+    unknown = merged.keys - %w[llm search code ui]
     raise Error, "unknown top-level key(s): #{unknown.join(', ')}" unless unknown.empty?
     if merged.key?('llm') && !merged['llm'].is_a?(Array)
       raise Error, '`llm` must be an array of tables (use [[llm]], not [llm])'
@@ -354,9 +395,27 @@ class Shared::Config
     if merged.key?('search') && !merged['search'].is_a?(Hash)
       raise Error, '`search` must be a table ([search])'
     end
-    return unless merged.key?('code') && !merged['code'].is_a?(Hash)
+    raise Error, '`code` must be a table ([code])' if merged.key?('code') && !merged['code'].is_a?(Hash)
+    return unless merged.key?('ui') && !merged['ui'].is_a?(Hash)
 
-    raise Error, '`code` must be a table ([code])'
+    raise Error, '`ui` must be a table ([ui])'
+  end
+
+  # Unlike +[search]+, whose engine names are pikuri's to define, the
+  # +tool_lines+ vocabulary is this app's own — so it is checked against the
+  # pane's list rather than a copy that could rot.
+  def self.validate_ui!(ui)
+    unknown = ui.keys - %w[show_thinking tool_lines]
+    raise Error, "ui: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
+    if ui.key?('show_thinking') && ![true, false].include?(ui['show_thinking'])
+      raise Error, 'ui.show_thinking must be true or false'
+    end
+    return unless ui.key?('tool_lines')
+
+    forms = Shared::ConversationTextView::TOOL_DETAIL_MODES
+    return if forms.any? { |form| form.to_s == ui['tool_lines'] }
+
+    raise Error, "ui.tool_lines must be one of: #{forms.join(', ')}"
   end
 
   # Build the {Search} value object from the +[search]+ table (or +nil+

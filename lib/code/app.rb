@@ -275,7 +275,8 @@ module Code
       }
 
       @conversation = Shared::ConversationTextView.new(
-        markdown: @markdown, tool_formatters: @tool_formatters
+        markdown: @markdown, show_thinking: @config.show_thinking,
+        tool_detail: @config.tool_lines, tool_formatters: @tool_formatters
       )
       # The project root was the conversation window's border caption before
       # the frames went away; it reads just as well as the rule's leading
@@ -325,6 +326,7 @@ module Code
       )
       # ESC on the transcript (where the user answers a confirmation) hands the
       # caret back rather than falling through to the loop's unhandled-key quit.
+      @ui_toggles = Shared::UIToggleMenu.new(screen: @screen, conversation: @conversation)
       @conversation.on_escape = -> { @input.focus }
       @plan_mode_listener = PlanModeListener.new(status_rule: @status_rule, screen: @screen)
 
@@ -526,7 +528,7 @@ module Code
       menu.add('d', 'git diff') { @sidebar.open_diff }
       menu.add('s', 'sidebar width') { @layout.cycle_sidebar_mode }
       menu.add('p', 'plan mode') { toggle_plan_mode }
-      menu.add('v', 'tool line detail') { @conversation.toggle_tool_detail }
+      menu.add('u', 'UI toggles') { @ui_toggles.open }
       menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
       menu.add('c', 'clear conversation + context') { clear_conversation }
       menu.add('q', 'quit') { quit }
@@ -559,6 +561,8 @@ module Code
         Shared::SlashCommand.new('/diff', 'show the git diff', ->(_rest) { @sidebar.open_diff; 'Opened the git diff.' }),
         Shared::SlashCommand.new('/sidebar', 'sidebar full / narrow / off (blank cycles)', ->(rest) { set_sidebar(rest) }),
         Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' }),
+        Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
+                                 ->(rest) { @conversation.select_thinking(rest) }),
         Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
                                  ->(rest) { @conversation.select_tool_detail(rest) })
       ]

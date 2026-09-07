@@ -1,13 +1,14 @@
 # Transcript density: hide thinking, shorten tool lines
 
-**Status:** Part 2 v1 **landed in pikuri-tui** (see "Part 2 v1 — as built"
-below); Part 1 and Part 2 v2 still designed-not-started. Held back from
-graduation deliberately: **pikuri-web will reuse this file** for the same two
+**Status:** Part 1 and Part 2 v1 both **landed in pikuri-tui** (see the two
+"as built" sections); only Part 2 v2 waits on pikuri. Held back from
+graduation deliberately: **pikuri-web will reuse this file** for the same
 changes on its own chrome, so it stays here past the pikuri-tui landing
-instead of evaporating into AGENTS.md. The durable pikuri-tui nuggets from v1
-*have* been propagated (AGENTS.md Scope decisions + the
-`Shared::ConversationTextView` Layout entry + the class rdoc); what remains
-here is the design record and the not-yet-built parts.
+instead of evaporating into AGENTS.md. The durable pikuri-tui nuggets *have*
+been propagated (AGENTS.md Scope decisions + the
+`Shared::ConversationTextView` / `Shared::UIToggleMenu` / `Shared::Config`
+Layout entries + the class rdocs); what remains here is the design record and
+the one not-yet-built part.
 
 The leans from the brainstorm are folded in below as `D_` decisions (the
 alternatives are kept one line each, for the why-not notes at graduation).
@@ -31,7 +32,7 @@ reviews rather than skims (`D_diffs_always_visible`).
 
 ### Decisions
 
-`D_config_default` — a `[ui]` table in `Shared::Config`
+`D_config_default` — **built.** A `[ui]` table in `Shared::Config`
 (`show_thinking = true`), layered like everything else, flowing into the pane
 as a constructor flag exactly as `markdown:` does today. The runtime toggle
 is a *session override* of the configured default and is never written back:
@@ -50,18 +51,32 @@ config.toml to keep it.`
 `[code.ui]`; the preference is per-person far more than per-shell.
 
 `D_markdown_flag_deferred` — the pane's `markdown:` flag is the same shape
-and has no config key; it is the natural second `[ui]` key but out of scope.
-Say so in the `[ui]` rdoc so the next person puts it there.
+and has no config key; it is the natural *third* `[ui]` key (`tool_lines`
+took second, see `D_tool_lines_key`) but out of scope. Said so in the `[ui]`
+rdoc, so the next person puts it there.
 
-`D_leader_t_and_slash_thinking` — leader `t` ("thinking") plus
-`/thinking [on|off]` (blank toggles, the `/sidebar` shape). `t` is free in
-all three shells (taken: `l d s p m c q`). The leader label is a static
-`String` and cannot show state; the toggle's echo does, and hidden thinking
-is not an invisible state the way hidden tool calls would have been — the
-spinner still says the agent is busy and only grey prose is missing.
-- Deferred `O_which_key_submenu` (leader `u` → a second `PickerWindow` with
-  live-state labels, lazyvim's `<leader>u`): right shape once a second
-  display preference exists (`markdown`, a tool-verbose flag), silly for one.
+`D_tool_lines_key` — **added on the way in**, not in the original design:
+`[ui] tool_lines = "short" | "verbose"` alongside `show_thinking`. Once the
+two toggles sit side by side in one submenu showing their current values,
+having one stick across boots and the other not is a wart, and
+`D_config_default`'s rationale (density is taste; re-typing it every boot
+would grate) applies to both identically. Validated against the pane's own
+`TOOL_DETAIL_MODES` rather than a copy in the config, so the vocabulary
+cannot drift — unlike `[search] engines`, whose names are pikuri's to define
+and so are deliberately *not* listed there.
+
+`D_which_key_submenu` — **promoted from deferred, and built.** The original
+lean was `D_leader_t_and_slash_thinking`: leader `t` at the top level, with
+`O_which_key_submenu` (leader `u` → a second `PickerWindow` with live-state
+labels, lazyvim's `<leader>u`) parked as "right shape once a second display
+preference exists, silly for one." `D_verbose_toggle` created that second
+preference, so `u` was built and the tool toggle moved into it from the
+top-level `v` it briefly held. `Shared::LeaderMenu` needed two small
+extensions to serve as its own submenu: a `caption:` constructor argument,
+and labels that may be *callables* resolved on each `#open` — which is what
+killed the original note's "the leader label is a static `String` and cannot
+show state". The typed halves (`/thinking [on|off]`, `/tools
+[short|verbose]`, blank toggles, the `/sidebar` shape) stayed.
 - Rejected `O_checkbox_dialog`: same information in a widget the app does
   not otherwise use.
 
@@ -73,9 +88,13 @@ on a real "the model isn't thinking any more" report.
 this for its tool-line toggle, so it was pulled forward: pikuri-tui's
 `Shared::ConversationTextView` now has `#add_kinded_block(kind:, indent:,
 &render)` + `#rerender(kind:)` over a `{region, kind, indent, render}`
-register, dropped by `#clear`. Part 1 adds a second kind (`:thinking`) and the
-hidden-means-empty-text branch; the register itself is done. The design as
-written:
+register, dropped by `#clear`. Part 1 then added the `:thinking` kind on top
+of it. One refinement over the sketch: **visibility is the pane's call, not
+the thunk's** — `#draw_kinded` blanks a hidden kind before the thunk is ever
+run, so a thunk only ever has to answer "what does this block say". It also
+rescues, since a reveal re-runs the Markdown renderer over content that
+rendered fine once and a kramdown surprise must not take the event loop down.
+The design as written:
 
 The pane keeps, per block it creates,
 `{region, kind, render}` where `render` is a zero-arg thunk producing the
@@ -104,13 +123,28 @@ is pulled back into range.
   cancel's preserved partial, resets scroll. **This trap goes in the pane
   rdoc next to `pending_decision=` at graduation.**
 
-`D_drop_deltas_while_hidden` — streaming while hidden renders nothing
-anywhere: the listener drops `ThinkingDelta` outright and lets the
-`Thinking` bookend land as a hidden block (pikuri's bookend carries the full
-text — the listener already relies on that to replace a truncated preview).
-Cost: a cancel mid-thinking while hidden has no bookend, so that reasoning is
-not revealable later. Accepted. Flipping to hidden mid-stream: `wipe` the
-open thinking block and route the rest silently.
+`D_drop_deltas_while_hidden` — **built, and the mid-stream flip came out
+better than designed.** Streaming while hidden renders nothing anywhere: the
+listener drops `ThinkingDelta` outright and lets the `Thinking` bookend land
+as a hidden block (pikuri's bookend carries the full text — the listener
+already relies on that to replace a truncated preview). Cost: a cancel
+mid-thinking while hidden has no bookend, so only what streamed is
+revealable. Accepted.
+
+The sketch said to `wipe` an open thinking block on a flip to hidden. Not
+needed, and wiping would have been wrong: `#open_thinking_block` registers
+its region with a thunk over the *streaming buffer's* own `#source`, so the
+flip just blanks it and a reveal re-renders from the buffer — which works
+identically whether the buffer went on to be finalized, preserved, or is
+still open. Nothing is ever removed, so the register never holds a dead
+region and needs no unregister path. Registering the streamed region is not
+optional, either: the common streaming path *preserves* the thinking block
+when an `AssistantDelta` arrives and suppresses the bookend, so without it
+most streamed reasoning would have been unhideable.
+
+One seam the design missed: `StreamedBlock#finalize` writes straight to its
+region, around the pane's visibility gate. The bookend branch re-runs
+`#rerender(kind: :thinking)` when hidden to put it back.
 
 `D_pane_owns_flag` — sub-agent listeners are minted per delegate and share
 the pane, so the pane (not the listener) owns the flag; a flag on the
@@ -128,6 +162,30 @@ The pane is unit-testable from canned events under a fake screen: dispatch a
 scripted stream with the flag each way, toggle, assert `text` lines. Plus one
 confirmer spec that parks a decision, toggles, and answers `y` — the guard
 for the `O_replay` trap.
+
+### Part 1 — as built (pikuri-tui)
+
+Landed as designed, with the four amendments recorded on the decisions above
+(`D_tool_lines_key`, `D_which_key_submenu`, and the two refinements under
+`D_kinded_regions` / `D_drop_deltas_while_hidden`). What a second
+implementation wants to copy, beyond those:
+
+1. **`#open_thinking_block` registers its own region**, thunk over
+   `buffer.source`. That one line is what makes every shape of streamed
+   reasoning — open, finalized, preserved — hideable from one flag, with no
+   second copy of the text and no snapshot bookkeeping.
+2. **The pane owns both flags** (`D_pane_owns_flag`), and `Shared::Config`
+   only supplies their starting values. Sub-agent listeners share the pane,
+   so a flag on a listener would be copied at mint time and go stale.
+3. **`indent_block` returns an empty block unchanged**, so a hidden block is
+   genuinely zero rows rather than a line of padding spaces.
+4. Six specs are the ones worth porting: the non-streamed bookend collapses
+   and comes back; a *preserved* stream does too (the common path, where the
+   bookend is suppressed — the case a naive implementation misses); deltas
+   while hidden are dropped but the bookend is revealable; a bookend that
+   finalized an open stream is re-hidden; prose and tool lines are untouched;
+   and a parked decision survives a toggle and still answers `y` (the
+   `O_replay` guard).
 
 ---
 
@@ -249,9 +307,9 @@ Small deviations from the sketch above, all deliberate:
   rather than the module capitalizing them.
 - The verbose call line sanitizes `name` too — pre-existing hole, one word to
   close.
-- Surfaces: leader `v` ("tool line detail") + `/tools [short|verbose]` (blank
-  toggles, the `/sidebar` shape) in all three shells. `t` stays reserved for
-  Part 1's thinking toggle.
+- Surfaces: `/tools [short|verbose]` (blank toggles, the `/sidebar` shape)
+  in all three shells, plus a leader key — briefly top-level `v`, moved into
+  the `u` submenu the moment Part 1 gave it company (`D_which_key_submenu`).
 
 Docs propagated: AGENTS.md Scope decisions (a new bullet: what the toggle must
 keep true) + the `Shared::ConversationTextView` Layout entry + the leader/slash
@@ -283,7 +341,7 @@ for the raw form — never cross the streams.
 ## Sequencing
 
 1. ~~Part 2 v1~~ — **done in pikuri-tui** (kinded regions came with it).
-2. Part 1 (`[ui]` config key, the `:thinking` kind, leader `t`, `/thinking`).
+2. ~~Part 1~~ — **done**, and it pulled the `u` submenu in with it.
 3. Part 2 v2 when pikuri ships `tool-summary-lines`.
 4. Both parts again in pikuri-web, on its own chrome.
 
@@ -298,17 +356,14 @@ for the raw form — never cross the streams.
 
 ## When this is done
 
-Delete this file — but **not until pikuri-web has taken its copy of the
-design**. Durable nuggets to propagate first:
+Everything on the pikuri-tui side is propagated already — AGENTS.md's Scope
+decisions (one bullet for what a density toggle must keep true, one for the
+tool lines) and its Layout entries for `Shared::ConversationTextView`,
+`Shared::UIToggleMenu`, `Shared::LeaderMenu` and `Shared::Config`; the pane's
+`== Reasoning visibility` / `== Tool-line form` rdoc sections, including the
+`O_replay` trap next to the decision-block contract; and the `[ui]` rdoc's
+note on why session-only and a state file were passed over.
 
-- AGENTS.md Layout: `Shared::ConversationTextView` gains `show_thinking=` and
-  a second `add_kinded_block` kind; `Shared::Config` gains `[ui]` (with the
-  `markdown` pointer); each `App` gains leader `t` + `/thinking`. (The
-  tool-line half of this is already propagated.)
-- AGENTS.md Scope decisions: the decision block and user/assistant prose are
-  never hidden (a parked decision must stay loud). (The tool-line bullet is
-  already there.)
-- `Shared::ConversationTextView` rdoc: the "stateless" claim narrows to
-  conversation progress; and the why-not next to `pending_decision=`: a
-  `clear`-based re-render would silently erase a parked question.
-- The `[ui]` rdoc: why session-only and a state file were passed over.
+So: delete this file once **pikuri-web has taken its copy of the design** and
+Part 2 v2 has landed. Nothing further to back-port from here on the
+pikuri-tui side.

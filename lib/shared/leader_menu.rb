@@ -34,7 +34,7 @@ require 'tuile'
 #
 # UI-thread-confined.
 class Shared::LeaderMenu
-  # The popup caption shown above the action list.
+  # The default popup caption shown above the action list.
   # @return [String]
   CAPTION = 'Menu'
 
@@ -60,22 +60,35 @@ class Shared::LeaderMenu
   # @!attribute [r] key
   #   @return [String] the single follow-up key that runs this action.
   # @!attribute [r] label
-  #   @return [String] the action's label, shown after the key glyph.
+  #   @return [String, #call] the action's label, shown after the key glyph;
+  #     a callable is resolved at {#open} time — see {#add}.
   # @!attribute [r] callback
   #   @return [Proc, Method] the zero-arg callable run on pick.
-  Action = Data.define(:key, :label, :callback)
+  Action = Data.define(:key, :label, :callback) do
+    # @return [String] the label as it should read right now.
+    def text = label.respond_to?(:call) ? label.call : label
+  end
 
   # @param screen [Tuile::Screen] the screen the popup mounts on and whose
   #   event queue defers each picked callback to the next tick.
-  def initialize(screen:)
+  # @param caption [String] the popup's caption ({CAPTION} by default; a
+  #   submenu passes its own).
+  def initialize(screen:, caption: CAPTION)
     @screen = screen
+    @caption = caption
     @actions = []
   end
 
   # Register an action. Chainable; call before the first {#open}.
   #
+  # A *callable* label is resolved each time the menu opens, which is how a
+  # toggle advertises its own state:
+  #
+  #   menu.add('t', -> { "thinking: #{pane.show_thinking ? 'shown' : 'hidden'}" }) { pane.toggle_thinking }
+  #
   # @param key [String] the single follow-up key (e.g. +"l"+).
-  # @param label [String] the action label (e.g. +"logs"+).
+  # @param label [String, #call] the action label (e.g. +"logs"+), or a
+  #   zero-arg callable returning one.
   # @yield the zero-arg action body, run on the event-loop thread (one tick
   #   after the key is picked, so the menu popup is already closed).
   # @return [self]
@@ -109,8 +122,8 @@ class Shared::LeaderMenu
     return if @actions.empty?
 
     by_key = @actions.to_h { |a| [a.key, a] }
-    options = @actions.map { |a| [a.key, a.label] }
-    picker = Tuile::Component::PickerWindow.new(CAPTION, options) do |key|
+    options = @actions.map { |a| [a.key, a.text] }
+    picker = Tuile::Component::PickerWindow.new(@caption, options) do |key|
       action = by_key[key]
       @screen.event_queue.submit { action.callback.call } if action
     end

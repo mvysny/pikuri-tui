@@ -32,7 +32,7 @@ RSpec.describe Code::App do
   end
 
   it 'registers the coding slash commands mirroring the leader menu (single connection: no /model)' do
-    assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/tools', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/clear', '/exit', '/quit'],
                  app.send(:build_slash_commands).map(&:name)
   end
 
@@ -255,7 +255,7 @@ RSpec.describe Code::App do
     def palette = app.instance_variable_get(:@skill_activation).commands.map(&:name)
 
     it 'lists file commands after the built-ins and before the skills' do
-      assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/tools', '/clear', '/exit', '/quit',
+      assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/clear', '/exit', '/quit',
                     '/wh', '/writing-rdoc', '/cop'],
                    palette
     end
@@ -506,15 +506,15 @@ RSpec.describe Code::App do
       assert_includes app.status_bar.text.to_s, '^K menu'
     end
 
-    it 'offers logs, git diff, sidebar, plan mode, tool detail, clear and quit for a single-model shell' do
+    it 'offers logs, git diff, sidebar, plan mode, UI toggles, clear and quit for a single-model shell' do
       keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l d s p v c q], keys
+      assert_equal %w[l d s p u c q], keys
     end
 
     it 'adds a switch-model action when more than one model is configured' do
       picker_app = code_app(config: code_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')]), model: 'm1')
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l d s p v m c q], keys
+      assert_equal %w[l d s p u m c q], keys
     end
 
     it "picking 'c' clears the agent's conversation" do

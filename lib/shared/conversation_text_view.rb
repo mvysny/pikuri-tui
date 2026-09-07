@@ -66,6 +66,24 @@ require 'tuile'
 # short one. That is the whole point: a filter applied as events arrive would
 # only ever reach the next call.
 #
+# == Reasoning visibility
+#
+# {#show_thinking=} shows or hides every reasoning block at once, including
+# the ones already in the transcript — hidden means the region's text is
+# +""+, which collapses its footprint without detaching it. While hidden the
+# listener drops the delta stream outright and lets the +Thinking+ bookend
+# land as a hidden block, so a reveal shows the full reasoning rather than
+# whatever the deltas got through. One cost, accepted: reasoning cancelled
+# mid-stream has no bookend, so hiding it and revealing it again shows only
+# what had streamed.
+#
+# Do not "simplify" the reveal into +#clear+ plus a replay of recorded events.
+# +#clear+ drops the region {#pending_decision} is asking in, so a toggle
+# pressed while a confirmer question is parked would erase the question while
+# the tool thread stays blocked on its answer — a hang with no visible cause.
+# It would also clobber open streamed blocks mid-turn, lose a cancel's
+# preserved partial, and reset the scroll.
+#
 # == Markdown flag
 #
 # +markdown:+ (default +true+) gates the assistant render path: when off, the
@@ -100,13 +118,18 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #   rendered through {Shared::Markdown::Renderer}; when +false+, echoed
   #   verbatim and streamed through {Shared::Markdown::PassthroughBuffer}. The
   #   thinking path always recolors to gray.
+  # @param show_thinking [Boolean] whether reasoning blocks start shown
+  #   (+[ui] show_thinking+); flipped at runtime by {#toggle_thinking}.
+  # @param tool_detail [Symbol] the {TOOL_DETAIL_MODES} form to start on
+  #   (+[ui] tool_lines+).
   # @param tool_formatters [Hash{String => #render_call, #render_result}]
   #   per-tool-name formatters that replace the default +Name(argument)+ /
   #   +OK, size+ rendering for those tools (the +edit+ / +write+ diff views).
   #   Defaults to +{}+.
-  def initialize(markdown: true, tool_formatters: {})
+  def initialize(markdown: true, show_thinking: true, tool_detail: TOOL_DETAIL_MODES.first, tool_formatters: {})
     super()
     @markdown = markdown
+    @show_thinking = show_thinking
     @tool_formatters = tool_formatters
     self.auto_scroll = true
     # Unlike the coding shell's sidebar panes this one is genuinely scrollable,
@@ -118,8 +141,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # +Tuile::Screen.fake+ for tests). Its +event_queue+ marshals the render
     # calls back from the agent's worker thread.
     @listener = Listener.new(view: self, screen: screen, indent: 0)
-    @tool_detail = TOOL_DETAIL_MODES.first
     @kinded_blocks = []
+    self.tool_detail = tool_detail
     @pending_decision = nil
     @decision_region = nil
     @decision_body = nil
@@ -148,6 +171,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @return [Symbol] the tool-line form currently drawn, one of
   #   {TOOL_DETAIL_MODES}.
   attr_reader :tool_detail
+
+  # @return [Boolean] whether reasoning blocks are currently drawn.
+  attr_reader :show_thinking
 
   # @return [Tuile::Theme] the screen's current theme (re-read each call so an
   #   OS light/dark flip is picked up).
@@ -186,9 +212,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @yieldreturn [String, Tuile::StyledString] the block's content.
   # @return [void]
   def add_kinded_block(kind:, indent: 0, &render)
-    region = create_region
-    @kinded_blocks << KindedBlock.new(region: region, kind: kind, indent: indent, render: render)
-    region.text = indent_block(render.call, indent)
+    block = KindedBlock.new(region: create_region, kind: kind, indent: indent, render: render)
+    @kinded_blocks << block
+    draw_kinded(block)
   end
 
   # Redraw every block of +kind+ from its thunk, in place.
@@ -196,9 +222,44 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @param kind [Symbol]
   # @return [void]
   def rerender(kind:)
-    @kinded_blocks.each do |block|
-      block.region.text = indent_block(block.render.call, block.indent) if block.kind == kind
-    end
+    @kinded_blocks.each { |block| draw_kinded(block) if block.kind == kind }
+  end
+
+  # Show or hide every reasoning block in the transcript, this one included.
+  # Hiding assigns +""+, which collapses a region's visible footprint without
+  # detaching it, so the block's place — and its thunk — survive to be
+  # revealed again.
+  #
+  # @param flag [Boolean]
+  # @return [void]
+  def show_thinking=(flag)
+    return if @show_thinking == flag
+
+    @show_thinking = flag
+    rerender(kind: :thinking)
+  end
+
+  # @return [Boolean] the reasoning visibility now in force.
+  def toggle_thinking
+    self.show_thinking = !@show_thinking
+    @show_thinking
+  end
+
+  # Apply a +/thinking+ argument — +on+ / +off+, or blank to toggle — and
+  # report what happened for the command to echo. The echo names the config
+  # key, since the flip is a session override that is never written back.
+  #
+  #   conversation.select_thinking('off')   # => "Thinking hidden for this session …"
+  #
+  # @param argument [String] the rest of the typed line.
+  # @return [String] the outcome line.
+  def select_thinking(argument)
+    wanted = argument.strip.downcase
+    return thinking_outcome(toggle_thinking) if wanted.empty?
+    return "No thinking setting #{wanted.inspect} — try on / off." unless %w[on off].include?(wanted)
+
+    self.show_thinking = wanted == 'on'
+    thinking_outcome(@show_thinking)
   end
 
   # Switch the tool-line form and redraw the tool blocks already in the
@@ -269,6 +330,12 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # off — so the gray tint applies in both modes. The reasoning tone is
   # snapshot at build time, like the width.
   #
+  # The region is also registered as a +:thinking+ block, its thunk re-rendering
+  # the buffer's own accumulated +#source+. That is what lets {#show_thinking=}
+  # reach reasoning that has already streamed — whether the buffer went on to be
+  # finalized, preserved, or is still open — without the pane holding a second
+  # copy of the text.
+  #
   # @param indent [Integer] leading spaces baked into the render proc.
   # @return [Array(Tuile::Component::TextView::Region, #append)] the region and
   #   its streaming buffer.
@@ -281,7 +348,10 @@ class Shared::ConversationTextView < Tuile::Component::TextView
              else
                ->(md) { Shared::Markdown::Grayscale.recolor(md, fg: thinking) }
              end
-    [region, Shared::Markdown::StreamingBuffer.new(render: indent_render(render, indent), region: region)]
+    buffer = Shared::Markdown::StreamingBuffer.new(render: indent_render(render, indent), region: region)
+    @kinded_blocks << KindedBlock.new(region: region, kind: :thinking, indent: indent,
+                                      render: -> { render.call(buffer.source) })
+    [region, buffer]
   end
 
   # Render assistant Markdown for the pane, degrading to the raw string when
@@ -407,6 +477,35 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   KindedBlock = Data.define(:region, :kind, :indent, :render)
   private_constant :KindedBlock
 
+  # Draw one registered block, or collapse it to nothing when its kind is
+  # currently hidden. The thunk is not consulted while hidden — visibility is
+  # the pane's business, so a thunk only ever has to answer "what does this
+  # block say".
+  #
+  # @param block [KindedBlock]
+  # @return [void]
+  def draw_kinded(block)
+    text = hidden_kind?(block.kind) ? '' : block.render.call
+    block.region.text = indent_block(text, block.indent)
+  rescue StandardError => e
+    # A reveal re-runs the Markdown renderer over reasoning that rendered fine
+    # once; a kramdown surprise on the way back must not take the event loop
+    # down with it. The block keeps whatever it was showing.
+    LOG.warn("redrawing a #{block.kind} block failed (#{e.class}: #{e.message}); leaving it as it was")
+  end
+
+  # @param kind [Symbol]
+  # @return [Boolean]
+  def hidden_kind?(kind) = kind == :thinking && !@show_thinking
+
+  # @param shown [Boolean]
+  # @return [String] the +/thinking+ echo, naming the key that makes it stick.
+  def thinking_outcome(shown)
+    return 'Thinking shown.' if shown
+
+    'Thinking hidden for this session — set ui.show_thinking = false in config.toml to keep it.'
+  end
+
   # @param key [String]
   # @return [Boolean] whether the key picked an outcome for the asked decision.
   def choose(key)
@@ -433,7 +532,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @param indent [Integer]
   # @return [String, Tuile::StyledString]
   def indent_block(text, indent)
-    return text if indent.zero?
+    return text if indent.zero? || text.to_s.empty?
 
     pad = ' ' * indent
     return pad + text if text.is_a?(String)
@@ -622,13 +721,21 @@ class Shared::ConversationTextView < Tuile::Component::TextView
         @view.add_block(@view.theme.user("> #{content}"), indent: @indent)
       in Pikuri::Agent::Event::ThinkingDelta(content:)
         @assistant.wipe
-        @thinking.append(content)
-        @thinking_streamed = true
+        # Hidden reasoning streams nowhere: no region is opened, and a stream
+        # opened before the flip stops growing where it stands. The bookend
+        # below carries the full text, so nothing is lost for a later reveal.
+        if @view.show_thinking
+          @thinking.append(content)
+          @thinking_streamed = true
+        end
       in Pikuri::Agent::Event::Thinking(content:)
         if @thinking.open?
           @thinking.finalize(content)
+          # finalize writes straight to its region, around the pane's
+          # visibility gate — put it back under the gate.
+          @view.rerender(kind: :thinking) unless @view.show_thinking
         elsif !@thinking_streamed
-          @view.add_block(@view.render_thinking(content), indent: @indent)
+          @view.add_kinded_block(kind: :thinking, indent: @indent) { @view.render_thinking(content) }
         end
         @thinking_streamed = false
       in Pikuri::Agent::Event::AssistantDelta(content:)

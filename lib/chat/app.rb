@@ -176,7 +176,9 @@ module Chat
       @status_bar = Shared::StatusBar.new
       @log_ui = Shared::Log::UI.new(screen: @screen, status_bar: @status_bar)
 
-      @conversation = Shared::ConversationTextView.new(markdown: @markdown)
+      @conversation = Shared::ConversationTextView.new(
+        markdown: @markdown, show_thinking: @config.show_thinking, tool_detail: @config.tool_lines
+      )
       @status_rule = Shared::StatusRuleLabel.new(token_log: @token_log, names: @model_picker.names)
 
       @session = Shared::AgentSession.new(
@@ -194,6 +196,7 @@ module Chat
       # ESC (or q) on the transcript hands the caret back rather than falling
       # through to the loop's unhandled-key quit. This shell asks no
       # confirmations, but Tab still reaches the pane.
+      @ui_toggles = Shared::UIToggleMenu.new(screen: @screen, conversation: @conversation)
       @conversation.on_escape = -> { @input.focus }
 
       @layout = Layout.new(
@@ -219,6 +222,8 @@ module Chat
         Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
         Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
                                  ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
+        Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
+                                 ->(rest) { @conversation.select_thinking(rest) }),
         Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
                                  ->(rest) { @conversation.select_tool_detail(rest) })
       ]
@@ -317,7 +322,7 @@ module Chat
     def build_leader_menu
       menu = Shared::LeaderMenu.new(screen: @screen)
       menu.add('l', 'logs') { @log_ui.open }
-      menu.add('v', 'tool line detail') { @conversation.toggle_tool_detail }
+      menu.add('u', 'UI toggles') { @ui_toggles.open }
       menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
       menu.add('c', 'clear conversation + context') { @session.clear_conversation }
       menu.add('q', 'quit') { quit }

@@ -69,9 +69,10 @@ and renders `edit` / `write` diffs — all reusing the coding shell's
 `pikuri-os/bin/pikuri-computer` demo. All three shells route every
 command through one leader key (`Ctrl+K` → `Shared::LeaderMenu`); only
 `Ctrl+C` (cancel/quit) stays a direct shortcut. All three also carry the
-tool-line form toggle (leader `v` / `/tools`, flipping the transcript's tool
-calls between the short `Bash(ls)` form and the raw argument dump) and
-`/trifecta`, which echoes pikuri's own lethal-trifecta report for the
+transcript-density toggles — leader `u` opens `Shared::UIToggleMenu`, a
+second which-key popup whose labels carry live state (`thinking: shown`,
+`tool lines: short`), with `/thinking` and `/tools` as the typed
+equivalents — and `/trifecta`, which echoes pikuri's own lethal-trifecta report for the
 running wiring (`Shared::TrifectaRenderer`) — the one built-in slash command
 with no leader-menu counterpart, since it is a read-it-when-you-wonder
 diagnostic rather than an action. The coding and computer shells additionally
@@ -169,18 +170,32 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   streams: the conversation pane is what the user reads; the log
   pane is what we read when something's wrong.
 
-- **Tool lines say what happened; the argument dump is a mode, not the
-  default.** The transcript is read *while* the agent works, so a tool call
-  renders as `Bash(rm -rf build)` over `OK, 340 B` and the raw
-  `→ bash(command=…)` / `= <200 chars>` view is one leader key away
-  (`Shared::ConversationTextView#toggle_tool_detail`). Three things that
-  toggle must keep true: the flip **redraws what is already on screen** (the
-  case it exists for is "that call looked wrong, show me its arguments"), the
-  `edit` / `write` **diff blocks never change** (a diff is reviewed, not
-  skimmed), and every value on the short path goes through
-  `Pikuri::Sanitizer` — the raw path is safe only because `inspect` escapes
-  its arguments, and the short path prints them bare. The short form is a
-  tui-side stand-in: once pikuri's tools compose their own summaries (in
+- **Transcript density is the reader's to set, and every toggle redraws what
+  is already on screen.** Two of them live in `Shared::UIToggleMenu` (leader
+  `u`), each a session override of a `[ui]` config default that is never
+  written back: reasoning shown/hidden, and tool lines short/verbose. Both
+  work by re-running a *thunk* per block
+  (`Shared::ConversationTextView#add_kinded_block` / `#rerender`), because the
+  case each exists for is retrospective — "that answer looks wrong, show me
+  its reasoning", "that call looked wrong, show me its arguments" — and a
+  filter applied as events arrive reaches only the next block. Never
+  reimplement a redraw as `#clear` plus a replay: `#clear` drops the region a
+  parked `Code::TranscriptConfirmer` question lives in, so a toggle would
+  erase the question while the tool thread stays blocked on its answer.
+
+  **What no toggle may hide:** user echoes, assistant prose, `⊕` injections,
+  `!` notices, cancel markers, the confirmer's decision block (a parked
+  decision blocks the turn — it must stay loud), and the `edit` / `write`
+  diffs (a diff is reviewed, not skimmed; those blocks are deliberately not
+  kinded, so the tool toggle can't reach them).
+
+- **Tool lines say what happened; the argument dump is the other mode.** The
+  transcript is read *while* the agent works, so a tool call renders as
+  `Bash(rm -rf build)` over `OK, 340 B`, with the raw `→ bash(command=…)` /
+  `= <200 chars>` view behind the toggle. Every value on the short path goes
+  through `Pikuri::Sanitizer` — the raw path is safe only because `inspect`
+  escapes its arguments, and the short path prints them bare. The short form
+  is a tui-side stand-in: once pikuri's tools compose their own summaries (in
   code, from structured data — never a model-written sentence, which is
   exactly what a prompt injection would forge), the listener prints those and
   the stand-in is deleted.
@@ -317,9 +332,16 @@ Zeitwerk over `lib/` and eager-loads it.
   `Shared::RootLayout#on_theme_changed` calls it again to keep it current.
 - `lib/shared/config.rb` — `Shared::Config`, the layered
   XDG-path TOML config all three shells load at boot (connections,
-  search selection, sandbox/confirm switches, MCP servers), hand-validated.
-  The safety switches are the only thing a CLI flag overrides — a connection
-  is file-only, with no `--server`/`--model` (see the class header).
+  search selection, sandbox/confirm switches, MCP servers, and the `[ui]`
+  transcript-density defaults `show_thinking` / `tool_lines`),
+  hand-validated. The safety switches are the only thing a CLI flag
+  overrides — a connection is file-only, with no `--server`/`--model` (see
+  the class header). One `[ui]` table for all three shells, since the
+  preference is per-person more than per-shell; its two keys set the
+  *starting* value of a `Shared::UIToggleMenu` toggle and a runtime flip is
+  never written back (the same shape `sandbox` / `confirm` have). The
+  conversation pane's `markdown:` flag is the natural third key when someone
+  wants it.
 - `lib/shared/streamed_block.rb` — `Shared::StreamedBlock`, a
   `Tuile::Component::TextView::Region` + its streaming buffer as one unit:
   lazy-open on first `#append`, then `#finalize` (commit) / `#wipe` (drop
@@ -392,7 +414,21 @@ Zeitwerk over `lib/` and eager-loads it.
 - `lib/shared/leader_menu.rb` — `Shared::LeaderMenu`, the
   lazyvim-style which-key command menu: `Ctrl+K` opens a modal
   `PickerWindow` of app actions, each on one follow-up key. Shared by
-  all three shells; each `App` registers its own action set.
+  all three shells; each `App` registers its own action set. An action's
+  label may be a *callable*, resolved on each `#open` — which is what lets a
+  toggle advertise its own state — and the popup's `caption:` is a
+  constructor argument, so the class serves as its own submenu
+  (`Shared::UIToggleMenu`).
+- `lib/shared/ui_toggle_menu.rb` — `Shared::UIToggleMenu`, the
+  transcript-density submenu behind the leader menu's `u` entry in all three
+  shells: a second `Shared::LeaderMenu` (caption `UI`) whose two entries flip
+  the conversation pane's `#show_thinking` (`t`) and `#tool_detail` (`v`),
+  each labelled with the value in force. A submenu rather than two more
+  top-level keys — display preferences are a family, they read best next to
+  each other with their current values showing, and the top level stays a
+  list of *actions* rather than a mix of actions and settings. It earns the
+  extra keystroke only because there are two; one toggle belongs at the top
+  level, which is where `v` sat until `t` arrived.
 - `lib/shared/input_pane.rb` — `Shared::InputPane`, the prompt as a
   borderless, permanently `:pane_bg`-tinted `Layout`: a static Talus `❯`
   hanging off the very left edge, then a private nested `TextArea` subclass
@@ -565,19 +601,29 @@ Zeitwerk over `lib/` and eager-loads it.
   dim `⊕` block, except that the two skill-shaped payloads are collapsed — a
   loaded `SKILL.md` body to `⊕ loaded skill: <name>`, a `paths:` promotion block
   to nothing at all (the promoting host announces its own line, carrying the
-  matched path the block has no room for). A tool call and its observation
-  render in one of two forms the pane switches between at runtime
-  (`TOOL_DETAIL_MODES`, `#toggle_tool_detail` / `#select_tool_detail`, wired to
-  leader `v` / `/tools` in all three shells): `:short` — `Bash(rm -rf build)`
-  over an indented `OK, 340 B`, a tui-side stand-in for the summaries pikuri
-  will compose — and `:verbose`, the terminal listener's `→ bash(command=…)` /
-  `= <observation>` argument dump. Both renderers live side by side in the
-  `Listener`, and each block goes in through `#add_kinded_block` (a
-  `{region, kind, indent, render}` register, redrawn by `#rerender`), so a flip
-  redraws the tool blocks *already* in the transcript — a filter applied as
-  events arrive would only ever reach the next call. The `edit` / `write`
-  formatter blocks are not kinded and so are untouched by the flip: a diff is
-  reviewed, not skimmed. `#scroll_half_page_up` /
+  matched path the block has no room for). It also owns the two display flags
+  `Shared::UIToggleMenu` flips, both backed by the same redraw register —
+  `#add_kinded_block(kind:, indent:, &render)` files a block's thunk under a
+  kind, `#rerender(kind:)` re-runs them, `#clear` drops the lot, and the pane
+  (not the thunk) decides whether a kind is currently hidden:
+  - `#tool_detail` (`TOOL_DETAIL_MODES`, `#toggle_tool_detail` /
+    `#select_tool_detail`, `[ui] tool_lines`) picks between `:short` —
+    `Bash(rm -rf build)` over an indented `OK, 340 B`, a stand-in for the
+    summaries pikuri will compose — and `:verbose`, the terminal listener's
+    `→ bash(command=…)` / `= <observation>` dump. Both renderers live side by
+    side in the `Listener`. The `edit` / `write` formatter blocks are not
+    kinded, so the flip cannot reach a diff.
+  - `#show_thinking` (`#toggle_thinking` / `#select_thinking`,
+    `[ui] show_thinking`) collapses every reasoning block to `""` — footprint
+    gone, region and thunk kept. `#open_thinking_block` registers its region
+    with a thunk over the streaming buffer's own `#source`, which is what lets
+    a hide reach reasoning that has already streamed, finalized *or* been
+    preserved; while hidden the `Listener` drops the delta stream and lets the
+    `Thinking` bookend land hidden, so a reveal shows the full text rather
+    than the streamed prefix. One accepted cost: reasoning cancelled mid-stream
+    has no bookend, so hiding and revealing it shows only what streamed.
+
+  `#scroll_half_page_up` /
   `#scroll_half_page_down` page the viewport for a host holding focus elsewhere
   (the prompt's PageUp/PageDown); paging back to the bottom re-arms tailing.
   It is also where a human decision is *asked*: `#pending_decision=` appends a
@@ -1057,7 +1103,7 @@ Zeitwerk over `lib/` and eager-loads it.
   `Shared::PromptHistory`, `Shared::StatusRuleLabel`,
   `Shared::ConversationTextView`, `Shared::AgentSession`,
   `Shared::StatusBar`, `Shared::RootLayout`,
-  `Shared::LeaderMenu`, `Shared::SlashMenuPopup`, `Shared::SlashCommand`,
+  `Shared::LeaderMenu`, `Shared::UIToggleMenu`, `Shared::SlashMenuPopup`, `Shared::SlashCommand`,
   `Shared::FileCommands`, `Shared::PendingDecision`, `Shared::PassiveTextView`,
   `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the computer shell reuses verbatim.

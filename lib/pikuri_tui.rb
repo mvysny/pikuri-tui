@@ -30,9 +30,10 @@ loader.ignore(__FILE__)
 # window), and the two IO sinks read naturally next to Tuile's own
 # +LogWindow::IO+.
 loader.inflector.inflect(
-  'ui'           => 'UI',
-  'counting_io'  => 'CountingIO',
-  'buffering_io' => 'BufferingIO'
+  'ui'             => 'UI',
+  'ui_toggle_menu' => 'UIToggleMenu',
+  'counting_io'    => 'CountingIO',
+  'buffering_io'   => 'BufferingIO'
 )
 
 # The coding ({Code}) and computer ({Computer}) shells depend on the heavier

@@ -198,6 +198,111 @@ RSpec.describe Shared::ConversationTextView do
     end
   end
 
+  describe 'the thinking toggle' do
+    def deltas(*chunks)
+      chunks.each { |c| listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: c)) }
+    end
+
+    it 'starts shown' do
+      assert pane.show_thinking
+    end
+
+    it 'honors show_thinking: false at construction' do
+      hidden = described_class.new(show_thinking: false)
+      hidden.listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'quiet reasoning'))
+      assert_equal '', hidden.text.to_s
+    end
+
+    it 'collapses a non-streamed bookend already in the transcript, and brings it back' do
+      listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'pondered'))
+      assert_includes rendered, 'pondered'
+
+      refute pane.toggle_thinking
+      assert_equal '', rendered
+
+      assert pane.toggle_thinking
+      assert_includes rendered, 'pondered'
+    end
+
+    # The buffer's own #source is the thunk's input, so reasoning that streamed
+    # is revealable whether it went on to be finalized, preserved, or is still
+    # open.
+    it 'collapses reasoning that streamed, and restores it from the buffer' do
+      deltas('streamed ')
+      listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'streamed (authoritative)'))
+      assert_includes rendered, 'streamed (authoritative)'
+
+      pane.toggle_thinking
+      assert_equal '', rendered
+
+      pane.toggle_thinking
+      assert_includes rendered, 'streamed (authoritative)'
+    end
+
+    it 'collapses a preserved stream — the common path, where the bookend is suppressed' do
+      deltas('reasoning')
+      listener.on_event(Pikuri::Agent::Event::AssistantDelta.new(content: 'answer'))
+      assert_includes rendered, 'reasoning'
+
+      pane.toggle_thinking
+      refute_includes rendered, 'reasoning'
+      assert_includes rendered, 'answer'
+    end
+
+    it 'drops the delta stream while hidden and lands the bookend hidden but revealable' do
+      pane.show_thinking = false
+      deltas('never shown ')
+      listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'the whole reasoning'))
+      assert_equal '', rendered
+
+      pane.toggle_thinking
+      assert_includes rendered, 'the whole reasoning'
+      refute_includes rendered, 'never shown'
+    end
+
+    it 'puts a bookend that finalized an open stream back under the gate' do
+      deltas('preview')
+      pane.show_thinking = false
+      listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'authoritative reasoning'))
+      assert_equal '', rendered, 'finalize writes straight to its region; it must be re-hidden'
+
+      pane.toggle_thinking
+      assert_includes rendered, 'authoritative reasoning'
+    end
+
+    it 'leaves assistant prose and tool lines alone' do
+      listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'pondered'))
+      listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'the answer'))
+      listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'bash', arguments: { 'command' => 'ls' }))
+      pane.toggle_thinking
+      refute_includes rendered, 'pondered'
+      assert_includes rendered, 'the answer'
+      assert_includes rendered, 'Bash(ls)'
+    end
+
+    # The trap the clear-and-replay alternative walks into: the question would
+    # be erased while the tool thread stays blocked on its answer.
+    it 'keeps a parked decision askable across a toggle' do
+      picked = []
+      choice = Shared::PendingDecision::Choice.new(key: 'y', label: 'approve', outcome: :approve)
+      pane.pending_decision = Shared::PendingDecision.new(body: '⏵ OK to run this?', choices: [choice],
+                                                          on_choice: ->(outcome) { picked << outcome })
+      pane.toggle_thinking
+      assert_includes rendered, '⏵ OK to run this?'
+      assert_equal true, pane.handle_key('y')
+      assert_equal [:approve], picked
+    end
+
+    it 'applies a /thinking argument, toggles on a blank one, and names the config key' do
+      assert_includes pane.select_thinking('off'), 'ui.show_thinking = false'
+      refute pane.show_thinking
+      assert_equal 'Thinking shown.', pane.select_thinking('on')
+      assert_includes pane.select_thinking(''), 'ui.show_thinking = false'
+      assert_includes pane.select_thinking('maybe'), 'No thinking setting "maybe"'
+      refute pane.show_thinking, 'a bad argument changes nothing'
+    end
+  end
+
   describe 'the tool-line form toggle' do
     def call_and_result
       listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'web_search', arguments: { 'query' => 'rails 8' }))
