@@ -147,6 +147,15 @@ brave_key = "BSA..."   # Brave Search API key
 exa_key   = "..."      # Exa API key
 engines   = ["brave"]  # optional; default is duckduckgo + every keyed provider
 
+# Transcript density, for all three shells — one table, because this is a
+# preference per person more than per shell. Each key only sets what a
+# session *starts* on: the leader menu (Ctrl+K → u), or `/thinking` and
+# `/tools`, flips either one live, and a live flip is never written back here.
+[ui]
+show_thinking = true    # false starts with reasoning blocks collapsed
+tool_lines    = "short" # "short":   Bash(rm -rf build) over an OK, 340 B
+                        # "verbose": the raw → bash(command=…) argument dump
+
 # Sandbox + confirmation settings. Applies to BOTH the coding shell
 # (bubblewrap sandbox around bash) and the computer assistant (network-severed
 # sandbox); the chat shell has no sandbox and ignores this table.
