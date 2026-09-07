@@ -116,28 +116,141 @@ RSpec.describe Shared::ConversationTextView do
     assert_includes rendered, 'hi'
   end
 
-  it 'renders ToolCall with name and arguments' do
-    listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'echo', arguments: { 'text' => 'hi' }))
-    assert_includes rendered, 'echo'
-    assert_includes rendered, 'text='
+  describe 'short tool lines' do
+    let(:listener_class) { described_class::Listener }
+
+    def call(name, arguments)
+      listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: name, arguments: arguments))
+    end
+
+    def result(content)
+      listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: content))
+    end
+
+    it 'renders a call as the CamelCased name over its first argument value' do
+      call('web_search', { 'query' => 'rails 8 credentials', 'limit' => 5 })
+      assert_includes rendered, 'WebSearch(rails 8 credentials)'
+      refute_includes rendered, 'limit'
+    end
+
+    it 'breaks the name on any run of non-alphanumerics (MCP names)' do
+      call('mcp__github__list_prs', { 'repo' => 'x' })
+      assert_includes rendered, 'McpGithubListPrs(x)'
+    end
+
+    it 'drops the parentheses for a no-argument call' do
+      call('enter_plan_mode', {})
+      assert_includes rendered, 'EnterPlanMode'
+      refute_includes rendered, '('
+    end
+
+    it 'renders a non-String argument value through to_s' do
+      call('scroll', { 'lines' => 40 })
+      assert_includes rendered, 'Scroll(40)'
+    end
+
+    it 'flattens and elides a long argument to one capped line' do
+      call('bash', { 'command' => "set -e\n#{'x' * 4_000}" })
+      line = rendered.lines.first.chomp
+      assert_equal 'Bash('.length + listener_class::TOOL_ARGUMENT_MAX_CHARS + 1, line.length
+      assert_includes line, 'set -e x'
+      assert_includes line, '…'
+    end
+
+    # The k=v.inspect dump this replaced escaped control bytes for free; the
+    # short form prints values raw, so the sanitizer is load-bearing here.
+    it 'escapes an ESC in an argument instead of letting it recolor the pane' do
+      call('read', { 'path' => "a\e[31m.rb" })
+      assert_includes rendered, 'Read(a\x1b[31m.rb)'
+      refute_includes pane.text.spans.map { |s| s.style.fg }, Tuile::Color.new(:red)
+    end
+
+    it 'renders a successful observation as OK plus its size' do
+      result('42')
+      assert_includes rendered, 'OK, 2 B'
+    end
+
+    it 'reports a large observation by size rather than pasting it' do
+      result('x' * 5_000)
+      assert_includes rendered, 'OK, 5.0 kB'
+      refute_includes rendered, 'x' * 100
+    end
+
+    it 'indents the result line under the call it answers' do
+      call('bash', { 'command' => 'ls' })
+      result('a.rb')
+      pad = ' ' * listener_class::TOOL_RESULT_INDENT
+      assert_equal ['Bash(ls)', "#{pad}OK, 4 B"], rendered.lines.map(&:chomp).reject(&:empty?)
+    end
+
+    it 'renders a failed observation as its first line, not OK' do
+      result("Error: exit 1: rm: cannot remove 'build'\nsecond line\n")
+      assert_includes rendered, "Error: exit 1: rm: cannot remove 'build'"
+      refute_includes rendered, 'second line'
+      refute_includes rendered, 'OK'
+    end
+
+    it 'caps a runaway error line' do
+      result("Error: #{'y' * 500}")
+      line = rendered.lines.first.chomp.lstrip
+      assert_equal listener_class::TOOL_ERROR_MAX_CHARS, line.length
+      assert line.end_with?('…'), 'expected the cut to be marked'
+    end
   end
 
-  it 'renders ToolResult content prefixed with "="' do
-    listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: '42'))
-    assert_includes rendered, '= 42'
-  end
+  describe 'the tool-line form toggle' do
+    def call_and_result
+      listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'web_search', arguments: { 'query' => 'rails 8' }))
+      listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'match'))
+    end
 
-  it 'flattens whitespace in ToolResult content to a single line' do
-    listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: "line one\n  line two\n\n\tline three"))
-    assert_includes rendered, 'line one line two line three'
-    refute_includes rendered, "\n  line two"
-  end
+    it 'starts on the short form' do
+      assert_equal :short, pane.tool_detail
+    end
 
-  it 'truncates long ToolResult content and reports the original byte count' do
-    listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'x' * 5_000))
-    assert_includes rendered, '…'
-    assert_includes rendered, '5000 bytes total'
-    refute_includes rendered, 'x' * 5_000
+    # The whole point of a redraw register: a filter applied as events arrive
+    # would only ever reach the *next* call, and "show me the raw form of the
+    # one I just read" is the case that matters.
+    it 'redraws the tool blocks already in the transcript, both ways' do
+      call_and_result
+      assert_includes rendered, 'WebSearch(rails 8)'
+
+      assert_equal :verbose, pane.toggle_tool_detail
+      assert_includes rendered, '→ web_search(query="rails 8")'
+      assert_includes rendered, '= match'
+      refute_includes rendered, 'WebSearch(rails 8)'
+
+      assert_equal :short, pane.toggle_tool_detail
+      assert_includes rendered, 'WebSearch(rails 8)'
+      refute_includes rendered, '→ web_search'
+    end
+
+    it 'caps a long observation in the verbose form, reporting the byte count' do
+      pane.tool_detail = :verbose
+      listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'x' * 5_000))
+      assert_includes rendered, '…'
+      assert_includes rendered, '5000 bytes total'
+      refute_includes rendered, 'x' * 300
+    end
+
+    it 'raises on a form it does not have (our bug, not a silent no-op)' do
+      assert_raises(ArgumentError) { pane.tool_detail = :loud }
+    end
+
+    it 'applies a /tools argument, toggles on a blank one, and reports either' do
+      assert_equal 'Tool lines: verbose.', pane.select_tool_detail('verbose')
+      assert_equal :verbose, pane.tool_detail
+      assert_equal 'Tool lines: short.', pane.select_tool_detail('  ')
+      assert_includes pane.select_tool_detail('loud'), 'No tool-line form "loud"'
+      assert_equal :short, pane.tool_detail
+    end
+
+    it 'drops the redraw register with the conversation, so a later toggle is inert' do
+      call_and_result
+      listener.on_event(Pikuri::Agent::Event::Reset.new)
+      pane.toggle_tool_detail
+      assert_equal '', rendered
+    end
   end
 
   it 'renders SystemInjected as a dim ⊕ block' do
@@ -267,7 +380,7 @@ RSpec.describe Shared::ConversationTextView do
       deltas('preview text that should disappear')
       listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'echo', arguments: { 'text' => 'hi' }))
       refute_includes rendered, 'preview text that should disappear'
-      assert_includes rendered, 'echo'
+      assert_includes rendered, 'Echo(hi)'
     end
 
     it 'after wipe by unrelated event, the next AssistantDelta opens a fresh buffer' do
@@ -476,7 +589,7 @@ RSpec.describe Shared::ConversationTextView do
       w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
       assert_includes w.text.to_s, 'DIFF BLOCK'
-      refute_includes w.text.to_s, '→ edit'
+      refute_includes w.text.to_s, 'Edit('
     end
 
     it 'passes the pane width and theme to the formatter' do
@@ -494,7 +607,7 @@ RSpec.describe Shared::ConversationTextView do
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
       w.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'Edited a.rb: replaced 1 occurrence.'))
       refute_includes w.text.to_s, 'Edited a.rb'
-      refute_includes w.text.to_s, '= '
+      refute_includes w.text.to_s, 'OK'
     end
 
     it 'renders the formatter result block when it returns one (error path)' do
@@ -509,16 +622,27 @@ RSpec.describe Shared::ConversationTextView do
       fmt = formatter.new(call_block: nil, result_block: nil)
       w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
-      assert_includes w.text.to_s, '→ edit'
+      assert_includes w.text.to_s, 'Edit(a.rb)'
     end
 
-    it 'routes the result to the default += line when render_call declined' do
+    it 'routes the result to the default OK line when render_call declined' do
       fmt = formatter.new(call_block: nil, result_block: 'SHOULD NOT SHOW')
       w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: {}))
       w.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'whatever'))
-      assert_includes w.text.to_s, '= whatever'
+      assert_includes w.text.to_s, 'OK, 8 B'
       refute_includes w.text.to_s, 'SHOULD NOT SHOW'
+    end
+
+    # D_diffs_always_visible: a diff is the one tool output the user reviews
+    # rather than skims, so the tool-line toggle must not reach it.
+    it 'leaves a formatter block alone when the tool-line form flips' do
+      fmt = formatter.new(call_block: 'DIFF BLOCK', result_block: nil)
+      w = pane_with(fmt)
+      w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'edit', arguments: { 'path' => 'a.rb' }))
+      w.toggle_tool_detail
+      assert_includes w.text.to_s, 'DIFF BLOCK'
+      refute_includes w.text.to_s, '→ edit'
     end
 
     it 'leaves unregistered tools on the default rendering' do
@@ -526,8 +650,8 @@ RSpec.describe Shared::ConversationTextView do
       w = pane_with(fmt)
       w.listener.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'grep', arguments: { 'q' => 'x' }))
       w.listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'match'))
-      assert_includes w.text.to_s, '→ grep'
-      assert_includes w.text.to_s, '= match'
+      assert_includes w.text.to_s, 'Grep(x)'
+      assert_includes w.text.to_s, 'OK, 5 B'
       refute_includes w.text.to_s, 'DIFF'
     end
   end
@@ -551,8 +675,8 @@ RSpec.describe Shared::ConversationTextView do
     end
 
     it 'paints the indent: prefix, so sub-agent blocks nest visibly' do
-      pane.add_block('→ web_search', indent: described_class::Listener::SUB_AGENT_INDENT)
-      assert_equal ["#{' ' * described_class::Listener::SUB_AGENT_INDENT}→ web_search"],
+      pane.add_block('WebSearch(rails 8)', indent: described_class::Listener::SUB_AGENT_INDENT)
+      assert_equal ["#{' ' * described_class::Listener::SUB_AGENT_INDENT}WebSearch(rails 8)"],
                    painted(pane).reject(&:empty?)
     end
 
@@ -567,10 +691,11 @@ RSpec.describe Shared::ConversationTextView do
   describe '#for_sub_agent' do
     let(:sub) { listener.for_sub_agent(id: 'researcher 0') }
     let(:pad) { ' ' * described_class::Listener::SUB_AGENT_INDENT }
+    let(:result_pad) { ' ' * described_class::Listener::TOOL_RESULT_INDENT }
 
     it 'renders into the same conversation pane, indented by SUB_AGENT_INDENT' do
       sub.on_event(Pikuri::Agent::Event::ToolCall.new(name: 'web_search', arguments: { 'q' => 'x' }))
-      assert_includes rendered, "#{pad}→ web_search"
+      assert_includes rendered, "#{pad}WebSearch(x)"
     end
 
     it 'indents a streamed assistant answer (first line pads)' do
@@ -579,15 +704,15 @@ RSpec.describe Shared::ConversationTextView do
       assert_includes rendered, "#{pad}found it"
     end
 
-    it 'indents a tool result' do
+    it 'indents a tool result on top of the indent it already carries' do
       sub.on_event(Pikuri::Agent::Event::ToolResult.new(content: '42'))
-      assert_includes rendered, "#{pad}= 42"
+      assert_includes rendered, "#{pad}#{result_pad}OK, 2 B"
     end
 
     it 'leaves the parent listener unindented' do
       listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: '42'))
-      assert_includes rendered, '= 42'
-      refute_includes rendered, "#{pad}= 42"
+      assert_includes rendered, "#{result_pad}OK, 2 B"
+      refute_includes rendered, "#{pad}#{result_pad}OK, 2 B"
     end
   end
 

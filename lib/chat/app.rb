@@ -218,7 +218,9 @@ module Chat
       commands = [
         Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
         Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
-                                 ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) })
+                                 ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
+        Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
+                                 ->(rest) { @conversation.select_tool_detail(rest) })
       ]
       if @model_picker.multiple?
         commands << Shared::SlashCommand.new('/model', 'switch model', ->(_rest) { @model_picker.open(current: @agent.transport); nil })
@@ -315,6 +317,7 @@ module Chat
     def build_leader_menu
       menu = Shared::LeaderMenu.new(screen: @screen)
       menu.add('l', 'logs') { @log_ui.open }
+      menu.add('v', 'tool line detail') { @conversation.toggle_tool_detail }
       menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
       menu.add('c', 'clear conversation + context') { @session.clear_conversation }
       menu.add('q', 'quit') { quit }

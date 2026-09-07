@@ -32,7 +32,7 @@ RSpec.describe Code::WriteFormatter do
         arguments: { 'path' => 'foo.rb', 'content' => "a\nc\n" }, width: 40, theme: theme
       )
       text = plain(out)
-      assert_includes text, '✎ write  foo.rb'
+      assert_includes text, '✎ Write(foo.rb)'
       assert_includes text, '- b'
       assert_includes text, '+ c'
     end
@@ -43,7 +43,7 @@ RSpec.describe Code::WriteFormatter do
         arguments: { 'path' => 'new.rb', 'content' => "x\ny\n" }, width: 40, theme: theme
       )
       text = plain(out)
-      assert_includes text, '✎ create  new.rb'
+      assert_includes text, '✎ Create(new.rb)'
       assert_includes text, '+ x'
       assert_includes text, '+ y'
     end

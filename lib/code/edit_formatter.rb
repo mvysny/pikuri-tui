@@ -6,7 +6,7 @@ require 'tuile'
 module Code
   # Tool formatter for the +edit+ tool: renders its +ToolCall+ as the
   # before/after diff of +old_string+ → +new_string+ instead of the
-  # default +→ edit(path=…, old_string=…, new_string=…)+ argument dump.
+  # default +Edit(path)+ / +OK, size+ pair.
   #
   # The diff is self-contained — the +ToolCall+ event already carries both
   # strings, so no file read is needed (nothing blocks the UI thread on
@@ -29,7 +29,7 @@ module Code
     def render_call(arguments:, width:, theme:)
       args = arguments.transform_keys(&:to_s)
       DiffToolFormatting.render_call(
-        verb: 'edit',
+        verb: 'Edit',
         path: args['path'],
         old: args['old_string'].to_s,
         new: args['new_string'].to_s,

@@ -526,6 +526,7 @@ module Code
       menu.add('d', 'git diff') { @sidebar.open_diff }
       menu.add('s', 'sidebar width') { @layout.cycle_sidebar_mode }
       menu.add('p', 'plan mode') { toggle_plan_mode }
+      menu.add('v', 'tool line detail') { @conversation.toggle_tool_detail }
       menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
       menu.add('c', 'clear conversation + context') { clear_conversation }
       menu.add('q', 'quit') { quit }
@@ -557,7 +558,9 @@ module Code
                                  ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
         Shared::SlashCommand.new('/diff', 'show the git diff', ->(_rest) { @sidebar.open_diff; 'Opened the git diff.' }),
         Shared::SlashCommand.new('/sidebar', 'sidebar full / narrow / off (blank cycles)', ->(rest) { set_sidebar(rest) }),
-        Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' })
+        Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' }),
+        Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
+                                 ->(rest) { @conversation.select_tool_detail(rest) })
       ]
       if @model_picker.multiple?
         commands << Shared::SlashCommand.new('/model', 'switch model', ->(_rest) { @model_picker.open(current: @agent.transport); nil })

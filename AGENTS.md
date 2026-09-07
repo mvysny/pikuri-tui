@@ -68,7 +68,9 @@ and renders `edit` / `write` diffs — all reusing the coding shell's
 `Code::*` adapters verbatim, ported from pikuri's
 `pikuri-os/bin/pikuri-computer` demo. All three shells route every
 command through one leader key (`Ctrl+K` → `Shared::LeaderMenu`); only
-`Ctrl+C` (cancel/quit) stays a direct shortcut. All three also carry
+`Ctrl+C` (cancel/quit) stays a direct shortcut. All three also carry the
+tool-line form toggle (leader `v` / `/tools`, flipping the transcript's tool
+calls between the short `Bash(ls)` form and the raw argument dump) and
 `/trifecta`, which echoes pikuri's own lethal-trifecta report for the
 running wiring (`Shared::TrifectaRenderer`) — the one built-in slash command
 with no leader-menu counterpart, since it is a read-it-when-you-wonder
@@ -166,6 +168,22 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
   noise we still capture through `Tuile.logger`. Never cross the
   streams: the conversation pane is what the user reads; the log
   pane is what we read when something's wrong.
+
+- **Tool lines say what happened; the argument dump is a mode, not the
+  default.** The transcript is read *while* the agent works, so a tool call
+  renders as `Bash(rm -rf build)` over `OK, 340 B` and the raw
+  `→ bash(command=…)` / `= <200 chars>` view is one leader key away
+  (`Shared::ConversationTextView#toggle_tool_detail`). Three things that
+  toggle must keep true: the flip **redraws what is already on screen** (the
+  case it exists for is "that call looked wrong, show me its arguments"), the
+  `edit` / `write` **diff blocks never change** (a diff is reviewed, not
+  skimmed), and every value on the short path goes through
+  `Pikuri::Sanitizer` — the raw path is safe only because `inspect` escapes
+  its arguments, and the short path prints them bare. The short form is a
+  tui-side stand-in: once pikuri's tools compose their own summaries (in
+  code, from structured data — never a model-written sentence, which is
+  exactly what a prompt injection would forge), the listener prints those and
+  the stand-in is deleted.
 
 - **A confirmation is asked in the transcript, and focus is what arms it.**
   The `Code::TranscriptConfirmer` question lands as a block in the
@@ -547,7 +565,19 @@ Zeitwerk over `lib/` and eager-loads it.
   dim `⊕` block, except that the two skill-shaped payloads are collapsed — a
   loaded `SKILL.md` body to `⊕ loaded skill: <name>`, a `paths:` promotion block
   to nothing at all (the promoting host announces its own line, carrying the
-  matched path the block has no room for). `#scroll_half_page_up` /
+  matched path the block has no room for). A tool call and its observation
+  render in one of two forms the pane switches between at runtime
+  (`TOOL_DETAIL_MODES`, `#toggle_tool_detail` / `#select_tool_detail`, wired to
+  leader `v` / `/tools` in all three shells): `:short` — `Bash(rm -rf build)`
+  over an indented `OK, 340 B`, a tui-side stand-in for the summaries pikuri
+  will compose — and `:verbose`, the terminal listener's `→ bash(command=…)` /
+  `= <observation>` argument dump. Both renderers live side by side in the
+  `Listener`, and each block goes in through `#add_kinded_block` (a
+  `{region, kind, indent, render}` register, redrawn by `#rerender`), so a flip
+  redraws the tool blocks *already* in the transcript — a filter applied as
+  events arrive would only ever reach the next call. The `edit` / `write`
+  formatter blocks are not kinded and so are untouched by the flip: a diff is
+  reviewed, not skimmed. `#scroll_half_page_up` /
   `#scroll_half_page_down` page the viewport for a host holding focus elsewhere
   (the prompt's PageUp/PageDown); paging back to the bottom re-arms tailing.
   It is also where a human decision is *asked*: `#pending_decision=` appends a

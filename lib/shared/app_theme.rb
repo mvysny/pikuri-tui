@@ -10,7 +10,7 @@ require 'tuile'
 # built-in {Tuile::Theme#hint}:
 #
 #   theme.error('! boom')   # instead of theme.fg(:error, '! boom')
-#   theme.tool('→ ls()')    # → the conversation pane's tool-call color
+#   theme.tool('Bash(ls)')  # → the conversation pane's tool-call color
 #
 # +Data#with+ keeps the subclass through a +with+.
 #
@@ -25,9 +25,10 @@ require 'tuile'
 #
 # The tokens cover the chrome all three shells paint:
 #
-# - +:tool+ — the +→ tool(args)+ call and += result+ lines
-#   {Shared::ConversationTextView::Listener} writes into the conversation pane,
-#   plus the slash-menu command names and the coding shell's diff headers.
+# - +:tool+ — the +Bash(ls)+ call lines (and, in the verbose form, the
+#   += result+ lines) {Shared::ConversationTextView::Listener} writes into the
+#   conversation pane, plus the slash-menu command names and the coding
+#   shell's diff headers.
 #   {CHESTNUT} / {CHESTNUT_SHADE}.
 # - +:notice+ — the +! reason+ fallback line and the
 #   {Code::ConfirmRenderer} sanitizer warnings (a "read this carefully"
@@ -179,7 +180,7 @@ class Shared::AppTheme < Tuile::Theme
   # +:tool+ is the one accent that opts *out* of the remapping, the way
   # +hint_color+ already does: it is {CHESTNUT}, an absolute RGB, because a
   # terminal-remapped cyan cannot carry pikuri's own palette. Everything the
-  # conversation pane marks as machinery — the +→ call+ / += result+ lines,
+  # conversation pane marks as machinery — the tool call / result lines,
   # the slash-menu names, the coding shell's diff headers — follows it.
   #
   # +:pane_bg+ / +:pane_frame+ are the *fixed-tint floor* — the values used

@@ -22,10 +22,15 @@ module Code
     GLYPH = '✎'
 
     # Render the call-time diff block: a themed header line
-    # (+"✎ <verb>  <path>"+) over the {DiffRenderer} diff of +old+ → +new+.
+    # (+"✎ Edit(lib/foo.rb)"+) over the {DiffRenderer} diff of +old+ → +new+.
     #
-    # @param verb [String] the action shown in the header (+"edit"+,
-    #   +"write"+, +"create"+).
+    # The header carries the same +Verb(argument)+ shape
+    # {Shared::ConversationTextView::Listener} gives every other tool call, so a
+    # diff block reads as one of the family rather than as a second convention;
+    # {GLYPH} is what still marks it as a file mutation.
+    #
+    # @param verb [String] the action shown in the header (+"Edit"+,
+    #   +"Write"+, +"Create"+).
     # @param path [String] the file path shown in the header.
     # @param old [String] the "before" content.
     # @param new [String] the "after" content.
@@ -34,7 +39,7 @@ module Code
     #   color and the four diff background tones.
     # @return [String] header + ANSI diff body.
     def render_call(verb:, path:, old:, new:, width:, theme:)
-      header = theme.tool("#{GLYPH} #{verb}  #{path}")
+      header = theme.tool("#{GLYPH} #{verb}(#{path})")
       body = DiffRenderer.render(old, new, width: width, palette: palette(theme))
       "#{header}\n#{body}"
     end

@@ -6,7 +6,7 @@ require 'tuile'
 module Code
   # Tool formatter for the +write+ tool: renders its +ToolCall+ as the diff
   # of the file's current contents against the +content+ being written,
-  # instead of the default +→ write(path=…, content=…)+ dump.
+  # instead of the default +Write(path)+ / +OK, size+ pair.
   #
   # Unlike {EditFormatter}, the +ToolCall+ event carries only the new
   # +content+, so the "before" side is read from disk through the captured
@@ -43,7 +43,7 @@ module Code
       return nil if old.nil?
 
       DiffToolFormatting.render_call(
-        verb: old.empty? ? 'create' : 'write',
+        verb: old.empty? ? 'Create' : 'Write',
         path: path,
         old: old,
         new: args['content'].to_s,

@@ -15,7 +15,7 @@ RSpec.describe Code::EditFormatter do
         width: 40, theme: theme
       )
       text = plain(out)
-      assert_includes text, '✎ edit  lib/foo.rb'
+      assert_includes text, '✎ Edit(lib/foo.rb)'
       assert_includes text, '- def foo'
       assert_includes text, '+ def bar'
     end
@@ -26,7 +26,7 @@ RSpec.describe Code::EditFormatter do
         width: 40, theme: theme
       )
       text = plain(out)
-      assert_includes text, '✎ edit  a.rb'
+      assert_includes text, '✎ Edit(a.rb)'
       assert_includes text, '- x'
       assert_includes text, '+ y'
     end

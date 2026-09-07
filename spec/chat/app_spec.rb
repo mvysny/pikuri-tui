@@ -42,12 +42,12 @@ RSpec.describe Chat::App do
   end
 
   it 'registers the chat slash commands mirroring the leader menu (single connection: no /model)' do
-    assert_equal ['/logs', '/trifecta', '/clear', '/exit', '/quit'], app.send(:build_slash_commands).map(&:name)
+    assert_equal ['/logs', '/trifecta', '/tools', '/clear', '/exit', '/quit'], app.send(:build_slash_commands).map(&:name)
   end
 
   it 'adds /model to the slash commands only when more than one model is configured' do
     picker_app = build_app(config: chat_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')]), model: 'm1')
-    assert_equal ['/logs', '/trifecta', '/model', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/tools', '/model', '/clear', '/exit', '/quit'],
                  picker_app.send(:build_slash_commands).map(&:name)
   end
 
@@ -92,15 +92,15 @@ RSpec.describe Chat::App do
       assert_includes status_bar_text, '^K menu'
     end
 
-    it 'offers logs + clear + quit for a single-model shell' do
+    it 'offers logs, tool detail, clear and quit for a single-model shell' do
       keys = app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l c q], keys
+      assert_equal %w[l v c q], keys
     end
 
     it 'includes a switch-model action only when more than one model is configured' do
       picker_app = build_app(config: chat_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')]), model: 'm1')
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
-      assert_equal %w[l m c q], keys
+      assert_equal %w[l v m c q], keys
     end
 
     it "picking 'c' clears the agent's conversation" do

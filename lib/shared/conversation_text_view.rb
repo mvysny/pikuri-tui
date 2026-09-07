@@ -34,8 +34,10 @@ require 'tuile'
 # writing into this same pane without sharing the parent's open blocks (see
 # {Listener#for_sub_agent}).
 #
-# The one exception is {#pending_decision} — the pane must hold it, because the
-# pane is what the answering keys arrive at.
+# *Display* state is the pane's own, though: {#pending_decision} (the pane is
+# what the answering keys arrive at), {#tool_detail}, and the redrawable-block
+# register behind {#add_kinded_block} — a flag on a listener would be copied
+# into every sub-agent sibling at mint time and go stale.
 #
 # == Asking a human decision
 #
@@ -48,6 +50,21 @@ require 'tuile'
 # it. That is the whole safety property — prose typed at the prompt is a
 # different focus target, so no amount of typing can answer a question the user
 # has not looked at.
+#
+# == Tool-line form
+#
+# A tool call and its observation are drawn in one of two forms, flipped at
+# runtime by {#toggle_tool_detail}:
+#
+#   Bash(rm -rf build)                      # :short — what happened
+#     OK, 340 B
+#   → bash(command="rm -rf build")          # :verbose — the argument dump
+#     = rm: cannot remove 'build': Permis…
+#
+# Both live side by side in {Listener} and the flip redraws the blocks already
+# in the transcript, so the raw form of a call is reachable *after* reading its
+# short one. That is the whole point: a filter applied as events arrive would
+# only ever reach the next call.
 #
 # == Markdown flag
 #
@@ -62,12 +79,10 @@ require 'tuile'
 # stream onto the UI thread before driving these verbs; {#render_turn_error} is
 # safe off-thread and self-marshals).
 class Shared::ConversationTextView < Tuile::Component::TextView
-  # Cap, in characters, applied to tool-result content before it lands in the
-  # pane. Mirrors the terminal listener's cap so the two renderers stay
-  # visually consistent.
+  # The tool-line forms {#tool_detail=} switches between, in toggle order.
   #
-  # @return [Integer]
-  MAX_TOOL_RESULT_CHARS = 200
+  # @return [Array<Symbol>]
+  TOOL_DETAIL_MODES = %i[short verbose].freeze
 
   # Keys that mean "I'm done reading here", both routed to {#on_escape}.
   #
@@ -86,8 +101,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #   verbatim and streamed through {Shared::Markdown::PassthroughBuffer}. The
   #   thinking path always recolors to gray.
   # @param tool_formatters [Hash{String => #render_call, #render_result}]
-  #   per-tool-name formatters that replace the default +→ name(args)+ /
-  #   += result+ rendering for those tools (the +edit+ / +write+ diff views).
+  #   per-tool-name formatters that replace the default +Name(argument)+ /
+  #   +OK, size+ rendering for those tools (the +edit+ / +write+ diff views).
   #   Defaults to +{}+.
   def initialize(markdown: true, tool_formatters: {})
     super()
@@ -103,6 +118,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # +Tuile::Screen.fake+ for tests). Its +event_queue+ marshals the render
     # calls back from the agent's worker thread.
     @listener = Listener.new(view: self, screen: screen, indent: 0)
+    @tool_detail = TOOL_DETAIL_MODES.first
+    @kinded_blocks = []
     @pending_decision = nil
     @decision_region = nil
     @decision_body = nil
@@ -128,6 +145,10 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #   formatters, consulted by the {Listener} on each tool call.
   attr_reader :tool_formatters
 
+  # @return [Symbol] the tool-line form currently drawn, one of
+  #   {TOOL_DETAIL_MODES}.
+  attr_reader :tool_detail
+
   # @return [Tuile::Theme] the screen's current theme (re-read each call so an
   #   OS light/dark flip is picked up).
   def theme = screen.theme
@@ -149,6 +170,76 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @return [void]
   def add_block(text, indent: 0)
     create_region.text = indent_block(text, indent)
+  end
+
+  # Append a block that can be redrawn later: +render+ is a zero-arg thunk
+  # producing the block's text, filed under +kind+ so {#rerender} can re-run it
+  # when the form it draws changes.
+  #
+  #   view.add_kinded_block(kind: :tool, indent: 2) { short? ? short_line : raw_line }
+  #
+  # The thunk closes over the event's content, so a redraw picks up the pane's
+  # *current* width, theme and display flags.
+  #
+  # @param kind [Symbol] the redraw group.
+  # @param indent [Integer] leading spaces on the block's first line.
+  # @yieldreturn [String, Tuile::StyledString] the block's content.
+  # @return [void]
+  def add_kinded_block(kind:, indent: 0, &render)
+    region = create_region
+    @kinded_blocks << KindedBlock.new(region: region, kind: kind, indent: indent, render: render)
+    region.text = indent_block(render.call, indent)
+  end
+
+  # Redraw every block of +kind+ from its thunk, in place.
+  #
+  # @param kind [Symbol]
+  # @return [void]
+  def rerender(kind:)
+    @kinded_blocks.each do |block|
+      block.region.text = indent_block(block.render.call, block.indent) if block.kind == kind
+    end
+  end
+
+  # Switch the tool-line form and redraw the tool blocks already in the
+  # transcript.
+  #
+  # @param mode [Symbol] one of {TOOL_DETAIL_MODES}.
+  # @return [void]
+  # @raise [ArgumentError] on a mode outside {TOOL_DETAIL_MODES}.
+  def tool_detail=(mode)
+    raise ArgumentError, "unknown tool-line form #{mode.inspect}" unless TOOL_DETAIL_MODES.include?(mode)
+
+    @tool_detail = mode
+    rerender(kind: :tool)
+  end
+
+  # Switch to the next {TOOL_DETAIL_MODES} entry, wrapping around.
+  #
+  # @return [Symbol] the form now in force.
+  def toggle_tool_detail
+    self.tool_detail = TOOL_DETAIL_MODES[(TOOL_DETAIL_MODES.index(@tool_detail) + 1) % TOOL_DETAIL_MODES.size]
+    @tool_detail
+  end
+
+  # Apply a +/tools+ argument — a {TOOL_DETAIL_MODES} name, or blank to toggle
+  # — and report what happened for the command to echo.
+  #
+  #   conversation.select_tool_detail('verbose')   # => "Tool lines: verbose."
+  #   conversation.select_tool_detail('')          # => "Tool lines: short."
+  #   conversation.select_tool_detail('loud')      # => "No tool-line form …"
+  #
+  # @param argument [String] the rest of the typed line.
+  # @return [String] the outcome line.
+  def select_tool_detail(argument)
+    name = argument.strip.downcase
+    return "Tool lines: #{toggle_tool_detail}." if name.empty?
+
+    mode = TOOL_DETAIL_MODES.find { |candidate| candidate.to_s == name }
+    return "No tool-line form #{name.inspect} — try #{TOOL_DETAIL_MODES.join(' / ')}." if mode.nil?
+
+    self.tool_detail = mode
+    "Tool lines: #{mode}."
   end
 
   # Open a fresh streamed assistant block: a new region plus the streaming
@@ -218,21 +309,6 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @return [String] gray-toned ANSI text
   def render_thinking(content)
     Shared::Markdown::Grayscale.recolor(render_markdown(content), fg: screen.theme[:thinking])
-  end
-
-  # Flatten whitespace and cap to {MAX_TOOL_RESULT_CHARS}. Long results
-  # (rendered HTML, PDF text) would otherwise drown the transcript; the
-  # byte-count suffix distinguishes "tool returned exactly this" from "tool
-  # returned much more."
-  #
-  # @param content [String] tool observation
-  # @return [String] single-line display form, possibly truncated
-  def truncate_tool_result(content)
-    original_bytes = content.to_s.bytesize
-    flattened = content.to_s.gsub(/\s+/, ' ').strip
-    return flattened if flattened.length <= MAX_TOOL_RESULT_CHARS
-
-    "#{flattened[0, MAX_TOOL_RESULT_CHARS]}… (#{original_bytes} bytes total)"
   end
 
   # Append a one-line, error-themed turn-failure notice to the transcript.
@@ -312,17 +388,24 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     super
   end
 
-  # Drops every region, the asked decision's included.
+  # Drops every region, the asked decision's and the redrawable blocks'
+  # included.
   #
   # @return [void]
   def clear
     super
+    @kinded_blocks.clear
     @pending_decision = nil
     @decision_region = nil
     @decision_body = nil
   end
 
   private
+
+  # One redrawable block: its region, the redraw group it belongs to, the
+  # indent to re-apply, and the thunk producing its text.
+  KindedBlock = Data.define(:region, :kind, :indent, :render)
+  private_constant :KindedBlock
 
   # @param key [String]
   # @return [Boolean] whether the key picked an outcome for the asked decision.
@@ -407,7 +490,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #
   # == Variant coverage
   #
-  # Mirrors the terminal listener with three intentional departures:
+  # Mirrors the terminal listener with four intentional departures:
   #
   # 1. {Pikuri::Agent::Event::UserTurn} renders as +"> #{content}"+ instead of
   #    staying silent — submitting clears the input, so without an echo the
@@ -422,6 +505,15 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #    {Pikuri::Agent::Event::Thinking}) finalizes the open buffer (replacing
   #    the preview if the delta stream was truncated) or, with no deltas,
   #    renders directly.
+  # 4. A tool call and its observation render in the pane's current
+  #    {Shared::ConversationTextView::TOOL_DETAIL_MODES} form: +:short+
+  #    ({#short_call_line} / {#short_result_line}) says *what happened*, which
+  #    is what a transcript read while the agent works wants; +:verbose+
+  #    ({#verbose_call_line} / {#verbose_result_line}) is the terminal
+  #    listener's argument dump, kept for debugging. Each block goes in as a
+  #    thunk, so the toggle redraws the ones already on screen. The +:short+
+  #    pair is composed here only until pikuri's tools compose their own
+  #    summaries, at which point it becomes a deletion.
   #
   # +Tokens+ / +ContextCap+ stay silent (their consumer is
   # +Pikuri::Agent::Listener::TokenLog+).
@@ -439,6 +531,31 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     #
     # @return [Integer]
     SUB_AGENT_INDENT = 2
+
+    # Leading spaces a result line carries under the call line it answers, so
+    # the pair reads as one block.
+    #
+    # @return [Integer]
+    TOOL_RESULT_INDENT = 2
+
+    # Characters of the first argument a call line shows before eliding — a
+    # +command+ can be a 4 kB script.
+    #
+    # @return [Integer]
+    TOOL_ARGUMENT_MAX_CHARS = 60
+
+    # Characters of a failed observation's first line the +:short+ form shows
+    # before eliding.
+    #
+    # @return [Integer]
+    TOOL_ERROR_MAX_CHARS = 200
+
+    # Characters of the observation the +:verbose+ form shows before eliding.
+    # Mirrors the terminal listener's cap so the two renderers stay visually
+    # consistent.
+    #
+    # @return [Integer]
+    MAX_TOOL_RESULT_CHARS = 200
 
     # @param view [Shared::ConversationTextView] the pane this listener renders
     #   into. Lifetime owned by the pane; the listener neither constructs nor
@@ -577,8 +694,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
 
     # Render a {Pikuri::Agent::Event::ToolCall}. A registered formatter for
     # +name+ takes precedence and is stashed so the paired result routes back to
-    # it; a missing / declining formatter falls back to +→ name(args)+ and
-    # clears the pending slot.
+    # it; a missing / declining formatter goes in as a redrawable block picking
+    # its form off {Shared::ConversationTextView#tool_detail}, and clears the
+    # pending slot.
     #
     # @param name [String]
     # @param arguments [Hash]
@@ -591,15 +709,16 @@ class Shared::ConversationTextView < Tuile::Component::TextView
         @view.add_block(block, indent: @indent)
       else
         @pending_formatter = nil
-        args = arguments.map { |k, v| "#{k}=#{v.inspect}" }.join(', ')
-        @view.add_block(@view.theme.tool("→ #{name}(#{args})"), indent: @indent)
+        @view.add_kinded_block(kind: :tool, indent: @indent) do
+          short? ? short_call_line(name, arguments) : verbose_call_line(name, arguments)
+        end
       end
     end
 
     # Render a {Pikuri::Agent::Event::ToolResult}. When the paired call was
     # formatter-handled, route to its +render_result+ (which returns +nil+ to
-    # suppress a redundant success line, or a string for an error); otherwise
-    # the default += result+ line.
+    # suppress a redundant success line, or a string for an error); otherwise a
+    # redrawable block indented under the call it answers.
     #
     # @param content [String]
     # @return [void]
@@ -610,8 +729,134 @@ class Shared::ConversationTextView < Tuile::Component::TextView
         block = formatter.render_result(content: content, theme: @view.theme)
         @view.add_block(block, indent: @indent) if block
       else
-        @view.add_block(@view.theme.tool("= #{@view.truncate_tool_result(content)}"), indent: @indent)
+        @view.add_kinded_block(kind: :tool, indent: @indent + TOOL_RESULT_INDENT) do
+          short? ? short_result_line(content) : verbose_result_line(content)
+        end
       end
+    end
+
+    # @return [Boolean] whether the pane is currently drawing tool lines short.
+    def short? = @view.tool_detail == :short
+
+    # The +:short+ call line for a tool with no formatter of its own:
+    #
+    #   Bash(rm -rf build)          # name CamelCased, first argument's value
+    #   EnterPlanMode               # no argument, so no parentheses
+    #
+    # The first *value* of +arguments+ stands in for the primary parameter:
+    # models emit keys in schema order and the first schema parameter is the
+    # primary one for every tool in play (+path+, +query+, +command+, +name+).
+    # A stand-in until pikuri's own summaries carry the choice.
+    #
+    # @param name [String] the registered tool name.
+    # @param arguments [Hash] the tool-call arguments.
+    # @return [String] the toned line.
+    def short_call_line(name, arguments)
+      argument = display_argument(arguments)
+      @view.theme.tool(argument.empty? ? display_name(name) : "#{display_name(name)}(#{argument})")
+    end
+
+    # The +:short+ result line for a tool with no formatter of its own:
+    #
+    #   OK, 4.9 kB                                        # dim
+    #   Error: exit 1: rm: cannot remove 'build': …       # error-toned
+    #
+    # The size is the one structural fact worth carrying: it separates a +read+
+    # that returned nothing from one that returned plenty. Whether the tool
+    # failed is read off the +Error:+ prefix, which is a heuristic — pikuri's
+    # +Tool#run+ returns recoverable failures as +"Error: …"+ strings (a genuine
+    # raise aborts the turn and never reaches a +ToolResult+), but a +read+ of a
+    # file whose first line starts that way misreports. Accepted until pikuri
+    # sends a real summary; the +:verbose+ form shows the observation either way.
+    #
+    # @param content [String] the tool observation.
+    # @return [String] the toned line.
+    def short_result_line(content)
+      text = content.to_s
+      return @view.theme.detail("OK, #{format_size(text.bytesize)}") unless text.start_with?('Error:')
+
+      @view.theme.error(cap(safe(text.lines.first.to_s), TOOL_ERROR_MAX_CHARS))
+    end
+
+    # The +:verbose+ call line — the terminal listener's argument dump,
+    # +→ bash(command="rm -rf build")+. Every value goes through +inspect+,
+    # which is what makes this form display-safe.
+    #
+    # @param name [String]
+    # @param arguments [Hash]
+    # @return [String] the toned line.
+    def verbose_call_line(name, arguments)
+      args = arguments.map { |k, v| "#{k}=#{v.inspect}" }.join(', ')
+      @view.theme.tool("→ #{safe(name)}(#{args})")
+    end
+
+    # The +:verbose+ result line — the observation itself, += rm: cannot …+.
+    #
+    # @param content [String]
+    # @return [String] the toned line.
+    def verbose_result_line(content) = @view.theme.tool("= #{truncate_tool_result(content)}")
+
+    # Flatten whitespace and cap to {MAX_TOOL_RESULT_CHARS}. Long results
+    # (rendered HTML, PDF text) would otherwise drown the transcript; the
+    # byte-count suffix distinguishes "tool returned exactly this" from "tool
+    # returned much more."
+    #
+    # @param content [String] tool observation
+    # @return [String] single-line display form, possibly truncated
+    def truncate_tool_result(content)
+      original_bytes = content.to_s.bytesize
+      flattened = safe(content.to_s)
+      return flattened if flattened.length <= MAX_TOOL_RESULT_CHARS
+
+      "#{flattened[0, MAX_TOOL_RESULT_CHARS]}… (#{original_bytes} bytes total)"
+    end
+
+    # +web_search+ → +WebSearch+, +mcp__github__list_prs+ → +McpGithubListPrs+,
+    # +EnterPlanMode+ → unchanged. Any run of non-alphanumerics is a word break,
+    # which also leaves the result free of anything a terminal could act on.
+    #
+    # @param name [String]
+    # @return [String]
+    def display_name(name)
+      words = name.to_s.scan(/[[:alnum:]]+/)
+      words.empty? ? safe(name.to_s) : words.map { |word| word.sub(/\A./, &:upcase) }.join
+    end
+
+    # @param arguments [Hash] the tool-call arguments.
+    # @return [String] the first value as one display-safe capped line, or +""+
+    #   for a tool called with none.
+    def display_argument(arguments)
+      value = arguments.values.first
+      value.nil? ? '' : cap(safe(value.to_s), TOOL_ARGUMENT_MAX_CHARS)
+    end
+
+    # Neutralize model-composed text and flatten it to one line.
+    #
+    # Sanitizing is not optional on any path that prints a value raw (the
+    # +:short+ lines, the +:verbose+ observation): a path carrying +ESC[+ would
+    # otherwise recolor the transcript from inside a tool argument. Only
+    # {#verbose_call_line}'s arguments are safe without it, and only because
+    # +inspect+ escapes them.
+    #
+    # @param text [String]
+    # @return [String]
+    def safe(text) = Pikuri::Sanitizer.sanitize(text).text.gsub(/\s+/, ' ').strip
+
+    # Elide +text+ to +limit+ characters, ellipsis included. Applied after
+    # {#safe} so a cut can't land inside an escaped +\xNN+ token.
+    #
+    # @param text [String]
+    # @param limit [Integer]
+    # @return [String]
+    def cap(text, limit) = text.length <= limit ? text : "#{text[0, limit - 1]}…"
+
+    # @param bytes [Integer]
+    # @return [String] +"340 B"+ / +"4.9 kB"+ / +"1.2 MB"+ (SI, so kB is 1000).
+    def format_size(bytes)
+      return "#{bytes} B" if bytes < 1000
+      return format('%.1f kB', bytes / 1000.0) if bytes < 1_000_000
+
+      format('%.1f MB', bytes / 1_000_000.0)
     end
 
     # Wipe the pane and drop every per-turn render handle on

@@ -1,14 +1,21 @@
 # Transcript density: hide thinking, shorten tool lines
 
-**Status:** designed, not started. The leans from the brainstorm are folded
-in below as `D_` decisions (the alternatives are kept one line each, for the
-why-not notes at graduation). Scratch file — delete once implemented
-(propagate per AGENTS.md "Ideas live in `ideas/*.md`, then evaporate").
+**Status:** Part 2 v1 **landed in pikuri-tui** (see "Part 2 v1 — as built"
+below); Part 1 and Part 2 v2 still designed-not-started. Held back from
+graduation deliberately: **pikuri-web will reuse this file** for the same two
+changes on its own chrome, so it stays here past the pikuri-tui landing
+instead of evaporating into AGENTS.md. The durable pikuri-tui nuggets from v1
+*have* been propagated (AGENTS.md Scope decisions + the
+`Shared::ConversationTextView` Layout entry + the class rdoc); what remains
+here is the design record and the not-yet-built parts.
+
+The leans from the brainstorm are folded in below as `D_` decisions (the
+alternatives are kept one line each, for the why-not notes at graduation).
 
 Two changes, independent of each other:
 
 1. **Thinking becomes toggleable** (show / hide), with a config default.
-2. **Tool lines get a short form and stay visible.** Not a toggle. v1 is
+2. **Tool lines get a short form, with the raw form one key away.** v1 is
    tui-only from what the events carry today; v2 consumes the summaries
    pikuri will compose (`../pikuri/ideas/tool-summary-lines.md`).
 
@@ -62,7 +69,15 @@ spinner still says the agent is busy and only grey prose is missing.
 is grey filler by design; nothing about its absence confuses. Revisit only
 on a real "the model isn't thinking any more" report.
 
-`D_kinded_regions` — the pane keeps, per block it creates,
+`D_kinded_regions` — **built, and already in use.** Part 2 v1 needed exactly
+this for its tool-line toggle, so it was pulled forward: pikuri-tui's
+`Shared::ConversationTextView` now has `#add_kinded_block(kind:, indent:,
+&render)` + `#rerender(kind:)` over a `{region, kind, indent, render}`
+register, dropped by `#clear`. Part 1 adds a second kind (`:thinking`) and the
+hidden-means-empty-text branch; the register itself is done. The design as
+written:
+
+The pane keeps, per block it creates,
 `{region, kind, render}` where `render` is a zero-arg thunk producing the
 block's text (closing over event content, indent, renderer — so a reveal
 renders at the *current* width and theme). `add_block(..., kind:)`: kind
@@ -193,63 +208,56 @@ Ship the *look* now with what `Event::ToolCall(name:, arguments:)` and
   by side. Their `render_result` already returns `nil` on success and the
   error text on failure — which is v1's rule already.
 - **Where.** `Listener#render_tool_call` / `#render_tool_result` default
-  branches; ~20 lines. The `Assistant` / decision / thinking paths are
-  untouched. Not a toggle, so no kind register involvement — plain
-  `add_block`.
+  branches. The `Assistant` / decision / thinking paths are untouched.
 
-#### v1 handoff checklist
+#### Part 2 v1 — as built (pikuri-tui)
 
-Scope is *only* the two default branches, the formatter header, and what
-pins them. Nothing from Part 1, no config key, no leader/slash change.
+Landed as designed above, plus the toggle (`D_verbose_toggle`). The five
+things a second implementation (pikuri-web) wants to copy:
 
-Code:
-- `lib/shared/conversation_text_view.rb` — `Listener#render_tool_call`
-  (L586–597) and `#render_tool_result` (L606–615) default branches. The
-  helpers (CamelCase, first argument, size formatting, the `Error:` check)
-  are private on the pane or the listener — no new file; they are v2's
-  deletions. Sanitize with `Pikuri::Sanitizer.sanitize(str).text` (a
-  `Pikuri::Sanitizer::Result`; its `warnings` are ignored here — the confirm
-  block already surfaces them for gated tools). Sanitize *then* cap, so an
-  escaped `\x1b` can't be cut mid-token.
-- `truncate_tool_result` / `MAX_TOOL_RESULT_CHARS` (L66–70, L223–236) lose
-  their only caller; delete them and their rdoc (the pane header's
-  "mirrors the terminal listener's cap" sentence goes with them). If the
-  `Error:` line needs a cap, a fresh one-line constant, not this one.
-- `lib/code/diff_tool_formatting.rb` `#render_call` (L36–39) — header
-  `✎ edit  path` → `✎ Edit(path)`. **Keep `GLYPH`:** `✎` is the mutation
-  family mark, shared with `Code::GitDiffRenderer`'s `✎ path` file headers
-  (pinned in `spec/code/git_diff_renderer_spec.rb`) and the prompt's capture
-  marker; only the verb part takes the short form. Its rdoc L24–29 follows.
-- `lib/code/edit_formatter.rb` L8–9 and `lib/code/write_formatter.rb` L9 —
-  rdoc says "instead of the default `→ edit(path=…)` dump"; re-word to the
-  new default.
+1. **Both renderers, one register.** `Listener` carries
+   `#short_call_line` / `#short_result_line` and `#verbose_call_line` /
+   `#verbose_result_line`; the pane carries `TOOL_DETAIL_MODES`
+   (`%i[short verbose]`), `#tool_detail=` / `#toggle_tool_detail` /
+   `#select_tool_detail(argument)`, and the `D_kinded_regions` register. Each
+   default-branch block goes in as `add_kinded_block(kind: :tool) { short? ?
+   … : … }`, so the flip redraws what is already on screen.
+2. **`#select_tool_detail` returns the echo string** ("Tool lines: verbose.",
+   or the "No tool-line form …" complaint). It lives on the pane rather than
+   in each `App` because all three shells need it — a triplicated
+   argument-parser is exactly the smell AGENTS.md's dedup rule names.
+3. **Formatter blocks are not kinded**, so `D_diffs_always_visible` holds by
+   construction rather than by a special case in the toggle.
+4. **The result line indents `TOOL_RESULT_INDENT` (2) under its call line, in
+   both forms.** Mode-independent, so the indent stays the pane's business
+   (`add_kinded_block(indent:)`) and never enters the thunk.
+5. **Sanitizing is per-path.** Short lines and the verbose *observation* go
+   through `Pikuri::Sanitizer.sanitize(str).text` (then flatten, then cap —
+   in that order, so a cut can't land inside an escaped `\x1b`); the verbose
+   *arguments* are safe on `inspect` alone. Warnings are ignored here — the
+   confirm block already surfaces them for gated tools.
 
-Specs (the lines that pin the old shape — every one changes, none is
-deleted):
-- `spec/shared/conversation_text_view_spec.rb` L127 (`= 42`), L139 (`5000
-  bytes total` → the `OK, 4.9 kB`-style size), L479 + L512 (`→ edit` absent /
-  present — the assertion is "default line vs formatter block", re-point at
-  `Edit(`), L497 (`= ` absent), L520 + L530 (`= whatever` / `= match` → `OK`
-  or the `Error:` line), L529 (`→ grep` → `Grep(`), L554–573 (the sub-agent
-  indent tests hand-build a `→ web_search` block — they test the *indent*, so
-  either keep the literal or switch to `WebSearch(`), L589 (`= 42`).
-- Add: an `Error: …` observation renders its first line and not `OK`; a
-  value carrying `\e[31m` renders escaped, not colored; a 4 kB `command` is
-  cut to one line with `…`; a no-arg call has no parentheses.
-- `spec/code/edit_formatter_spec.rb` / `write_formatter_spec.rb` don't pin
-  the header text today; add one assertion each for `✎ Edit(` / `✎ Write(`.
+Small deviations from the sketch above, all deliberate:
+- `MAX_TOOL_RESULT_CHARS` / `truncate_tool_result` were **kept**, moved from
+  the pane to the `Listener` (the verbose renderer is their caller now), and
+  now route through the sanitizer. `TOOL_ERROR_MAX_CHARS` is the fresh
+  constant for the short form's `Error:` line.
+- Sizes are SI (`5000` → `5.0 kB`), not the `4.9 kB` in the sketch: calling
+  1024 bytes a kB is the common-but-wrong thing.
+- `✎ edit  path` → `✎ Edit(path)` with `GLYPH` kept, as specified; the
+  formatters now pass `verb: 'Edit'` / `'Write'` / `'Create'` capitalized
+  rather than the module capitalizing them.
+- The verbose call line sanitizes `name` too — pre-existing hole, one word to
+  close.
+- Surfaces: leader `v` ("tool line detail") + `/tools [short|verbose]` (blank
+  toggles, the `/sidebar` shape) in all three shells. `t` stays reserved for
+  Part 1's thinking toggle.
 
-Docs:
-- AGENTS.md L161 ("tool-call lines, tool observations") is still true; the
-  `Shared::ConversationTextView` Layout entry should say the tool lines are
-  the short `Name(arg)` / `OK, size` form, composed here as a v1 stand-in for
-  pikuri's summaries (pointer to `../pikuri/ideas/tool-summary-lines.md`
-  while it lives, to the pikuri decision once it graduates).
-- `Shared::ConversationTextView` class rdoc L6–9 lists what it renders —
-  "tool calls, tool observations" stands; the `tool_formatters` `@param`
-  (L88–91) names the default it replaces — update.
-
-Run `bundle exec rake check`.
+Docs propagated: AGENTS.md Scope decisions (a new bullet: what the toggle must
+keep true) + the `Shared::ConversationTextView` Layout entry + the leader/slash
+roster line; the pane's class rdoc gained a `== Tool-line form` section and the
+`Listener`'s variant list a fourth departure; `Shared::AppTheme`'s `:tool`
+token rdoc re-worded off the old `→ call` / `= result` shape.
 
 ### v2 — consume pikuri's summaries
 
@@ -260,38 +268,46 @@ formatters drop the redundant summary under a diff (renderer's call, per the
 pikuri note). Nothing else moves; the v1 look was chosen so v2 changes no
 pixels except the result line's wording.
 
-`D_no_verbose_toggle_yet` — the current `→ name(k=v)` / `= <200 chars>` form
-is a debugging view, and with `D_kinded_regions` a `tools: short | verbose`
-flag would be nearly free (the render thunk picks the form). Don't build it
-until a real debugging session misses the raw view; then it is also what
-unlocks the deferred `u` submenu. The diagnostic log is *not* the place for
-the raw form — never cross the streams.
+`D_verbose_toggle` — **reversed, and built in v1.** The original lean was
+`D_no_verbose_toggle_yet`: don't build a `tools: short | verbose` flag until a
+real debugging session misses the raw view. Overruled on the way in — the raw
+form must stay *reachable*, not just present in git history, so both renderers
+live side by side and a runtime toggle picks which one is drawn. That made
+`D_kinded_regions` a v1 dependency rather than a Part 1 one (above), and it
+is what would unlock the deferred `u` submenu once a second display preference
+exists. Unchanged from the original note: the diagnostic log is *not* the place
+for the raw form — never cross the streams.
 
 ---
 
 ## Sequencing
 
-1. Part 2 v1 (smallest, most visible, no config).
-2. Part 1 (`[ui]` config key, kinded regions, leader `t`, `/thinking`).
+1. ~~Part 2 v1~~ — **done in pikuri-tui** (kinded regions came with it).
+2. Part 1 (`[ui]` config key, the `:thinking` kind, leader `t`, `/thinking`).
 3. Part 2 v2 when pikuri ships `tool-summary-lines`.
+4. Both parts again in pikuri-web, on its own chrome.
 
 ## Open questions
 
-- Argument cap width and `…` style — implementer's call; ~60 columns is
-  the starting point.
+- ~~Argument cap width and `…` style~~ — settled at 60 columns +
+  `…` (`Listener::TOOL_ARGUMENT_MAX_CHARS`).
+- Does pikuri-web want the same two-mode toggle, or does a web chrome make
+  the raw form a disclosure triangle per call instead? The pikuri-tui shape
+  is one mode for the whole transcript because a TUI has no cheap
+  per-block affordance.
 
 ## When this is done
 
-Delete this file. Durable nuggets to propagate first:
+Delete this file — but **not until pikuri-web has taken its copy of the
+design**. Durable nuggets to propagate first:
 
-- AGENTS.md Layout: `Shared::ConversationTextView` gains the kinds/collapse
-  contract and `show_thinking=`; `Shared::Config` gains `[ui]` (with the
-  `markdown` pointer); each `App` gains leader `t` + `/thinking`.
-- AGENTS.md Scope decisions, one line each: the decision block and
-  user/assistant prose are never hidden (a parked decision must stay loud);
-  tool lines are short by design with the diff blocks the deliberate
-  exception; the short form is composed by the tool in pikuri, never by the
-  model, and is structural, never an excerpt.
+- AGENTS.md Layout: `Shared::ConversationTextView` gains `show_thinking=` and
+  a second `add_kinded_block` kind; `Shared::Config` gains `[ui]` (with the
+  `markdown` pointer); each `App` gains leader `t` + `/thinking`. (The
+  tool-line half of this is already propagated.)
+- AGENTS.md Scope decisions: the decision block and user/assistant prose are
+  never hidden (a parked decision must stay loud). (The tool-line bullet is
+  already there.)
 - `Shared::ConversationTextView` rdoc: the "stateless" claim narrows to
   conversation progress; and the why-not next to `pending_decision=`: a
   `clear`-based re-render would silently erase a parked question.
