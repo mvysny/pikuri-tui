@@ -38,16 +38,17 @@ require 'tomlrb'
 # provider), and an unreferenced +[[server]]+ is legal, so commenting out an
 # +[[llm]]+ cannot break the file.
 #
-# {Llm#server} is the resolved *URL*; the +id+ leaves this class only in a log
-# line. An id means nothing away from the file that defines it, so storing one
-# (pikuri-web keeps a per-conversation model) would keep a reference whose
-# referent a later edit can delete, where a URL stands on its own.
+# {Llm#server} is the resolved *URL*, and the +id+ leaves this class only in a
+# log line: an id means nothing away from the file defining it, so anything
+# that stored one would hold a reference a later edit can orphan, where a URL
+# stands on its own.
 #
-# There is no compatibility path for the pre-+[[server]]+ shape and no built-in
-# connection: no +[[llm]]+ at all, one missing +server+ or +model+, and one
-# whose +server+ resolves to nothing all raise {Error}. A silent fallback to a
-# hardcoded model tag would be a second, invisible connection source — so that
-# knowledge is {EXAMPLE_CONFIG}, quoted by the raise, where the user can edit it.
+# Nothing here has a default connection to fall back on. No +[[llm]]+ at all,
+# a missing +server+ or +model+, and a +server+ resolving to nothing each raise
+# {Error} — a hardcoded model tag reached silently would be a second, invisible
+# connection source, so that knowledge is {EXAMPLE_CONFIG}, quoted by the raise
+# for the user to edit. A file written against the older URL-in-+[[llm]]+ shape
+# is guided by those messages, never accepted.
 #
 # == The +[ui]+ table
 #
@@ -78,12 +79,11 @@ require 'tomlrb'
 # nearest file wins. The +[search]+ table merges key-by-key like any table, so
 # a system file can supply +brave_key+ while the user file adds +exa_key+.
 #
-# +server+ references resolve *after* the whole merge. That is what lets a user
-# file add one +[[llm]]+ against a system file's +[[server]]+ instead of
-# re-pasting the block, secrets included — the duplication this schema exists
-# to remove. The consequence, since arrays replace: a nearer file that declares
-# +[[server]]+ at all replaces every farther one, which can leave a farther
-# file's +[[llm]]+ dangling. That raises; it never falls back.
+# +server+ references resolve *after* the whole merge, so a user file can add
+# one +[[llm]]+ against a system file's +[[server]]+ rather than re-pasting
+# that block, secrets included. The consequence, since arrays replace: a nearer
+# file declaring +[[server]]+ at all replaces every farther one, which can
+# leave a farther file's +[[llm]]+ dangling. That raises; it never falls back.
 #
 # == No connection overrides
 #
@@ -99,7 +99,7 @@ require 'tomlrb'
 #
 # There is deliberately no project-local layer: a config file inside the
 # repo would be git-committable and readable by the sandboxed coding
-# agent — exactly where a literal {Llm#api_key} or {Search} provider key
+# agent — exactly where a literal {Server#api_key} or {Search} provider key
 # must not live.
 #
 # == The Pikuri seam
@@ -144,10 +144,8 @@ class Shared::Config
   class Error < StandardError; end
 
   # One inference server: what is true of the box rather than of a model
-  # running on it, referenced by {#id} from any number of +[[llm]]+ entries.
-  #
-  #   Server.new(id: 'grok', url: 'https://api.x.ai/v1',
-  #              api_key: 'xai-…', max_concurrent_requests: 4)
+  # running on it, referenced by {#id} from any number of +[[llm]]+ entries
+  # (the class header shows the pair of tables).
   #
   # @!attribute [r] id
   #   @return [String] unique reference an +[[llm]]+ names in its +server+
@@ -245,7 +243,7 @@ class Shared::Config
   # omitted, which leaves pikuri's own default — DuckDuckGo plus whichever
   # keyed provider was configured.
   #
-  # The keys are secrets and get the same treatment as {Llm#api_key}: stored
+  # The keys are secrets and get the same treatment as {Server#api_key}: stored
   # literally in this parent-only file (never an env var pikuri would
   # inherit into the sandboxed bash / stdio MCP subprocesses, never a CLI
   # flag visible in +ps+), outside the workspace the coding agent reads,
@@ -368,9 +366,8 @@ class Shared::Config
 
   # @param llms [Array<Llm>] one or more model connections (never empty).
   # @param servers [Array<Server>] the +[[server]]+ definitions {#llms} was
-  #   resolved against. Defaults to empty because the only thing that reads it
-  #   is the request throttle, which a config built in code (a spec) has
-  #   nothing to install.
+  #   resolved against. Defaults to empty: only the request throttle reads it,
+  #   and a config built in code has no ceilings to install.
   # @param search [Search] web-search provider keys (fields may be nil).
   # @param sandbox [Boolean] resolved coding sandbox switch.
   # @param confirm [Boolean] resolved coding confirmer switch.
@@ -580,9 +577,8 @@ class Shared::Config
   def self.build_llm(hash, index, by_id)
     raise Error, "llm[#{index}] must be a table" unless hash.is_a?(Hash)
 
-    # +api_key+ is tolerated as far as {.resolve_server}, so an old entry fails
-    # with the message that names where the key moved to — and, when its
-    # +server+ is also still a URL, with a block carrying both fixes at once.
+    # +api_key+ is listed so it survives to resolve_server, which fails it with
+    # a message naming its new home rather than as an anonymous unknown key.
     unknown = hash.keys - %w[name server model api_key context_window]
     raise Error, "llm[#{index}]: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
 
@@ -613,14 +609,12 @@ class Shared::Config
     )
   end
 
-  # The shapes an old, pre-+[[server]]+ file fails in each get their own
-  # message, because there is no compat path and so the raise *is* the whole
-  # migration experience. A URL in +server+ earns the most effort: it parses
-  # cleanly and fails as a *lookup*, which reads like the user's mistake rather
-  # than a key whose meaning changed.
-  #
-  # @param api_key [String, nil] the entry's stray +api_key+, folded into the
-  #   suggested block so one edit fixes both halves of an old file.
+  # Each way a reference can fail gets its own message, since with no compat
+  # path the raise *is* the whole migration. A URL in +server+ earns the most
+  # effort: it parses cleanly and fails as a *lookup*, which reads like the
+  # user's mistake rather than a key whose meaning changed. The entry's stray
+  # +api_key+ rides along into the suggested block, so one edit fixes both
+  # halves of an old file instead of two round trips.
   def self.resolve_server(ref, name, by_id, api_key)
     found = by_id[ref]
     return found if found
