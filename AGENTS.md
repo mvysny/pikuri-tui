@@ -354,7 +354,13 @@ Zeitwerk over `lib/` and eager-loads it.
   *starting* value of a `Shared::UIToggleMenu` toggle and a runtime flip is
   never written back (the same shape `sandbox` / `confirm` have). The
   conversation pane's `markdown:` flag is the natural third key when someone
-  wants it.
+  wants it. One file serves every pikuri shell, so the schema is the whole
+  shared one, not the part these shells read: `[titler]` and an `[[llm]]`'s
+  `params` are pikuri-web's, and are accepted, logged as unread at load, and —
+  for `params` — exposed on `Llm` but sent nowhere (pikuri's `ChatTransport`
+  has no params channel). Which side validates strictly follows from that: a
+  table these shells read is strict, one a sibling owns is checked for shape
+  only, so a key pikuri-web adds later can't stop this app from booting.
 - `lib/shared/streamed_block.rb` — `Shared::StreamedBlock`, a
   `Tuile::Component::TextView::Region` + its streaming buffer as one unit:
   lazy-open on first `#append`, then `#finalize` (commit) / `#wipe` (drop

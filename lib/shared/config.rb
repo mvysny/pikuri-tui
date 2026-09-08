@@ -69,6 +69,33 @@ require 'tomlrb'
 # The conversation pane's +markdown:+ flag is the same shape and has no key
 # here yet — the natural third entry when someone wants it.
 #
+# == Keys a sibling shell owns
+#
+#   [[llm]]
+#   name   = "qwen-titler"
+#   server = "local"
+#   model  = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
+#   params = { chat_template_kwargs = { enable_thinking = false } }
+#
+#   [titler]
+#   llm = "qwen-titler"
+#
+# One file serves every pikuri shell, so this is the whole shared schema and
+# not the part these three read. Both keys above are pikuri-web's — which
+# connection writes conversation titles, and the request parameters that turn
+# a thinking model off for them. {Llm#params} is parsed and exposed but
+# reaches no request from here (pikuri's +ChatTransport+ has no params
+# channel, and pikuri-web sends it through a Faraday adapter of its own);
+# +[titler]+ is not exposed at all, since a shell holding one unnamed session
+# has nothing to title. {.load} logs an INFO line for each, so a key that
+# does nothing here says so in the diagnostic pane rather than silently.
+#
+# Which shell validates what follows from that split: a table these shells
+# *read* is strict, because an unknown +[ui]+ key is a typo the user wants
+# named. A table a sibling owns is checked for shape only — pikuri-web
+# growing a second +[titler]+ key must not stop this app from booting, and
+# its own +[ui]+ validation takes that same bargain in the other direction.
+#
 # == Precedence
 #
 # Lowest to highest: built-in defaults → +/etc/xdg/pikuri/config.toml+
@@ -197,7 +224,18 @@ class Shared::Config
   #     x.ai — so the status rule shows a real +used/cap+. Rides the connection's
   #     +Pikuri::Agent::ChatTransport+, so it is correct per-model across a
   #     model switch.
-  Llm = Data.define(:name, :server, :model, :api_key, :context_window)
+  # @!attribute [r] params
+  #   @return [Hash{String => Object}] extra request parameters to merge into
+  #     every chat completion on this connection — e.g.
+  #     +{"chat_template_kwargs" => {"enable_thinking" => false}}+ to turn
+  #     Qwen 3.6's reasoning off. Frozen, and +{}+ when the entry omits it.
+  #     Parsed for the shared file's sake and sent nowhere from these shells
+  #     (see the class header).
+  Llm = Data.define(:name, :server, :model, :api_key, :context_window, :params) do
+    def initialize(params: {}, **rest)
+      super(params: params.freeze, **rest)
+    end
+  end
 
   # One MCP server definition (coding shell only). Exactly one of
   # {#command} (local stdio subprocess) / {#url} (remote HTTP) is
@@ -351,6 +389,7 @@ class Shared::Config
 
     ui = merged['ui'] || {}
     validate_ui!(ui)
+    log_unread_keys(merged, llms)
 
     new(
       llms:          llms,
@@ -481,8 +520,10 @@ class Shared::Config
     end
   end
 
+  # +titler+ is allowed for shape and read by nothing — see the class header's
+  # sibling-keys note.
   def self.validate_top!(merged)
-    unknown = merged.keys - %w[server llm search code ui]
+    unknown = merged.keys - %w[server llm search code ui titler]
     raise Error, "unknown top-level key(s): #{unknown.join(', ')}" unless unknown.empty?
     %w[server llm].each do |k|
       next unless merged.key?(k) && !merged[k].is_a?(Array)
@@ -493,9 +534,27 @@ class Shared::Config
       raise Error, '`search` must be a table ([search])'
     end
     raise Error, '`code` must be a table ([code])' if merged.key?('code') && !merged['code'].is_a?(Hash)
-    return unless merged.key?('ui') && !merged['ui'].is_a?(Hash)
+    raise Error, '`ui` must be a table ([ui])' if merged.key?('ui') && !merged['ui'].is_a?(Hash)
+    return unless merged.key?('titler') && !merged['titler'].is_a?(Hash)
 
-    raise Error, '`ui` must be a table ([ui])'
+    raise Error, '`titler` must be a table ([titler])'
+  end
+
+  # Log one line per shared-file key this shell parses and then acts on in no
+  # way, so an ignored key is visible in the diagnostic pane rather than
+  # silent. INFO, not WARN: the file is shared, and a key written for
+  # pikuri-web is doing its job there.
+  #
+  # @param merged [Hash{String => Object}] the merged raw TOML.
+  # @param llms [Array<Llm>] the resolved connections.
+  # @return [void]
+  def self.log_unread_keys(merged, llms)
+    LOG.info('ignoring [titler]: pikuri-web names conversations, these shells hold one') if merged.key?('titler')
+
+    steered = llms.reject { |llm| llm.params.empty? }.map(&:name)
+    return if steered.empty?
+
+    LOG.info("[[llm]] `params` is parsed but sent nowhere by this shell: #{steered.join(', ')}")
   end
 
   # Unlike +[search]+, whose engine names are pikuri's to define, the
@@ -579,7 +638,7 @@ class Shared::Config
 
     # +api_key+ is listed so it survives to resolve_server, which fails it with
     # a message naming its new home rather than as an anonymous unknown key.
-    unknown = hash.keys - %w[name server model api_key context_window]
+    unknown = hash.keys - %w[name server model api_key context_window params]
     raise Error, "llm[#{index}]: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
 
     name = hash['name']
@@ -596,6 +655,14 @@ class Shared::Config
       raise Error, "llm #{name.inspect}: `context_window` must be a positive integer"
     end
 
+    # Shape only, like +search.engines+: what a params key *means* is the
+    # server's to say, and this shell does not even send them.
+    params = hash.fetch('params', {})
+    unless params.is_a?(Hash)
+      raise Error, "llm #{name.inspect}: `params` must be a table, " \
+                   'e.g. params = { chat_template_kwargs = { enable_thinking = false } }'
+    end
+
     key = hash['api_key']
     server = resolve_server(hash['server'], name, by_id, key)
     raise Error, "llm #{name.inspect}: `api_key` belongs on [[server]] #{server.id.inspect}, not here." if key
@@ -605,7 +672,8 @@ class Shared::Config
       server:         server.url,
       model:          hash['model'],
       api_key:        server.api_key, # nil when omitted → "not-needed" at the bin
-      context_window: cw # nil when omitted → pikuri auto-detects
+      context_window: cw, # nil when omitted → pikuri auto-detects
+      params:         params
     )
   end
 
@@ -779,7 +847,8 @@ class Shared::Config
   def self.non_empty_string?(value) = value.is_a?(String) && !value.strip.empty?
 
   private_class_method :candidate_paths, :warn_loose_perms, :holds_secret?, :parse_file, :deep_merge,
-                       :validate_top!, :validate_code!, :build_server, :build_llm, :resolve_server,
+                       :validate_top!, :validate_code!, :validate_ui!, :log_unread_keys,
+                       :build_server, :build_llm, :resolve_server,
                        :server_is_now_an_id, :no_connection_message, :build_mcp, :build_mcp_headers,
                        :build_basic_auth, :build_mcp_env, :build_search,
                        :pick, :check_unique!, :non_empty_string?
