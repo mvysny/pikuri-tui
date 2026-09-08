@@ -72,9 +72,8 @@ describe Shared::Model::Choice do
       refute_equal local.key, remote.key
     end
 
-    # The titler recipe: one model on one box, twice, differing only in
-    # params. Without params in the key both entries collapse onto one — the
-    # picker flags them both active and the name map keeps the last declared.
+    # The titler recipe: one model on one box, twice, differing only in params
+    # — the pair Choice.key's third element exists for.
     it 'separates two connections that differ only in params' do
       thinking = described_class.from_llm(llm(name: 'Qwen'))
       quiet    = described_class.from_llm(llm(name: 'Qwen, no thinking', params: NO_THINKING))

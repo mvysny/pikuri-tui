@@ -149,10 +149,9 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   end
 
   # Set the model segment, from either a ready display name or a transport
-  # to resolve. A transport is keyed on the +[model, api_base, params]+ triple
-  # ({Shared::Model::Choice.key}), not the model id alone — two connections
-  # can run the same model on one box — and falls back to its raw
-  # model id when absent from the +names+ map.
+  # to resolve. A transport is keyed on {Shared::Model::Choice.key}, not the
+  # model id alone — two connections can run one model — and falls back to its
+  # raw model id when absent from the +names+ map.
   #
   #   rule.current_model = 'Local Qwen 3.6'   # a literal name (boot seed)
   #   rule.current_model = agent.transport    # resolved via names:

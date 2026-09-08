@@ -83,9 +83,8 @@ require 'tomlrb'
 # {Llm#params} is an opaque table of extra chat-completion payload keys, sent
 # as written on that connection — the spelling being per-model-per-server,
 # pikuri translates none of it. It rides the connection's
-# +Pikuri::Agent::ChatTransport+ like {Llm#context_window} does, so it
-# survives a model switch, and its keys reach the wire in the file's own
-# spelling (the transport symbolizes them).
+# +Pikuri::Agent::ChatTransport+ as {Llm#context_window} does, so it survives
+# a model switch.
 #
 # +[titler]+ is the one shared key nothing here reads: one file serves every
 # pikuri shell, so this is the whole shared schema rather than the part these
