@@ -1,10 +1,31 @@
 # Tool lines v2: consume pikuri's composed summaries
 
-**Status:** waiting on pikuri. Everything else in this note has landed and
+**Status:** **buildable now — the wait is over.** pikuri master ships both
+events (`D_tool_summary_lines`, 2026-09-07), and the `Gemfile` points at
+`../pikuri/<gem>`, so the fields below are live in this checkout. Do it as part
+of [`catch-up-with-pikuri-master.md`](catch-up-with-pikuri-master.md), which is
+the whole migration; this file stays the *design* half (what deletes, and the
+decision not to lose).
+
+Everything else in this note has landed and
 been graduated — the thinking toggle, the short tool lines, the `[ui]` config
 table and the leader-`u` submenu are in the code, their durable nuggets are in
 AGENTS.md and the class rdocs, and pikuri-web has taken its own copy of the
-design. What is left here is the one step that cannot be built yet.
+design.
+
+The exact shapes that shipped:
+
+```ruby
+ToolCall   = Data.define(:tool_call_id, :name, :arguments, :display_name, :argument)
+ToolResult = Data.define(:tool_call_id, :name, :content, :summary)
+```
+
+Two notes from reading the upstream rdoc, neither of which the sketch below
+anticipated: an `argument` of `""` renders the call **bare** (`EnterPlanMode`,
+not `EnterPlanMode()`), and `tool_call_id` pairs a result with its call by key,
+so the listener needs no call→result ordering assumption. Defanging every
+string through `Pikuri::Sanitizer` stays this side's job — upstream is explicit
+that a chrome "styles, caps and defangs" what it is handed.
 
 ## What v1 built, and what v2 deletes
 
@@ -48,10 +69,14 @@ has nothing to consume.
 
 ## The one decision v2 must not lose
 
-`D_tool_composes_summary` — the summary is composed **by the tool, in pikuri,
+The summary is composed **by the tool, in pikuri,
 in code**, and only ever echoes structure (counts, sizes, exit codes). Never
-an excerpt, and never a model-written sentence. Rationale and mechanism live
-in `../pikuri/ideas/tool-summary-lines.md`; this note only consumes the result.
+an excerpt, and never a model-written sentence. Rationale and mechanism have
+since graduated upstream into `../pikuri/DECISIONS.md` `D_tool_summary_lines`
+(plus `D_tool_always_returns_result` for the one-return-type half) — the
+`../pikuri/ideas/tool-summary-lines.md` this used to cite is deleted, and the
+slug this note called `D_tool_composes_summary` never existed under that name.
+This note only consumes the result.
 
 - Rejected `O_llm_composes`: the model is the one component an attacker can
   steer, and a narrated `Saved successfully` over a failed write is precisely
