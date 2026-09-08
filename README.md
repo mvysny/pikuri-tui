@@ -110,6 +110,20 @@ There is deliberately **no project-local config** (e.g. `./.pikuri/`): a file
 inside a repo could be committed to git and is readable by the sandboxed
 coding agent — exactly where an API key must not live.
 
+### Coming from a file that predates `[[server]]`
+
+A connection used to be one table: `url` and `api_key` sat on `[[llm]]` beside
+`model`. They now live on a `[[server]]` that `[[llm]]` references by `id`, so
+several models on one provider state its URL and key once. There is no compat
+path — an old file is refused, with the fix named:
+
+- a `url` still in `server` fails as an unknown id, and the message prints the
+  `[[server]]` block to add (your URL and, if present, your key already filled
+  in) plus the `server = "…"` line to replace it with;
+- an `api_key` left on `[[llm]]` fails naming the `[[server]]` it belongs on;
+- `context_window` does *not* move — it is a per-model fact and stays on
+  `[[llm]]`.
+
 ### API keys / tokens
 
 Put the secret **literally** in this file via `api_key`, and keep the file
