@@ -155,6 +155,72 @@ describe Shared::Config do
     end
   end
 
+  # One file serves every pikuri shell, so these keys are pikuri-web's and
+  # this loader's whole job with them is to not refuse the file.
+  describe 'the keys a sibling shell owns' do
+    it 'parses an [[llm]] params table and freezes it' do
+      with_dirs do |home, _|
+        write_config(home, "params = { chat_template_kwargs = { enable_thinking = false } }\n")
+        c = described_class.load(env: env_for(home))
+        assert_equal({ 'chat_template_kwargs' => { 'enable_thinking' => false } }, c.primary_llm.params)
+        assert c.primary_llm.params.frozen?
+      end
+    end
+
+    it 'defaults params to an empty table' do
+      assert_empty load_bare.primary_llm.params
+    end
+
+    it 'says in the log that params reaches no request from here' do
+      with_dirs do |home, _|
+        write_config(home, "params = { enable_thinking = false }\n")
+        out = capture_log { described_class.load(env: env_for(home)) }
+        assert_includes out, '`params` is parsed but sent nowhere'
+        assert_includes out, 'Local'
+      end
+    end
+
+    it 'stays quiet about params no entry sets' do
+      with_dirs do |home, _|
+        write_config(home, '')
+        refute_includes capture_log { described_class.load(env: env_for(home)) }, '`params`'
+      end
+    end
+
+    it 'rejects a params value that is not a table' do
+      with_dirs do |home, _|
+        write_config(home, "params = \"no thinking\"\n")
+        e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
+        assert_includes e.message, '`params` must be a table'
+      end
+    end
+
+    it 'loads a file carrying [titler], and logs that it is ignored' do
+      with_dirs do |home, _|
+        write_config(home, "[titler]\nllm = \"Local\"\n")
+        out = capture_log { described_class.load(env: env_for(home)) }
+        assert_includes out, 'ignoring [titler]'
+      end
+    end
+
+    # Shape only, deliberately: pikuri-web owns what grows in there, and a key
+    # it adds must not stop this app from booting.
+    it 'tolerates a [titler] key this shell has never heard of' do
+      with_dirs do |home, _|
+        write_config(home, "[titler]\nllm = \"Local\"\nmax_words = 7\n")
+        assert_equal 'Local', described_class.load(env: env_for(home)).primary_llm.name
+      end
+    end
+
+    it 'rejects [titler] written as anything but a table' do
+      with_dirs do |home, _|
+        write_config(home, "titler = 1\n\n#{MINIMAL}")
+        e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
+        assert_includes e.message, '`titler` must be a table'
+      end
+    end
+  end
+
   describe 'CLI overrides (the safety switches, highest precedence)' do
     it 'treats false sandbox/confirm overrides as real values (not "absent")' do
       c = load_bare(sandbox: false, confirm: false)

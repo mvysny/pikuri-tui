@@ -110,6 +110,24 @@ There is deliberately **no project-local config** (e.g. `./.pikuri/`): a file
 inside a repo could be committed to git and is readable by the sandboxed
 coding agent — exactly where an API key must not live.
 
+### Sharing the file with pikuri-web
+
+One file serves every pikuri shell, so pikuri-tui accepts the whole shared
+schema rather than only the parts it reads — a key written for its sibling
+must never stop this app from booting. Two of them are pikuri-web's:
+
+- `[titler]` names the connection that writes conversation titles. These
+  shells hold one unnamed session, so the table is accepted and ignored;
+  pikuri-web owns what may grow in there, and a key it adds later is
+  tolerated here too.
+- `params` on an `[[llm]]` is a table of request parameters merged into every
+  chat completion on that connection — `enable_thinking = false` and the
+  like. pikuri-tui parses and validates it but sends it nowhere yet, because
+  pikuri has no channel for it.
+
+Both say so in the diagnostic log (`Ctrl+K` → `l`) when a loaded file sets
+them, so a key that does nothing here is never silent about it.
+
 ### Coming from a file that predates `[[server]]`
 
 A connection used to be one table: `url` and `api_key` sat on `[[llm]]` beside
@@ -180,6 +198,11 @@ model  = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
 # status rule (omit it and the cap simply stays blank). It is a per-model
 # fact, so it lives here rather than on [[server]].
 # context_window = 1000000
+#
+# `params` rides an entry for pikuri-web's benefit — request parameters sent
+# verbatim on that connection. Parsed here, sent nowhere yet; see "Sharing the
+# file with pikuri-web" above.
+# params = { chat_template_kwargs = { enable_thinking = false } }
 
 # Web search. Used by the chat shell (web_search is a main tool) and by the
 # sub-agent-only research tools of the coding and computer shells. Every field
