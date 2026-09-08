@@ -339,9 +339,17 @@ Zeitwerk over `lib/` and eager-loads it.
   XDG-path TOML config all three shells load at boot (connections,
   search selection, sandbox/confirm switches, MCP servers, and the `[ui]`
   transcript-density defaults `show_thinking` / `tool_lines`),
-  hand-validated. The safety switches are the only thing a CLI flag
-  overrides — a connection is file-only, with no `--server`/`--model` (see
-  the class header). One `[ui]` table for all three shells, since the
+  hand-validated. A connection is two tables: `[[server]]` carries the box
+  (`url`, `api_key`, `max_concurrent_requests`) and `[[llm]]` the model
+  (`name`, `model`, `context_window`) plus the `server` id it runs on, which
+  `Config` resolves into `Llm#server` so the id never leaves the class. There
+  are no built-in connection defaults and no compat path for the older
+  URL-in-`[[llm]]` shape: a file with no `[[llm]]`, a missing `server` /
+  `model`, or a dangling reference each raise with the fix named, quoting the
+  one paste-ready `EXAMPLE_CONFIG` (see the class header for that fork and
+  for the resolve-after-merge layering rule). The safety switches are the only
+  thing a CLI flag overrides — a connection is file-only, with no
+  `--server`/`--model`. One `[ui]` table for all three shells, since the
   preference is per-person more than per-shell; its two keys set the
   *starting* value of a `Shared::UIToggleMenu` toggle and a runtime flip is
   never written back (the same shape `sandbox` / `confirm` have). The
@@ -513,6 +521,18 @@ Zeitwerk over `lib/` and eager-loads it.
   (`.build`), duck-typed on the registry so it carries no pikuri require and
   the lean chat process can still eager-load it. Used by the coding and
   computer shells.
+- `lib/shared/request_permits.rb` — `Shared::RequestPermits`, installs each
+  `[[server]] max_concurrent_requests` into pikuri's process-wide
+  `Pikuri::Agent::ServerPermits` (`.install(config.servers)`, called by all
+  three `App`s beside their `config.llms.map { Choice.from_llm }` line) and
+  logs what it sized. Stateless module with one entry point, shaped like
+  `Shared::FileCommands`. Its rdoc carries the two contracts a reader would
+  otherwise re-derive from pikuri's source — `.limit` wins by decision rather
+  than by ordering, and the scope is one *process* — plus the honest note that
+  the ceiling rations nothing in a pikuri-tui process today (one agent, one
+  turn, sequential tool batches), so its one live effect is skipping the boot
+  `/props` probe. It is wired anyway because the schema is shared with
+  pikuri-web, which does serve concurrent conversations.
 - `lib/shared/trifecta_renderer.rb` — `Shared::TrifectaRenderer`, paints a
   `Pikuri::Trifecta::Report` for the conversation pane (advisory toned by
   verdict, map untoned) — what `/trifecta` echoes in all three shells;
@@ -913,7 +933,7 @@ Zeitwerk over `lib/` and eager-loads it.
   (several classes may share one — `Pikuri.logger_for` memoizes per
   name, so they share the `Logger` object): `'markdown'` (renderer /
   grayscale / streaming buffer), `'formatter'` (edit / write), plus
-  `'listener'`, `'git'`, `'log'`, `'config'`, `'confirmer'`, and `'chat'` /
+  `'listener'`, `'git'`, `'log'`, `'config'`, `'permits'`, `'confirmer'`, and `'chat'` /
   `'code'` / `'computer'` for the three `App`s. The bins are plain scripts, not classes, so when one
   needs to log it keeps a local (`main_log = Pikuri.logger_for('main')` —
   the coding bin does, for project-root / skill / safety notices).
@@ -1109,7 +1129,8 @@ Zeitwerk over `lib/` and eager-loads it.
   `Shared::ConversationTextView`, `Shared::AgentSession`,
   `Shared::StatusBar`, `Shared::RootLayout`,
   `Shared::LeaderMenu`, `Shared::UIToggleMenu`, `Shared::SlashMenuPopup`, `Shared::SlashCommand`,
-  `Shared::FileCommands`, `Shared::PendingDecision`, `Shared::PassiveTextView`,
+  `Shared::FileCommands`, `Shared::RequestPermits`, `Shared::PendingDecision`,
+  `Shared::PassiveTextView`,
   `Shared::Log::Popup`, `Shared::Log::UI`, `Shared::Log::CountingIO`, `Shared::Model::Choice`, and
   the `Code::*` confirmer / diff classes the computer shell reuses verbatim.
   The test for extraction is not "is it a widget" but "does this

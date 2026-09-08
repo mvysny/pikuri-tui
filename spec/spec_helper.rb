@@ -70,6 +70,11 @@ RSpec.configure do |config|
   # swap (esp. an App's screen-bound Shared::Log::CountingIO) never leaks across.
   config.before { Pikuri.log_io = NULL_LOG }
 
+  # Shared::RequestPermits.install writes a process-global registry, and an App
+  # spec calls it on every build — so one example's [[server]] ceiling would
+  # ration another's server. (pikuri's own request_throttle_spec.rb does this.)
+  config.after { Pikuri::Agent::ServerPermits.reset! }
+
   config.include Minitest::Assertions
   config.include ThreadedUi
   config.include ToolEvents

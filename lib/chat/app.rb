@@ -130,6 +130,7 @@ module Chat
       @markdown = markdown
       @token_log = Pikuri::Agent::Listener::TokenLog.new
       @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
+      Shared::RequestPermits.install(config.servers)
       @model_picker = Shared::Model::Picker.new(models: @models)
       # Test seam: the backend the agent boots on. Production uses the config's
       # first connection; a spec injects a fake_transport (see class header).

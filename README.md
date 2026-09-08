@@ -33,11 +33,25 @@ bundle install
 bin/pikuri-tui-chat
 ```
 
-With no config file it talks to `http://localhost:8080` using model
-`unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M`. To point it anywhere else, write one
-`[[llm]]` table (see [Configuration](#configuration)) — there are no
-`--server` / `--model` flags. Configure several and switch between them at
-runtime from the `Ctrl+K` menu's model picker.
+First write `~/.config/pikuri/config.toml` — there is no built-in connection,
+and no `--server` / `--model` flags. The smallest file that boots, against a
+local llama.cpp:
+
+```toml
+[[server]]
+id  = "local"
+url = "http://localhost:8080"
+
+[[llm]]
+name   = "Local Qwen 3.6"
+server = "local"
+model  = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
+```
+
+Start with no file and the shell exits with that block in the message, so you
+can paste it and edit. Configure several `[[llm]]` entries and switch between
+them at runtime from the `Ctrl+K` menu's model picker (see
+[Configuration](#configuration)).
 
 ## Run the coding shell
 
@@ -77,16 +91,20 @@ can then reach the internet directly — use only in a throwaway environment);
 
 ## Configuration
 
-All three shells read an optional TOML config file. It is looked up in this
-order, later layers overriding earlier ones:
+All three shells read a TOML config file. It is looked up in this order, later
+layers overriding earlier ones:
 
 1. `/etc/xdg/pikuri/config.toml` (system-wide)
 2. `$XDG_CONFIG_HOME/pikuri/config.toml` (defaults to `~/.config/pikuri/config.toml`)
 
-With no file present, the built-in defaults apply (local llama.cpp on
-`http://localhost:8080`), so the config file is entirely optional — but it is
-the *only* way to name a connection: the safety switches (`--no-sandbox` /
-`--no-confirm` / `--yolo`) are the only flags that override it.
+A file is required, because it is the *only* way to name a connection: the
+safety switches (`--no-sandbox` / `--no-confirm` / `--yolo`) are the only
+flags that override anything here, and there is no fallback connection to
+start against. Tables merge key-by-key across layers, but the `[[server]]`,
+`[[llm]]` and `[[code.mcp]]` *arrays* replace wholesale — a user file that
+declares any `[[server]]` replaces the system file's whole list, which can
+leave a system `[[llm]]` pointing at an id that no longer exists. That is an
+error, never a silent fallback.
 
 There is deliberately **no project-local config** (e.g. `./.pikuri/`): a file
 inside a repo could be committed to git and is readable by the sandboxed
@@ -106,28 +124,47 @@ never exported to children, and (being outside the project root) is not even
 visible to the sandboxed agent's filesystem.
 
 ```toml
-# Model connections. This is an array of tables — list as many as you like.
-# The FIRST entry is the boot connection; if you list more than one, the
-# leader menu (Ctrl+K → m) lets you switch between them live by name. Each
-# `name` must be unique.
-[[llm]]
-name    = "Local Qwen 3.6"
-server  = "http://localhost:8080"
-model   = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
+# Inference servers: what is true of the *box*, written once however many
+# models run on it. `id` is what an [[llm]] references below and must be
+# unique; it is never shown in the UI.
+[[server]]
+id  = "local"
+url = "http://localhost:8080"
 # A local llama.cpp needs no key — omit api_key and it falls back to
 # "not-needed".
 
-# A second connection, e.g. an authenticated remote endpoint. The token goes
-# verbatim into api_key (see "API keys / tokens" above — keep this file
-# chmod 600).
-# [[llm]]
-# name    = "OpenRouter Claude"
-# server  = "https://openrouter.ai/api"
-# model   = "anthropic/claude-opus-4-8"
+# A remote endpoint. The token goes verbatim into api_key (see "API keys /
+# tokens" above — keep this file chmod 600).
+# [[server]]
+# id      = "openrouter"
+# url     = "https://openrouter.ai/api"
 # api_key = "sk-or-..."
+#
+# Ceiling on requests in flight against this server — the number you passed
+# llama-server as `--parallel`. Omit it and pikuri asks the server itself
+# (llama.cpp reports its slot count; a cloud endpoint answers with one
+# tolerated 404 per process, which setting this key skips).
+#
+# Scope worth knowing: the ceiling is per *process*, not per machine. Two
+# shells open against one llama.cpp each get the full allowance.
+# max_concurrent_requests = 4
+
+# Model connections. The FIRST entry is the boot connection; if you list more
+# than one, the leader menu (Ctrl+K → m) lets you switch between them live by
+# name. Each `name` must be unique — it is what the picker shows.
+[[llm]]
+name   = "Local Qwen 3.6"
+server = "local"     # a [[server]] id, not a URL
+model  = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
+
+# [[llm]]
+# name   = "OpenRouter Claude"
+# server = "openrouter"
+# model  = "anthropic/claude-opus-4-8"
 # A local llama.cpp reports its real window automatically; a cloud server
 # can't be probed, so set context_window to see a used/cap figure in the
-# status rule (omit it and the cap simply stays blank).
+# status rule (omit it and the cap simply stays blank). It is a per-model
+# fact, so it lives here rather than on [[server]].
 # context_window = 1000000
 
 # Web search. Used by the chat shell (web_search is a main tool) and by the

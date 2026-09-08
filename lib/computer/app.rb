@@ -191,6 +191,7 @@ module Computer
         message: Pikuri::Code::Extension::PLAN_MODE_READONLY_MESSAGE
       )
       @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
+      Shared::RequestPermits.install(config.servers)
       @model_picker = Shared::Model::Picker.new(models: @models)
 
       build_components
