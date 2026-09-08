@@ -42,18 +42,19 @@ module Code
     end
 
     # Render the result-time line for a paired edit / write +ToolResult+.
-    # Success is silent — the diff already told the story; an +"Error: ..."+
-    # observation surfaces as a themed error line so a failed attempt
-    # (rare) doesn't read as if it applied.
+    # Success is silent — the diff already told the story; a failure surfaces
+    # as a themed error line so a failed attempt (rare) doesn't read as if it
+    # applied.
     #
-    # @param content [String] the tool observation.
+    # @param summary [String] the tool's own one-line status; +"Error: ..."+
+    #   for a failure, which pikuri prefixes in +Tool::Result.error+.
     # @param theme [Tuile::Theme] the active theme.
     # @return [String, nil] the error line, or +nil+ to suppress on success.
-    def render_result(content:, theme:)
-      text = content.to_s
+    def render_result(summary:, theme:)
+      text = summary.to_s
       return nil unless text.start_with?('Error:')
 
-      theme.error("✗ #{text.lines.first.to_s.strip}")
+      theme.error("✗ #{text.strip}")
     end
 
     # Build the {DiffRenderer::Palette} from the theme's four diff tokens,

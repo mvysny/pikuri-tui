@@ -370,10 +370,6 @@ module Computer
       Pikuri::Agent.new(
         transport: @models.first.transport,
         system_prompt: system_prompt,
-        # Default :raise policy: on exhaustion the turn stops; the chat history
-        # survives and "continue" just works. The generic rescue logs the
-        # Exceeded and echoes a one-liner into the conversation pane.
-        step_limit: Pikuri::Agent::Control::StepLimit.new(max: 40),
         cancellable: Pikuri::Agent::Control::Cancellable.new,
         interloper: Pikuri::Agent::Control::Interloper.new,
         streaming: true

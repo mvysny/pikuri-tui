@@ -257,9 +257,9 @@ on it would make commenting out an `[[llm]]` break the file.
 
 Filed in `../pikuri/ideas/`, implemented and graduated the same day, so that idea file is gone
 and the decision entry is the reference. The `Gemfile` points every `pikuri-*` gem at
-`../pikuri/<gem>` so this repo consumes it directly — see
-[`catch-up-with-pikuri-master.md`](catch-up-with-pikuri-master.md), because master has moved a
-long way since the released gems and the suite is red until that lands.
+`../pikuri/<gem>` so this repo consumes it directly; the rest of master's post-0.1.0 API has
+been absorbed too, so the suite is green on the path dep and stays that way until pikuri cuts
+0.2.0 (see the `Gemfile` comment — that cut is what un-blocks CI).
 
 **What shipped, and why it matters to this schema.** The skip is now keyed on what is still
 *unknown* rather than on the cap: the probe runs unless the transport states a `context_window`

@@ -101,7 +101,7 @@ RSpec.describe Shared::StatusRuleLabel do
     end
 
     it 'ignores non-ModelSwitched events (#on_event)' do
-      label.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'noise'))
+      label.on_event(tool_result('noise'))
       assert_equal '', footer_text.to_s
     end
   end

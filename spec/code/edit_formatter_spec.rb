@@ -41,14 +41,14 @@ RSpec.describe Code::EditFormatter do
   end
 
   describe '#render_result' do
-    it 'suppresses (nil) a success observation' do
+    it 'suppresses (nil) a success summary' do
       assert_nil described_class.new.render_result(
-        content: 'Edited a.rb: replaced 1 occurrence.', theme: theme
+        summary: 'Replaced 1 occurrence in a.rb', theme: theme
       )
     end
 
-    it 'surfaces an Error observation as a themed line' do
-      out = described_class.new.render_result(content: 'Error: old_string not found in a.rb.', theme: theme)
+    it 'surfaces an Error summary as a themed line' do
+      out = described_class.new.render_result(summary: 'Error: old_string not found in a.rb.', theme: theme)
       assert_includes plain(out), '✗ Error: old_string not found in a.rb.'
     end
   end

@@ -44,6 +44,10 @@ require 'pikuri_tui'
 # worker thread (App turns, the confirmer's blocking #ask).
 require_relative 'support/marshalling_fake_screen'
 
+# ToolCall / ToolResult fixture builders (both events carry display strings a
+# tool composes, which most fixtures don't want to spell out).
+require_relative 'support/tool_events'
+
 # Point the construction-time theme default at the app's theme pair so
 # every +Tuile::Screen.fake+ a spec builds resolves pikuri-tui's custom
 # tokens (+theme[:tool]+, +theme.error(…)+, …); without this a component
@@ -68,6 +72,7 @@ RSpec.configure do |config|
 
   config.include Minitest::Assertions
   config.include ThreadedUi
+  config.include ToolEvents
   config.include(Module.new do
     attr_writer :assertions
 

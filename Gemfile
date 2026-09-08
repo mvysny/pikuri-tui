@@ -58,10 +58,13 @@ gem 'tomlrb', '~> 2.0'
 # `max_concurrent_requests` key pairs with pikuri's +D_probe_when_unknown+
 # (an explicit +context_window+ no longer suppresses the +/props+ slot count
 # that seeds +ServerPermits+): see ideas/server-definitions-in-config.md.
-# Master has also moved well past these gems' 0.1.0 — see
-# ideas/catch-up-with-pikuri-master.md for the migration that owns the
-# resulting red suite. CI can't build against a path gem; revert every one of
-# these to `'~> 0.1'` once that ships.
+#
+# This side has since absorbed master's post-0.1.0 API too (the step limit and
+# its FallbackNotice are gone; the two tool events carry the display strings a
+# tool composes), so the released 0.1.0 gems no longer build this repo. CI
+# can't build against a path gem either: whichever comes first, the cut of
+# pikuri 0.2.0 is what un-blocks CI, and that commit reverts every one of
+# these to `'~> 0.2'`.
 gem 'pikuri-core', path: '../pikuri/pikuri-core'
 
 # In-process, pure-Ruby (pdf-reader) PDF text extraction with lazy

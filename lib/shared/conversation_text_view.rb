@@ -6,8 +6,8 @@ require 'tuile'
 # The conversation transcript as one cohesive Tuile component: a
 # {Tuile::Component::TextView} that renders an agent conversation into itself —
 # user turns, streamed reasoning, streamed assistant answers, tool calls, tool
-# observations, fallback notices, cancellation markers. The host folds the
-# listener it exposes into the agent:
+# observations, cancellation markers. The host folds the listener it exposes
+# into the agent:
 #
 #   pane = Shared::ConversationTextView.new
 #   config.add_listener(pane.listener)   # into the agent's ListenerList
@@ -56,8 +56,8 @@ require 'tuile'
 # Two flags reshape what is already in the transcript, not just what arrives
 # next. {#tool_detail=} picks a tool line's form:
 #
-#   Bash(rm -rf build)                      # :short — what happened
-#     OK, 340 B
+#   Bash(rm -rf build)                      # :short — the tool's own summary
+#     Error: exit 1: rm: cannot remove 'build'
 #   → bash(command="rm -rf build")          # :verbose — the argument dump
 #     = rm: cannot remove 'build': Permis…
 #
@@ -115,7 +115,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @param tool_detail [Symbol] the {TOOL_DETAIL_MODES} form to start on.
   # @param tool_formatters [Hash{String => #render_call, #render_result}]
   #   per-tool-name formatters that replace the default +Name(argument)+ /
-  #   +OK, size+ rendering for those tools (the +edit+ / +write+ diff views).
+  #   summary rendering for those tools (the +edit+ / +write+ diff views).
   #   Defaults to +{}+.
   def initialize(markdown: true, show_thinking: true, tool_detail: TOOL_DETAIL_MODES.first, tool_formatters: {})
     super()
@@ -595,11 +595,10 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #    {Pikuri::Agent::Event::Thinking}) finalizes the open buffer (replacing
   #    the preview if the delta stream was truncated) or, with no deltas,
   #    renders directly.
-  # 4. Tool lines default to a short +Bash(rm -rf build)+ / +OK, 340 B+ pair
-  #    rather than the terminal listener's argument dump, which survives here
-  #    as the pane's +:verbose+ form. The short pair is composed in this class
-  #    only until pikuri's tools compose their own summaries, at which point it
-  #    becomes a deletion.
+  # 4. Tool lines default to the short +Bash(rm -rf build)+ /
+  #    +Returned 3 lines+ pair — the display strings the *tool* composed,
+  #    styled and capped here, never re-derived — rather than the terminal
+  #    listener's argument dump, which survives as the pane's +:verbose+ form.
   #
   # +Tokens+ / +ContextCap+ stay silent (their consumer is
   # +Pikuri::Agent::Listener::TokenLog+).
@@ -624,17 +623,17 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # @return [Integer]
     TOOL_RESULT_INDENT = 2
 
-    # Characters of the first argument a call line shows before eliding — a
+    # Characters of a call's argument a call line shows before eliding — a
     # +command+ can be a 4 kB script.
     #
     # @return [Integer]
     TOOL_ARGUMENT_MAX_CHARS = 60
 
-    # Characters of a failed observation's first line the +:short+ form shows
-    # before eliding.
+    # Characters of a tool's own display strings — a result summary, a call's
+    # name — the +:short+ form shows before eliding.
     #
     # @return [Integer]
-    TOOL_ERROR_MAX_CHARS = 200
+    TOOL_SUMMARY_MAX_CHARS = 200
 
     # Characters of the observation the +:verbose+ form shows before eliding.
     # Mirrors the terminal listener's cap so the two renderers stay visually
@@ -733,22 +732,19 @@ class Shared::ConversationTextView < Tuile::Component::TextView
         else
           @view.add_block(@view.render_markdown(content), indent: @indent)
         end
-      in Pikuri::Agent::Event::ToolCall(name:, arguments:)
+      in Pikuri::Agent::Event::ToolCall(name:, arguments:, display_name:, argument:)
         @assistant.wipe
         @thinking.preserve
-        render_tool_call(name, arguments)
-      in Pikuri::Agent::Event::ToolResult(content:)
+        render_tool_call(name: name, arguments: arguments,
+                         display_name: display_name, argument: argument)
+      in Pikuri::Agent::Event::ToolResult(content:, summary:)
         @assistant.wipe
         @thinking.preserve
-        render_tool_result(content)
+        render_tool_result(content: content, summary: summary)
       in Pikuri::Agent::Event::SystemInjected(content:)
         @assistant.wipe
         @thinking.preserve
         render_system_injection(content)
-      in Pikuri::Agent::Event::FallbackNotice(reason:)
-        @assistant.wipe
-        @thinking.preserve
-        @view.add_block(@view.theme.notice("! #{reason}"), indent: @indent)
       in Pikuri::Agent::Event::Cancelled
         @assistant.preserve
         @thinking.preserve
@@ -790,10 +786,12 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # its form off {Shared::ConversationTextView#tool_detail}, and clears the
     # pending slot.
     #
-    # @param name [String]
-    # @param arguments [Hash]
+    # @param name [String] the registered tool name.
+    # @param arguments [Hash] the raw tool-call arguments.
+    # @param display_name [String] the tool's own +Bash+ / +WebSearch+ label.
+    # @param argument [String] the tool's own one-argument description.
     # @return [void]
-    def render_tool_call(name, arguments)
+    def render_tool_call(name:, arguments:, display_name:, argument:)
       formatter = @view.tool_formatters[name]
       block = formatter&.render_call(arguments: arguments, width: @view.buffer_width, theme: @view.theme)
       if block
@@ -802,7 +800,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
       else
         @pending_formatter = nil
         @view.add_kinded_block(kind: :tool, indent: @indent) do
-          short? ? short_call_line(name, arguments) : verbose_call_line(name, arguments)
+          short? ? short_call_line(display_name, argument) : verbose_call_line(name, arguments)
         end
       end
     end
@@ -812,17 +810,18 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # suppress a redundant success line, or a string for an error); otherwise a
     # redrawable block indented under the call it answers.
     #
-    # @param content [String]
+    # @param content [String] the observation the model reads.
+    # @param summary [String] the tool's own one-line status.
     # @return [void]
-    def render_tool_result(content)
+    def render_tool_result(content:, summary:)
       formatter = @pending_formatter
       @pending_formatter = nil
       if formatter
-        block = formatter.render_result(content: content, theme: @view.theme)
+        block = formatter.render_result(summary: summary, theme: @view.theme)
         @view.add_block(block, indent: @indent) if block
       else
         @view.add_kinded_block(kind: :tool, indent: @indent + TOOL_RESULT_INDENT) do
-          short? ? short_result_line(content) : verbose_result_line(content)
+          short? ? short_result_line(summary) : verbose_result_line(content)
         end
       end
     end
@@ -830,43 +829,36 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # @return [Boolean] whether the pane is currently drawing tool lines short.
     def short? = @view.tool_detail == :short
 
-    # The +:short+ call line for a tool with no formatter of its own:
+    # The +:short+ call line for a tool with no formatter of its own — the
+    # tool's own two display strings, styled and capped:
     #
-    #   Bash(rm -rf build)          # name CamelCased, first argument's value
-    #   EnterPlanMode               # no argument, so no parentheses
+    #   Bash(rm -rf build)
+    #   EnterPlanMode               # empty argument, so no parentheses
     #
-    # The first *value* of +arguments+ stands in for the primary parameter:
-    # models emit keys in schema order and the first schema parameter is the
-    # primary one for every tool in play (+path+, +query+, +command+, +name+).
-    # A stand-in until pikuri's own summaries carry the choice.
-    #
-    # @param name [String] the registered tool name.
-    # @param arguments [Hash] the tool-call arguments.
+    # @param display_name [String] +Pikuri::Tool#display_name+.
+    # @param argument [String] +Pikuri::Tool#describe_call+.
     # @return [String] the toned line.
-    def short_call_line(name, arguments)
-      argument = display_argument(arguments)
-      @view.theme.tool(argument.empty? ? display_name(name) : "#{display_name(name)}(#{argument})")
+    def short_call_line(display_name, argument)
+      label = cap(safe(display_name), TOOL_SUMMARY_MAX_CHARS)
+      text = argument.to_s.empty? ? label : "#{label}(#{cap(safe(argument), TOOL_ARGUMENT_MAX_CHARS)})"
+      @view.theme.tool(text)
     end
 
-    # The +:short+ result line for a tool with no formatter of its own:
+    # The +:short+ result line for a tool with no formatter of its own — the
+    # tool's own summary, dim, or error-toned when it reports a failure:
     #
-    #   OK, 12.4 kB                                       # dim
-    #   Error: exit 1: rm: cannot remove 'build': …       # error-toned
+    #   Returned 23 search results
+    #   Error: exit 1: rm: cannot remove 'build'
     #
-    # The size separates a +read+ that returned nothing from one that returned
-    # plenty. Failure is read off the +Error:+ prefix, because pikuri's
-    # +Tool#run+ returns recoverable failures as +"Error: …"+ strings and a
-    # genuine raise aborts the turn without ever reaching a +ToolResult+. It is
-    # still a heuristic — a +read+ of a file that opens that way misreports —
-    # and one that pikuri's own summaries will retire.
+    # The +Error:+ test is not a guess about the observation: pikuri composes
+    # that prefix in +Tool::Result.error+, so the summary *is* the tool's
+    # status line.
     #
-    # @param content [String] the tool observation.
+    # @param summary [String] +Pikuri::Agent::Event::ToolResult#summary+.
     # @return [String] the toned line.
-    def short_result_line(content)
-      text = content.to_s
-      return @view.theme.detail("OK, #{format_size(text.bytesize)}") unless text.start_with?('Error:')
-
-      @view.theme.error(cap(safe(text.lines.first.to_s), TOOL_ERROR_MAX_CHARS))
+    def short_result_line(summary)
+      text = cap(safe(summary), TOOL_SUMMARY_MAX_CHARS)
+      text.start_with?('Error:') ? @view.theme.error(text) : @view.theme.detail(text)
     end
 
     # The +:verbose+ call line — the terminal listener's argument dump,
@@ -902,25 +894,6 @@ class Shared::ConversationTextView < Tuile::Component::TextView
       "#{flattened[0, MAX_TOOL_RESULT_CHARS]}… (#{original_bytes} bytes total)"
     end
 
-    # +web_search+ → +WebSearch+, +mcp__github__list_prs+ → +McpGithubListPrs+,
-    # +EnterPlanMode+ → unchanged. Any run of non-alphanumerics is a word break,
-    # which also leaves the result free of anything a terminal could act on.
-    #
-    # @param name [String]
-    # @return [String]
-    def display_name(name)
-      words = name.to_s.scan(/[[:alnum:]]+/)
-      words.empty? ? safe(name.to_s) : words.map { |word| word.sub(/\A./, &:upcase) }.join
-    end
-
-    # @param arguments [Hash] the tool-call arguments.
-    # @return [String] the first value as one display-safe capped line, or +""+
-    #   for a tool called with none.
-    def display_argument(arguments)
-      value = arguments.values.first
-      value.nil? ? '' : cap(safe(value.to_s), TOOL_ARGUMENT_MAX_CHARS)
-    end
-
     # Neutralize model-composed text and flatten it to one line. Every path that
     # prints a tool value raw owes the transcript this call: a filename carrying
     # +ESC[+ recolors everything after it otherwise.
@@ -936,15 +909,6 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # @param limit [Integer]
     # @return [String]
     def cap(text, limit) = text.length <= limit ? text : "#{text[0, limit - 1]}…"
-
-    # @param bytes [Integer]
-    # @return [String] +"340 B"+ / +"4.9 kB"+ / +"1.2 MB"+ (SI, so kB is 1000).
-    def format_size(bytes)
-      return "#{bytes} B" if bytes < 1000
-      return format('%.1f kB', bytes / 1000.0) if bytes < 1_000_000
-
-      format('%.1f MB', bytes / 1_000_000.0)
-    end
 
     # Wipe the pane and drop every per-turn render handle on
     # {Pikuri::Agent::Event::Reset} (the host cleared the conversation). The

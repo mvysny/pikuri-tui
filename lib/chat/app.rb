@@ -270,7 +270,6 @@ module Chat
       Pikuri::Agent.new(
         transport: @boot_transport,
         system_prompt: system_prompt,
-        step_limit: Pikuri::Agent::Control::StepLimit.new(max: 20),
         cancellable: Pikuri::Agent::Control::Cancellable.new,
         interloper: Pikuri::Agent::Control::Interloper.new,
         streaming: true

@@ -6,7 +6,7 @@ require 'tuile'
 module Code
   # Tool formatter for the +edit+ tool: renders its +ToolCall+ as the
   # before/after diff of +old_string+ → +new_string+ instead of the
-  # default +Edit(path)+ / +OK, size+ pair.
+  # default +Edit(path)+ / summary pair.
   #
   # The diff is self-contained — the +ToolCall+ event already carries both
   # strings, so no file read is needed (nothing blocks the UI thread on
@@ -41,11 +41,11 @@ module Code
       nil
     end
 
-    # @param content [String] the +edit+ tool observation.
+    # @param summary [String] the +edit+ tool's own one-line status.
     # @param theme [Tuile::Theme] the active theme.
     # @return [String, nil] error line, or +nil+ to suppress on success.
-    def render_result(content:, theme:)
-      DiffToolFormatting.render_result(content: content, theme: theme)
+    def render_result(summary:, theme:)
+      DiffToolFormatting.render_result(summary: summary, theme: theme)
     end
   end
 end

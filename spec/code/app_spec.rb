@@ -223,7 +223,7 @@ RSpec.describe Code::App do
       # mechanism (no tool has to actually run).
       def touch(path, some_app = app)
         some_app.agent.instance_variable_get(:@listeners)
-                .emit(Pikuri::Agent::Event::ToolCall.new(name: 'read', arguments: { 'path' => path }))
+                .emit(tool_call('read', path, arguments: { 'path' => path }))
         pump_ui
       end
     end

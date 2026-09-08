@@ -20,7 +20,7 @@ RSpec.describe Code::PlanModeListener do
   end
 
   it 'ignores every non-PlanModeChanged event' do
-    listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'noise'))
+    listener.on_event(tool_result('noise'))
     assert_nil status_rule.plan_active
   end
 end

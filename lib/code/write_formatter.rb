@@ -6,7 +6,7 @@ require 'tuile'
 module Code
   # Tool formatter for the +write+ tool: renders its +ToolCall+ as the diff
   # of the file's current contents against the +content+ being written,
-  # instead of the default +Write(path)+ / +OK, size+ pair.
+  # instead of the default +Write(path)+ / summary pair.
   #
   # Unlike {EditFormatter}, the +ToolCall+ event carries only the new
   # +content+, so the "before" side is read from disk through the captured
@@ -55,11 +55,11 @@ module Code
       nil
     end
 
-    # @param content [String] the +write+ tool observation.
+    # @param summary [String] the +write+ tool's own one-line status.
     # @param theme [Tuile::Theme] the active theme.
     # @return [String, nil] error line, or +nil+ to suppress on success.
-    def render_result(content:, theme:)
-      DiffToolFormatting.render_result(content: content, theme: theme)
+    def render_result(summary:, theme:)
+      DiffToolFormatting.render_result(summary: summary, theme: theme)
     end
 
     private

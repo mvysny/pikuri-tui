@@ -191,14 +191,19 @@ loaded (gated on `Pikuri::Workspace` — the computer subtree reuses the
 
 - **Tool lines say what happened; the argument dump is the other mode.** The
   transcript is read *while* the agent works, so a tool call renders as
-  `Bash(rm -rf build)` over `OK, 340 B`, with the raw `→ bash(command=…)` /
-  `= <200 chars>` view behind the toggle. Every value on the short path goes
-  through `Pikuri::Sanitizer` — the raw path is safe only because `inspect`
-  escapes its arguments, and the short path prints them bare. The short form
-  is a tui-side stand-in: once pikuri's tools compose their own summaries (in
-  code, from structured data — never a model-written sentence, which is
-  exactly what a prompt injection would forge), the listener prints those and
-  the stand-in is deleted.
+  `Bash(rm -rf build)` over `Returned 3 lines`, with the raw
+  `→ bash(command=…)` / `= <200 chars>` view behind the toggle. Every value on
+  the short path goes through `Pikuri::Sanitizer` — the raw path is safe only
+  because `inspect` escapes its arguments, and the short path prints them
+  bare. **The short line's words are pikuri's, not ours.** Both events carry
+  the strings the tool composed (`ToolCall#display_name` / `#argument`,
+  `ToolResult#summary`) and this side only styles, caps and defangs them.
+  A summary is written in code from structure the tool counted — never an
+  excerpt of the observation, and never a model-written sentence, which is
+  exactly what a prompt injection would forge (`../pikuri/DECISIONS.md`
+  `D_tool_summary_lines`). Don't reintroduce a tui-side table mapping tool
+  names onto phrasings either: the structure a summary counts is the tool's, a
+  renderer sees only the flattened string, and three renderers would drift.
 
 - **A confirmation is asked in the transcript, and focus is what arms it.**
   The `Code::TranscriptConfirmer` question lands as a block in the
@@ -608,8 +613,8 @@ Zeitwerk over `lib/` and eager-loads it.
   (not the thunk) decides whether a kind is currently hidden:
   - `#tool_detail` (`TOOL_DETAIL_MODES`, `#toggle_tool_detail` /
     `#select_tool_detail`, `[ui] tool_lines`) picks between `:short` —
-    `Bash(rm -rf build)` over an indented `OK, 340 B`, a stand-in for the
-    summaries pikuri will compose — and `:verbose`, the terminal listener's
+    `Bash(rm -rf build)` over an indented `Returned 3 lines`, the tool's own
+    two display strings — and `:verbose`, the terminal listener's
     `→ bash(command=…)` / `= <observation>` dump. Both renderers live side by
     side in the `Listener`. The `edit` / `write` formatter blocks are not
     kinded, so the flip cannot reach a diff.

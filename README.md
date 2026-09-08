@@ -153,7 +153,7 @@ engines   = ["brave"]  # optional; default is duckduckgo + every keyed provider
 # `/tools`, flips either one live, and a live flip is never written back here.
 [ui]
 show_thinking = true    # false starts with reasoning blocks collapsed
-tool_lines    = "short" # "short":   Bash(rm -rf build) over an OK, 340 B
+tool_lines    = "short" # "short":   Bash(rm -rf build) over Returned 3 lines
                         # "verbose": the raw → bash(command=…) argument dump
 
 # Sandbox + confirmation settings. Applies to BOTH the coding shell

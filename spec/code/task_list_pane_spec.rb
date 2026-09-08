@@ -72,7 +72,7 @@ RSpec.describe Code::TaskListPane do
   end
 
   it 'ignores non-ListChanged events' do
-    listener.on_event(Pikuri::Agent::Event::ToolResult.new(content: 'noise'))
+    listener.on_event(tool_result('noise'))
     refute_includes rendered, 'noise'
   end
 

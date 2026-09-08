@@ -419,10 +419,6 @@ module Code
       Pikuri::Agent.new(
         transport: @boot_transport,
         system_prompt: @system_prompt,
-        # Default :raise policy, deliberately NOT :synthesize — a coding turn
-        # ends in a changed working tree, not an answer. On exhaustion the turn
-        # stops; the chat history survives and "continue" just works.
-        step_limit: Pikuri::Agent::Control::StepLimit.new(max: 250),
         cancellable: Pikuri::Agent::Control::Cancellable.new,
         interloper: Pikuri::Agent::Control::Interloper.new,
         streaming: true

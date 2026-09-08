@@ -77,15 +77,15 @@ RSpec.describe Code::WriteFormatter do
   end
 
   describe '#render_result' do
-    it 'suppresses (nil) a success observation' do
+    it 'suppresses (nil) a success summary' do
       assert_nil described_class.new(filesystem: filesystem({})).render_result(
-        content: 'Created foo.rb (10 bytes)', theme: theme
+        summary: 'Wrote 10 bytes to foo.rb', theme: theme
       )
     end
 
-    it 'surfaces an Error observation as a themed line' do
+    it 'surfaces an Error summary as a themed line' do
       out = described_class.new(filesystem: filesystem({})).render_result(
-        content: 'Error: user declined the write to foo.rb.', theme: theme
+        summary: 'Error: user declined the write to foo.rb.', theme: theme
       )
       assert_includes plain(out), '✗ Error: user declined the write to foo.rb.'
     end
