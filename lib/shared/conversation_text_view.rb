@@ -596,9 +596,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #    the preview if the delta stream was truncated) or, with no deltas,
   #    renders directly.
   # 4. Tool lines default to the short +Bash(rm -rf build)+ /
-  #    +Returned 3 lines+ pair — the display strings the *tool* composed,
-  #    styled and capped here, never re-derived — rather than the terminal
-  #    listener's argument dump, which survives as the pane's +:verbose+ form.
+  #    +Returned 3 lines+ pair — the strings the *tool* composed, styled and
+  #    capped here. The terminal listener's argument dump survives as the
+  #    pane's +:verbose+ form.
   #
   # +Tokens+ / +ContextCap+ stay silent (their consumer is
   # +Pikuri::Agent::Listener::TokenLog+).
@@ -623,14 +623,14 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # @return [Integer]
     TOOL_RESULT_INDENT = 2
 
-    # Characters of a call's argument a call line shows before eliding — a
-    # +command+ can be a 4 kB script.
+    # Characters of a call's argument the +:short+ form shows before eliding —
+    # a +command+ can be a 4 kB script.
     #
     # @return [Integer]
     TOOL_ARGUMENT_MAX_CHARS = 60
 
-    # Characters of a tool's own display strings — a result summary, a call's
-    # name — the +:short+ form shows before eliding.
+    # Characters of a tool's name or its result summary the +:short+ form
+    # shows before eliding.
     #
     # @return [Integer]
     TOOL_SUMMARY_MAX_CHARS = 200
@@ -829,8 +829,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # @return [Boolean] whether the pane is currently drawing tool lines short.
     def short? = @view.tool_detail == :short
 
-    # The +:short+ call line for a tool with no formatter of its own — the
-    # tool's own two display strings, styled and capped:
+    # The +:short+ call line for a tool with no formatter of its own:
     #
     #   Bash(rm -rf build)
     #   EnterPlanMode               # empty argument, so no parentheses
@@ -844,15 +843,14 @@ class Shared::ConversationTextView < Tuile::Component::TextView
       @view.theme.tool(text)
     end
 
-    # The +:short+ result line for a tool with no formatter of its own — the
-    # tool's own summary, dim, or error-toned when it reports a failure:
+    # The +:short+ result line for a tool with no formatter of its own — dim,
+    # or error-toned when the summary reports a failure:
     #
     #   Returned 23 search results
     #   Error: exit 1: rm: cannot remove 'build'
     #
-    # The +Error:+ test is not a guess about the observation: pikuri composes
-    # that prefix in +Tool::Result.error+, so the summary *is* the tool's
-    # status line.
+    # The +Error:+ test reads the tool's own status rather than guessing at the
+    # observation: pikuri composes that prefix in +Tool::Result.error+.
     #
     # @param summary [String] +Pikuri::Agent::Event::ToolResult#summary+.
     # @return [String] the toned line.

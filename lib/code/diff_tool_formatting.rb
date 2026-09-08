@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'pikuri-core'
 require 'tuile'
 
 module Code
@@ -14,6 +15,11 @@ module Code
   # renders {render_call} (a themed header over a {DiffRenderer} body), and
   # the paired +ToolResult+ renders {render_result} — +nil+ on success (the
   # diff already showed the change), the error line otherwise.
+  #
+  # Every string leaving here for the pane is {defang}ed first. The path, the
+  # payload and the error summary are all model-authored, and {DiffRenderer}
+  # emits its span text verbatim — so one raw ESC in a written line recolors
+  # the transcript from that cell on.
   module DiffToolFormatting
     module_function
 
@@ -36,8 +42,8 @@ module Code
     #   color and the four diff background tones.
     # @return [String] header + ANSI diff body.
     def render_call(verb:, path:, old:, new:, width:, theme:)
-      header = theme.tool("#{GLYPH} #{verb}(#{path})")
-      body = DiffRenderer.render(old, new, width: width, palette: palette(theme))
+      header = theme.tool("#{GLYPH} #{verb}(#{defang_line(path)})")
+      body = DiffRenderer.render(defang(old), defang(new), width: width, palette: palette(theme))
       "#{header}\n#{body}"
     end
 
@@ -54,8 +60,25 @@ module Code
       text = summary.to_s
       return nil unless text.start_with?('Error:')
 
-      theme.error("✗ #{text.strip}")
+      theme.error("✗ #{defang_line(text)}")
     end
+
+    # Make a model-authored string printable, for the diff body:
+    #
+    #   defang("rm -rf \e[2Kbuild")   # => 'rm -rf \x1b[2Kbuild'
+    #
+    # Newlines and indentation survive, so a diff stays a diff.
+    #
+    # @param text [String] file content, or a +write+'s payload.
+    # @return [String] with control / bidi / zero-width bytes made visible.
+    def defang(text) = Pikuri::Sanitizer.sanitize(text.to_s).text
+
+    # {defang} for a string that has to fit one row — a path, an error summary
+    # — so an embedded newline can't forge a second line.
+    #
+    # @param text [String]
+    # @return [String] one line, whitespace runs collapsed.
+    def defang_line(text) = Pikuri::Tool.one_line(defang(text))
 
     # Build the {DiffRenderer::Palette} from the theme's four diff tokens,
     # read at render time so OS light/dark flips restyle the diff.
