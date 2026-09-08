@@ -59,16 +59,18 @@ RSpec.describe Shared::StatusRuleLabel do
   end
 
   describe 'a transport handed to #current_model=' do
-    # Keyed on [model, api_base] (Shared::Model::Choice.key), not the model id alone.
-    let(:names) { { ['big-model', 'http://cloud/v1'] => 'Big Cloud' } }
+    # Keyed on Shared::Model::Choice.key, not the model id alone — built
+    # through that method rather than spelled out, so these examples are about
+    # resolution rather than about the key's current shape.
+    let(:names) { { Shared::Model::Choice.key(transport('big-model')) => 'Big Cloud' } }
     let(:label) do
       described_class.new(token_log: token_log, names: names)
     end
 
-    def transport(model, api_base: 'http://cloud/v1')
+    def transport(model, api_base: 'http://cloud/v1', params: {})
       Pikuri::Agent::ChatTransport.new(
         model: model, provider: :openai, assume_model_exists: true,
-        api_base: api_base, api_key: 'k'
+        api_base: api_base, api_key: 'k', params: params
       )
     end
 
@@ -83,9 +85,19 @@ RSpec.describe Shared::StatusRuleLabel do
     end
 
     it 'distinguishes connections sharing a model id on different servers' do
-      names[['big-model', 'http://other/v1']] = 'Other Cloud'
-      label.current_model = transport('big-model', api_base: 'http://other/v1')
+      other = transport('big-model', api_base: 'http://other/v1')
+      names[Shared::Model::Choice.key(other)] = 'Other Cloud'
+      label.current_model = other
       assert_equal ' Other Cloud ', footer_text.to_s
+    end
+
+    # The titler recipe puts two connections on one model and one box,
+    # differing only in params; the rule must name the one actually running.
+    it 'distinguishes connections that differ only in params' do
+      quiet = transport('big-model', params: { chat_template_kwargs: { enable_thinking: false } })
+      names[Shared::Model::Choice.key(quiet)] = 'Big Cloud, no thinking'
+      label.current_model = quiet
+      assert_equal ' Big Cloud, no thinking ', footer_text.to_s
     end
 
     # The footer duck-types as an agent listener: a ModelSwitched event

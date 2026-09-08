@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 RSpec.describe Shared::Model::Picker do
-  def model_choice(name, model, api_base: 'http://x/v1')
+  def model_choice(name, model, api_base: 'http://x/v1', params: {})
     Shared::Model::Choice.new(
       name: name,
       transport: Pikuri::Agent::ChatTransport.new(
         model: model, provider: :openai, assume_model_exists: true,
-        api_base: api_base, api_key: 'k'
+        api_base: api_base, api_key: 'k', params: params
       )
     )
   end
@@ -44,8 +44,17 @@ RSpec.describe Shared::Model::Picker do
   end
 
   describe '#names' do
-    it 'maps Shared::Model::Choice.key ([model, api_base]) to the display name' do
-      assert_equal({ %w[m1 http://x/v1] => 'Local', %w[m2 http://x/v1] => 'Cloud' }, picker.names)
+    it 'maps Shared::Model::Choice.key ([model, api_base, params]) to the display name' do
+      assert_equal({ ['m1', 'http://x/v1', {}] => 'Local', ['m2', 'http://x/v1', {}] => 'Cloud' }, picker.names)
+    end
+
+    # Two entries on one model and one box, differing only in params (the
+    # titler recipe): both stay in the map, so the status rule names whichever
+    # is actually running rather than the last one declared.
+    it 'keeps both of a pair that differs only in params' do
+      pair = [model_choice('Qwen', 'm1'),
+              model_choice('Qwen, no thinking', 'm1', params: { chat_template_kwargs: { enable_thinking: false } })]
+      assert_equal ['Qwen', 'Qwen, no thinking'], described_class.new(models: pair).names.values
     end
   end
 

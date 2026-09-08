@@ -41,8 +41,8 @@ class Shared::Model::Picker
     @pending = nil
   end
 
-  # @return [Hash{Array(String, String) => String}] the {Shared::Model::Choice.key}
-  #   ([model, api_base]) → display-name map, for wiring into
+  # @return [Hash{Array(String, String, Hash) => String}] the
+  #   {Shared::Model::Choice.key} ([model, api_base, params]) → display-name map, for wiring into
   #   {Shared::StatusRuleLabel}'s +names:+ so a transport it's handed
   #   (the boot model, or a landed {Pikuri::Agent::Event::ModelSwitched})
   #   resolves to a friendly name.
@@ -54,8 +54,9 @@ class Shared::Model::Picker
   def multiple? = @models.size > 1
 
   # Open the picker popup: one entry per configured connection, the active
-  # one (matched by {Shared::Model::Choice.key} — [model, api_base], so two
-  # connections sharing a model id on different servers don't both flag)
+  # one (matched by {Shared::Model::Choice.key} — [model, api_base, params], so two
+  # connections sharing a model id on different servers, or one model with
+  # reasoning off, don't both flag)
   # marked with a +●+. Picking stashes that connection's transport as the
   # pending switch, applied at the top of the next +run_loop+ (see
   # {#take_pending}); the status rule moves only once the switch lands. ESC /

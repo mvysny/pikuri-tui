@@ -7,10 +7,15 @@ require 'spec_helper'
 # seam between Config's value objects and Pikuri's transport is crossed.
 describe Shared::Model::Choice do
   # Build a Config::Llm with sensible defaults, overridable per example.
-  def llm(name: 'Local', server: 'http://localhost:8080', model: 'qwen', api_key: nil, context_window: nil)
+  def llm(name: 'Local', server: 'http://localhost:8080', model: 'qwen', api_key: nil, context_window: nil,
+          params: {})
     Shared::Config::Llm.new(name: name, server: server, model: model, api_key: api_key,
-                               context_window: context_window)
+                               context_window: context_window, params: params)
   end
+
+  # The [[llm]] params table as Config hands it over: string keys, straight
+  # from TOML.
+  NO_THINKING = { 'chat_template_kwargs' => { 'enable_thinking' => false } }.freeze
 
   describe '.from_llm' do
     it 'carries the connection name and model onto the transport' do
@@ -43,16 +48,38 @@ describe Shared::Model::Choice do
     it 'leaves context_window nil so pikuri auto-detects' do
       assert_nil described_class.from_llm(llm(context_window: nil)).transport.context_window
     end
+
+    # The file's own string keys go over as they are — the transport
+    # symbolizes them, so a table read from TOML overrides a payload key
+    # instead of landing beside it.
+    it 'carries a params table onto the transport, symbolized by it' do
+      transport = described_class.from_llm(llm(params: NO_THINKING)).transport
+      assert_equal({ chat_template_kwargs: { enable_thinking: false } }, transport.params)
+    end
+
+    it 'leaves params empty when the connection sets none' do
+      assert_empty described_class.from_llm(llm).transport.params
+    end
   end
 
   describe '.key / #key' do
-    it 'keys on [model, api_base], so same-model-different-server connections differ' do
+    it 'keys on [model, api_base, params], so same-model-different-server connections differ' do
       local  = described_class.from_llm(llm(model: 'qwen3', server: 'http://localhost:8080'))
       remote = described_class.from_llm(llm(model: 'qwen3', server: 'http://mavi-fw:8080'))
 
-      assert_equal ['qwen3', 'http://localhost:8080/v1'], local.key
-      assert_equal ['qwen3', 'http://mavi-fw:8080/v1'], remote.key
+      assert_equal ['qwen3', 'http://localhost:8080/v1', {}], local.key
+      assert_equal ['qwen3', 'http://mavi-fw:8080/v1', {}], remote.key
       refute_equal local.key, remote.key
+    end
+
+    # The titler recipe: one model on one box, twice, differing only in
+    # params. Without params in the key both entries collapse onto one — the
+    # picker flags them both active and the name map keeps the last declared.
+    it 'separates two connections that differ only in params' do
+      thinking = described_class.from_llm(llm(name: 'Qwen'))
+      quiet    = described_class.from_llm(llm(name: 'Qwen, no thinking', params: NO_THINKING))
+
+      refute_equal thinking.key, quiet.key
     end
 
     it 'derives the same key from a bare transport as from a choice' do

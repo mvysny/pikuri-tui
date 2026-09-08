@@ -108,7 +108,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   #
   # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token
   #   log; must be the *same* instance wired into the agent (see class docs).
-  # @param names [Hash{Array(String, String) => String}]
+  # @param names [Hash{Array(String, String, Hash) => String}]
   #   {Shared::Model::Choice.key} → display name, used to resolve a transport
   #   passed to {#current_model=}; transports absent from the map render as
   #   their raw model id.
@@ -149,9 +149,9 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   end
 
   # Set the model segment, from either a ready display name or a transport
-  # to resolve. A transport is keyed on the +[model, api_base]+ pair
+  # to resolve. A transport is keyed on the +[model, api_base, params]+ triple
   # ({Shared::Model::Choice.key}), not the model id alone — two connections
-  # can run the same model on different servers — and falls back to its raw
+  # can run the same model on one box — and falls back to its raw
   # model id when absent from the +names+ map.
   #
   #   rule.current_model = 'Local Qwen 3.6'   # a literal name (boot seed)

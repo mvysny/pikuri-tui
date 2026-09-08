@@ -69,22 +69,28 @@ require 'tomlrb'
 # The conversation pane's +markdown:+ flag is the same shape and has no key
 # here yet — the natural third entry when someone wants it.
 #
-# == The keys pikuri-web owns: +[titler]+ and +params+
+# == +params+, and the +[titler]+ table
 #
 #   [[llm]]
-#   name   = "qwen-titler"
+#   name   = "Local Qwen 3.6, no thinking"
 #   server = "local"
 #   model  = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
 #   params = { chat_template_kwargs = { enable_thinking = false } }
 #
-#   [titler]              # which connection writes conversation titles;
+#   [titler]              # which connection pikuri-web writes titles on;
 #   llm = "qwen-titler"   # exposed nowhere here, these shells title nothing
 #
-# One file serves every pikuri shell, so this is the whole shared schema, not
-# the part these three read: a key a sibling owns is parsed, logged as unread
-# at load, and acted on in no way. pikuri-web gets its +params+ onto the wire
-# through a Faraday adapter it expects to delete once pikuri grows a real
-# channel for them — not a stopgap to copy here.
+# {Llm#params} is an opaque table of extra chat-completion payload keys, sent
+# as written on that connection — the spelling being per-model-per-server,
+# pikuri translates none of it. It rides the connection's
+# +Pikuri::Agent::ChatTransport+ like {Llm#context_window} does, so it
+# survives a model switch, and its keys reach the wire in the file's own
+# spelling (the transport symbolizes them).
+#
+# +[titler]+ is the one shared key nothing here reads: one file serves every
+# pikuri shell, so this is the whole shared schema rather than the part these
+# three use, and a table a sibling owns is parsed, logged as unread at load,
+# and acted on in no way.
 #
 # Ownership also picks the strictness. A table these shells read is strict,
 # because an unknown +[ui]+ key is a typo the user wants named; a sibling's is
@@ -221,12 +227,10 @@ class Shared::Config
   #     +Pikuri::Agent::ChatTransport+, so it is correct per-model across a
   #     model switch.
   # @!attribute [r] params
-  #   @return [Hash{String => Object}] extra request parameters to merge into
-  #     every chat completion on this connection — e.g.
+  #   @return [Hash{String => Object}] extra request parameters merged into
+  #     every chat completion on this connection, verbatim — e.g.
   #     +{"chat_template_kwargs" => {"enable_thinking" => false}}+ to turn
   #     Qwen 3.6's reasoning off. Frozen, and +{}+ when the entry omits it.
-  #     **Sent nowhere from these shells** — the key exists because pikuri-web
-  #     reads it (see the class header).
   Llm = Data.define(:name, :server, :model, :api_key, :context_window, :params) do
     def initialize(params: {}, **rest)
       super(params: params.freeze, **rest)
@@ -385,7 +389,7 @@ class Shared::Config
 
     ui = merged['ui'] || {}
     validate_ui!(ui)
-    log_unread_keys(merged, llms)
+    log_unread_keys(merged)
 
     new(
       llms:          llms,
@@ -539,13 +543,8 @@ class Shared::Config
   # key says so in the diagnostic pane instead of silently doing nothing.
   # INFO, not WARN: the file is shared, and a key written for pikuri-web is
   # doing its job there.
-  def self.log_unread_keys(merged, llms)
+  def self.log_unread_keys(merged)
     LOG.info('ignoring [titler]: pikuri-web names conversations, these shells hold one') if merged.key?('titler')
-
-    steered = llms.reject { |llm| llm.params.empty? }.map(&:name)
-    return if steered.empty?
-
-    LOG.info("[[llm]] `params` is parsed but sent nowhere by this shell: #{steered.join(', ')}")
   end
 
   # Unlike +[search]+, whose engine names are pikuri's to define, the
