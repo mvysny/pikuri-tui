@@ -69,7 +69,7 @@ require 'tomlrb'
 # The conversation pane's +markdown:+ flag is the same shape and has no key
 # here yet — the natural third entry when someone wants it.
 #
-# == Keys a sibling shell owns
+# == The keys pikuri-web owns: +[titler]+ and +params+
 #
 #   [[llm]]
 #   name   = "qwen-titler"
@@ -77,24 +77,20 @@ require 'tomlrb'
 #   model  = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
 #   params = { chat_template_kwargs = { enable_thinking = false } }
 #
-#   [titler]
-#   llm = "qwen-titler"
+#   [titler]              # which connection writes conversation titles;
+#   llm = "qwen-titler"   # exposed nowhere here, these shells title nothing
 #
-# One file serves every pikuri shell, so this is the whole shared schema and
-# not the part these three read. Both keys above are pikuri-web's — which
-# connection writes conversation titles, and the request parameters that turn
-# a thinking model off for them. {Llm#params} is parsed and exposed but
-# reaches no request from here (pikuri's +ChatTransport+ has no params
-# channel, and pikuri-web sends it through a Faraday adapter of its own);
-# +[titler]+ is not exposed at all, since a shell holding one unnamed session
-# has nothing to title. {.load} logs an INFO line for each, so a key that
-# does nothing here says so in the diagnostic pane rather than silently.
+# One file serves every pikuri shell, so this is the whole shared schema, not
+# the part these three read: a key a sibling owns is parsed, logged as unread
+# at load, and acted on in no way. pikuri-web gets its +params+ onto the wire
+# through a Faraday adapter it expects to delete once pikuri grows a real
+# channel for them — not a stopgap to copy here.
 #
-# Which shell validates what follows from that split: a table these shells
-# *read* is strict, because an unknown +[ui]+ key is a typo the user wants
-# named. A table a sibling owns is checked for shape only — pikuri-web
-# growing a second +[titler]+ key must not stop this app from booting, and
-# its own +[ui]+ validation takes that same bargain in the other direction.
+# Ownership also picks the strictness. A table these shells read is strict,
+# because an unknown +[ui]+ key is a typo the user wants named; a sibling's is
+# checked for shape only, so pikuri-web growing a second +[titler]+ key cannot
+# stop this app from booting — the bargain its own +[ui]+ validation takes in
+# the other direction.
 #
 # == Precedence
 #
@@ -229,8 +225,8 @@ class Shared::Config
   #     every chat completion on this connection — e.g.
   #     +{"chat_template_kwargs" => {"enable_thinking" => false}}+ to turn
   #     Qwen 3.6's reasoning off. Frozen, and +{}+ when the entry omits it.
-  #     Parsed for the shared file's sake and sent nowhere from these shells
-  #     (see the class header).
+  #     **Sent nowhere from these shells** — the key exists because pikuri-web
+  #     reads it (see the class header).
   Llm = Data.define(:name, :server, :model, :api_key, :context_window, :params) do
     def initialize(params: {}, **rest)
       super(params: params.freeze, **rest)
@@ -520,8 +516,7 @@ class Shared::Config
     end
   end
 
-  # +titler+ is allowed for shape and read by nothing — see the class header's
-  # sibling-keys note.
+  # +titler+ passes on shape alone — see the class header on a sibling's keys.
   def self.validate_top!(merged)
     unknown = merged.keys - %w[server llm search code ui titler]
     raise Error, "unknown top-level key(s): #{unknown.join(', ')}" unless unknown.empty?
@@ -540,14 +535,10 @@ class Shared::Config
     raise Error, '`titler` must be a table ([titler])'
   end
 
-  # Log one line per shared-file key this shell parses and then acts on in no
-  # way, so an ignored key is visible in the diagnostic pane rather than
-  # silent. INFO, not WARN: the file is shared, and a key written for
-  # pikuri-web is doing its job there.
-  #
-  # @param merged [Hash{String => Object}] the merged raw TOML.
-  # @param llms [Array<Llm>] the resolved connections.
-  # @return [void]
+  # Log one line per key this shell parses and never acts on, so an ignored
+  # key says so in the diagnostic pane instead of silently doing nothing.
+  # INFO, not WARN: the file is shared, and a key written for pikuri-web is
+  # doing its job there.
   def self.log_unread_keys(merged, llms)
     LOG.info('ignoring [titler]: pikuri-web names conversations, these shells hold one') if merged.key?('titler')
 
@@ -655,8 +646,8 @@ class Shared::Config
       raise Error, "llm #{name.inspect}: `context_window` must be a positive integer"
     end
 
-    # Shape only, like +search.engines+: what a params key *means* is the
-    # server's to say, and this shell does not even send them.
+    # Shape only, like +search.engines+: what a params key means is the
+    # server's to say.
     params = hash.fetch('params', {})
     unless params.is_a?(Hash)
       raise Error, "llm #{name.inspect}: `params` must be a table, " \
