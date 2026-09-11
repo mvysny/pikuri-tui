@@ -209,6 +209,34 @@ describe Shared::Config do
     end
   end
 
+  # The other sibling's table: the password gating pikuri-web's port. Same
+  # bargain as [titler] — these shells serve nobody, so the loader's whole job
+  # is to not refuse a file that carries it.
+  describe 'the [web] table a sibling shell owns' do
+    it 'loads a file carrying [web], and logs that it is ignored' do
+      with_dirs do |home, _|
+        write_config(home, "[web]\nuser = \"mavi\"\npassword = \"a long passphrase\"\n")
+        out = capture_log { described_class.load(env: env_for(home)) }
+        assert_includes out, 'ignoring [web]'
+      end
+    end
+
+    it 'tolerates a [web] key this shell has never heard of' do
+      with_dirs do |home, _|
+        write_config(home, "[web]\nuser = \"mavi\"\npassword = \"p\"\nrealm = \"pikuri\"\n")
+        assert_equal 'Local', described_class.load(env: env_for(home)).primary_llm.name
+      end
+    end
+
+    it 'rejects [web] written as anything but a table' do
+      with_dirs do |home, _|
+        write_config(home, "web = 1\n\n#{MINIMAL}")
+        e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
+        assert_includes e.message, '`web` must be a table'
+      end
+    end
+  end
+
   describe 'CLI overrides (the safety switches, highest precedence)' do
     it 'treats false sandbox/confirm overrides as real values (not "absent")' do
       c = load_bare(sandbox: false, confirm: false)

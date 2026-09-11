@@ -69,7 +69,7 @@ require 'tomlrb'
 # The conversation pane's +markdown:+ flag is the same shape and has no key
 # here yet — the natural third entry when someone wants it.
 #
-# == +params+, and the +[titler]+ table
+# == +params+, and the siblings' tables
 #
 #   [[llm]]
 #   name   = "Local Qwen 3.6, no thinking"
@@ -80,16 +80,20 @@ require 'tomlrb'
 #   [titler]              # which connection pikuri-web writes titles on;
 #   llm = "qwen-titler"   # exposed nowhere here, these shells title nothing
 #
+#   [web]                 # the one password gating pikuri-web when it is
+#   user     = "mavi"     # bound off loopback; a terminal shell has no
+#   password = "…"        # port for anyone to knock on
+#
 # {Llm#params} is an opaque table of extra chat-completion payload keys, sent
 # as written on that connection — the spelling being per-model-per-server,
 # pikuri translates none of it. It rides the connection's
 # +Pikuri::Agent::ChatTransport+ as {Llm#context_window} does, so it survives
 # a model switch.
 #
-# +[titler]+ is the one shared key nothing here reads: one file serves every
-# pikuri shell, so this is the whole shared schema rather than the part these
-# three use, and a table a sibling owns is parsed, logged as unread at load,
-# and acted on in no way.
+# +[titler]+ and +[web]+ are the shared keys nothing here reads: one file
+# serves every pikuri shell, so this is the whole shared schema rather than the
+# part these three use, and a table a sibling owns is parsed, logged as unread
+# at load, and acted on in no way.
 #
 # Ownership also picks the strictness. A table these shells read is strict,
 # because an unknown +[ui]+ key is a typo the user wants named; a sibling's is
@@ -519,9 +523,10 @@ class Shared::Config
     end
   end
 
-  # +titler+ passes on shape alone — see the class header on a sibling's keys.
+  # +titler+ and +web+ pass on shape alone — see the class header on a
+  # sibling's keys.
   def self.validate_top!(merged)
-    unknown = merged.keys - %w[server llm search code ui titler]
+    unknown = merged.keys - %w[server llm search code ui titler web]
     raise Error, "unknown top-level key(s): #{unknown.join(', ')}" unless unknown.empty?
     %w[server llm].each do |k|
       next unless merged.key?(k) && !merged[k].is_a?(Array)
@@ -533,6 +538,7 @@ class Shared::Config
     end
     raise Error, '`code` must be a table ([code])' if merged.key?('code') && !merged['code'].is_a?(Hash)
     raise Error, '`ui` must be a table ([ui])' if merged.key?('ui') && !merged['ui'].is_a?(Hash)
+    raise Error, '`web` must be a table ([web])' if merged.key?('web') && !merged['web'].is_a?(Hash)
     return unless merged.key?('titler') && !merged['titler'].is_a?(Hash)
 
     raise Error, '`titler` must be a table ([titler])'
@@ -544,6 +550,7 @@ class Shared::Config
   # doing its job there.
   def self.log_unread_keys(merged)
     LOG.info('ignoring [titler]: pikuri-web names conversations, these shells hold one') if merged.key?('titler')
+    LOG.info('ignoring [web]: pikuri-web serves a port, these shells serve nobody') if merged.key?('web')
   end
 
   # Unlike +[search]+, whose engine names are pikuri's to define, the
