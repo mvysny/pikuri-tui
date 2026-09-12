@@ -110,8 +110,8 @@ escaping for free). The raw dump stays one keystroke away.
 
 **Rejected: a tui-side table mapping tool names onto phrasings.** The structure a summary counts is
 the tool's — a renderer sees only a flattened string — and pikuri-web and pikuri's own CLI would
-each need the same table, which is three copies to drift. See pikuri's `design/decisions.md` →
-`tool_summary_lines` for the summary-is-written-in-code half.
+each need the same table, which is three copies to drift. pikuri's `D_tool_summary_lines` carries
+the summary-is-written-in-code half.
 
 **Consequences.** A tool that composes no summary renders a bare call line here; the fix is in
 pikuri, not in a fallback table on this side.

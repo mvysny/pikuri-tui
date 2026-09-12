@@ -310,7 +310,7 @@ RSpec.describe Shared::StatusRuleLabel do
 
     Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
     # Screen#theme= fires this tree-wide; here we drive it directly. The hook is
-    # protected plumbing since tuile 0.14 (its `hook_visibility` decision), so reach it the
+    # protected plumbing since tuile 0.14 (D_hook_visibility), so reach it the
     # way Tuile's own fan-out does.
     label.__send__(:on_theme_changed)
     assert(readout_spans.all? { |span| span.style.fg == Shared::AppTheme::LIGHT.hint_color })

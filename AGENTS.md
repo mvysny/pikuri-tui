@@ -63,9 +63,12 @@ Rules that keep the split from drifting:
 - **Slugs:** `D_` decisions, `R_` requirements, `T_` tripwires (cited from a requirement's
   *Enforced by* or a seam line here, defined by the check), `Q_` open questions inside
   `design/ideas/` only — a durable doc never cites a `Q_`. Underscores throughout, backticked in
-  prose, cited by slug never by position; `grep '^## D_' design/decisions.md` is the index. A
-  sibling repo's slug is cited *without* the prefix (pikuri's `design/decisions.md` →
-  `tool_summary_lines`), since the tripwire demands a local heading for anything spelled `D_…`.
+  prose, cited by slug never by position; `grep '^## D_' design/decisions.md` is the index.
+- **A sibling repo's decision is cited by its own slug, and declared once** in
+  `design/foreign-slugs.txt` with the repo that owns it (pikuri's `D_tool_summary_lines`, tuile's
+  `D_hook_visibility`, virtui's `D_tint_toward_grey`). The tripwire subtracts that list before
+  demanding a local heading, so adding a line is a deliberate "this decision is upstream's" — and
+  a slug that is really ours belongs in `decisions.md` as a heading instead.
 - **`rake design_tripwires`** — the two scripts under `design/`, and part of `rake check`. Fails on
   any cited `D_` / `R_` without a heading, a `T_` cited with no check or checked with no citation,
   an oversized `AGENTS.md`, or a `CLAUDE.md` that isn't the shim. A failure is as often a stale

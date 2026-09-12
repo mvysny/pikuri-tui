@@ -55,9 +55,9 @@ gem 'tomlrb', '~> 2.0'
 #
 # TEMPORARILY on `path: '../pikuri/<gem>'` — and so is every other pikuri-*
 # gem below — for co-development of the `[[server]]` config schema, whose
-# `max_concurrent_requests` key pairs with the +probe_when_unknown+ entry in
-# pikuri's +design/decisions.md+ (an explicit +context_window+ no longer
-# suppresses the +/props+ slot count that seeds +ServerPermits+).
+# `max_concurrent_requests` key pairs with pikuri's +D_probe_when_unknown+
+# (an explicit +context_window+ no longer suppresses the +/props+ slot count
+# that seeds +ServerPermits+).
 #
 # This side has since absorbed master's post-0.1.0 API too (the step limit and
 # its FallbackNotice are gone; the two tool events carry the display strings a

@@ -27,11 +27,18 @@ while IFS= read -r -d '' f; do files+=("$f"); done < <(git ls-files -z)
 tracked() { printf '%s\0' "${files[@]}"; }
 
 # --- cited slug → heading -----------------------------------------------------
+# Slugs owned by a sibling repo (this shell cites pikuri's, tuile's and virtui's decisions
+# rather than re-arguing them) are declared once in design/foreign-slugs.txt with the repo
+# that defines them, and subtracted from the cited set. A line there is deliberate; a typo in
+# one fails as a dangling slug the moment it is dropped.
+foreign=$(sed 's/#.*//' "$DESIGN/foreign-slugs.txt" 2>/dev/null | awk '{print $1}' | sed '/^$/d' | sort -u)
+
 # $1 = prefix letter, $2 = the file whose "## <prefix>_<slug>" headings define them.
 check_namespace() {
   local prefix=$1 file=$2 pattern cited defined missing slug
   pattern="\\b${prefix}_[a-z][a-z0-9_]*"
   cited=$(tracked | xargs -0 grep -I -o -h -E "$pattern" 2>/dev/null | sort -u || true)
+  cited=$(comm -23 <(printf '%s\n' "$cited") <(printf '%s\n' "$foreign") | sed '/^$/d')
   if [ ! -f "$file" ]; then
     [ -z "$cited" ] || err "$file is missing but ${prefix}_ slugs are cited"
     return
