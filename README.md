@@ -290,22 +290,49 @@ when a file holding one is group- or world-readable.
 
 ## Layout
 
+Nothing is framed: the conversation keeps your terminal's own background (and
+its transparency), and the furniture around it — the status rule, the prompt —
+is tinted one step off that background.
+
 ```
-┌──────────────────────────────────┐
-│ Conversation (TextView)          │
-│                                  │
-│ assistant: markdown, reasoning   │
-│ tool calls & observations        │
-│                                  │
-├──────────────────────────────────┤
-│ Input field (Enter to submit)    │
-├──────────────────────────────────┤
-│ Status bar                       │
-└──────────────────────────────────┘
+  assistant markdown, reasoning, tool calls
+  and observations, streamed as they arrive
+
+─── Local Qwen 3.6 · 25k/60k ───────────────────
+❯ what about lifetimes
+^C cancel  ^K menu
 ```
 
+The coding shell splits the upper region, putting a tasks + git-changes sidebar
+to the right of the conversation (`Ctrl+K` `s` cycles it full / narrow / off).
+
 All commands route through one leader key: **`Ctrl+K`** opens a which-key-style menu
-(`l` logs, `d` git diff, `p` plan mode, `m` switch model, `c` clear conversation,
-`q` quit); the entries vary per shell. The diagnostic log pane (`l`) shows pikuri
-internals, library errors, and agent-loop diagnostics. `Ctrl+C` cancels the
-current turn or quits — it is the only other direct shortcut.
+(`l` logs, `u` display toggles, `c` clear conversation, `q` quit, plus `m` switch
+model when the config names more than one connection, and — in the shells that
+have them — `d` git diff, `p` plan mode, `s` sidebar width). The diagnostic log
+pane (`l`) shows pikuri internals, library errors, and agent-loop diagnostics.
+`Ctrl+C` cancels the current turn or quits — it is the only other direct shortcut.
+
+`Ctrl+K` `u` opens a second menu for transcript density — reasoning shown or
+hidden, tool lines short or verbose — each entry labelled with the value in
+force. Both are also typed: `/thinking` and `/tools`. A live flip lasts for the
+session; `[ui]` above sets what a session starts on.
+
+Typing `/` opens the command palette, which autocompletes as you go. All three
+shells carry `/logs`, `/clear`, `/exit` / `/quit`, the two density commands
+above, `/model` on the same condition as the menu entry, and `/trifecta` —
+pikuri's lethal-trifecta report for the wiring you are actually running, the one
+command with no leader-menu counterpart. The computer shell adds `/plan`; the
+coding shell `/plan`, `/diff` and `/sidebar` (full, narrow, off — blank cycles,
+as `Ctrl+K` `s` does). The coding and computer shells also list every on-disk
+prompt template found in `.pikuri/commands` or `.claude/commands`, and the
+coding shell one `/<skill-name>` per skill currently in play.
+
+## Hacking on it
+
+`AGENTS.md` is the contributor's index — the invariants, the module map, the
+conventions and the commands. The reasoning behind the code lives under
+`design/`: what must hold (`requirements.md`), why it is shaped this way
+(`decisions.md`), how the pieces are wired (`architecture.md`). Per-class truth
+is in the rdoc. `bundle exec rake check` runs the spec suite and the doc
+tripwires.

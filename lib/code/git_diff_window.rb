@@ -18,7 +18,7 @@ module Code
   # The inline bars pad to the pane width, so the retained snapshot re-renders at
   # the new width on resize ({#on_width_changed}). Degrades to the raw plain diff
   # (logged) if {GitDiffRenderer} chokes on an unexpected diff shape, per
-  # CLAUDE.md's "external breakage is logged, we degrade". A domain component built
+  # +D_tui_degrades_not_crashes+ ("external breakage is logged, we degrade"). A domain component built
   # by subclassing the generic {Tuile::Component::Window}.
   #
   # UI-thread-confined (the {WorkspaceSidebar} subscription marshals {#snapshot=}

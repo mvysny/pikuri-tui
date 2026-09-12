@@ -56,7 +56,7 @@ module Code
   #
   # == Threading
   #
-  # Per CLAUDE.md, Tuile is single-threaded and the agent loop must not run on
+  # Per AGENTS.md's threading invariant, Tuile is single-threaded and the agent loop must not run on
   # the UI thread. App runs {Tuile::Screen#run_event_loop} on the caller's
   # thread and delegates the off-thread turn lifecycle — worker thread,
   # mid-turn injection, concurrency guard, spinner, Ctrl+C escalation — to a

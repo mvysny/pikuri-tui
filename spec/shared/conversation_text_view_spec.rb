@@ -714,8 +714,9 @@ RSpec.describe Shared::ConversationTextView do
       refute_includes w.text.to_s, 'SHOULD NOT SHOW'
     end
 
-    # D_diffs_always_visible: a diff is the one tool output the user reviews
-    # rather than skims, so the tool-line toggle must not reach it.
+    # D_density_thunks: a diff is the one tool output the user reviews rather
+    # than skims, so the formatter blocks are not kinded and the tool-line
+    # toggle cannot reach them.
     it 'leaves a formatter block alone when the tool-line form flips' do
       fmt = formatter.new(call_block: 'DIFF BLOCK', result_block: nil)
       w = pane_with(fmt)

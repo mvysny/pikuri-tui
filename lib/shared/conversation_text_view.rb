@@ -68,6 +68,14 @@ require 'tuile'
 # the region a parked {#pending_decision} is asking in, so the question would
 # vanish while the tool thread stays blocked on its answer.
 #
+# A flag reaches only what was filed under its kind, and the roster of kinds —
+# +:tool+ and +:thinking+, nothing else — is the whole statement of what a
+# reader may *not* turn off: user echoes, assistant prose, +⊕+ injections, +!+
+# notices, cancel markers, a {Shared::PendingDecision}'s block (a parked
+# decision blocks the turn, so it stays loud) and the +edit+ / +write+ diffs (a
+# diff is reviewed, not skimmed) are all rendered unkinded on purpose. Filing
+# one of those under a kind is what a new toggle must not do.
+#
 # Neither flag keeps scroll bookkeeping: Tuile clamps +scroll_top_row+ on every
 # region rewrite and re-tails a following view, so collapsing a screenful under
 # a scrolled-up reader lands where it should.

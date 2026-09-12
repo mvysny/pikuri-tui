@@ -10,8 +10,8 @@ module Code
   # changed files in a 24-column sidebar read:
   #
   #   Changes: 6; +184/-17 ───    <- file count, then the whole tree's totals
-  #   ideas/                      <- a header wherever the directory changes
-  #    ?? sidebar-coll…    +62
+  #   design/                     <- a header wherever the directory changes
+  #    ?? decisions.md     +62
   #   lib/code/
   #     M task_list_pa… +31/-8    <- porcelain code toned by kind, name plain
   #     M git_summary_… +24/-6

@@ -25,7 +25,7 @@ module Code
     # @param theme [Tuile::Theme] the active theme.
     # @return [String, nil] the rendered diff block, or +nil+ to fall back
     #   to the listener's default tool-call line (on a rendering failure —
-    #   pikuri-tui catches library exceptions and degrades, per CLAUDE.md).
+    #   pikuri-tui catches library exceptions and degrades, +D_tui_degrades_not_crashes+).
     def render_call(arguments:, width:, theme:)
       args = arguments.transform_keys(&:to_s)
       DiffToolFormatting.render_call(

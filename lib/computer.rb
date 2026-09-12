@@ -15,8 +15,8 @@
 #
 # This is pikuri's "reassembled trifecta" — whole-disk private pool +
 # attacker-authorable email as an untrusted source + egress — with every
-# egress leg human-gated, never autonomous (see +bin/pikuri-tui-computer+
-# and pikuri's +ideas/pikuri-computer.md+). The Tuile shell is otherwise
+# egress leg human-gated, never autonomous (see +bin/pikuri-tui-computer+,
+# and +R_human_gated_egress+ for the promise that makes). The Tuile shell is otherwise
 # identical to the chat/code shells; it owns nothing pikuri-side beyond
 # wiring these two extensions.
 #
@@ -35,16 +35,11 @@
 #
 # == Why a parallel copy of +Chat::+ / +Code::+ and not a shared base
 #
-# The shell machinery (worker-thread turn loop, diagnostic-log wiring,
-# leader-menu / Ctrl+C shortcuts, status rule, model picker) is ~90% the same
-# across all three shells, but they are deliberately kept as independent
-# copies rather than factored onto a common base — the project's "thin
-# shell, readable not obfuscated" ceiling favors a little duplication
-# over a base-class abstraction (see {Code} for the longer rationale).
-# The computer shell reuses the cross-cutting +Shared::*+ adapters and the
-# +Code::*+ confirmer / diff classes directly, and copies only the
-# genuinely-divergent shell-specific pieces ({Computer::App},
-# {Computer::Layout}).
+# This shell reuses the cross-cutting +Shared::*+ blocks and the +Code::*+
+# confirmer / diff classes directly, and copies only the genuinely-divergent
+# scaffolding ({Computer::App}, {Computer::Layout}) — never subclassing
+# {Chat::App} or {Code::App}. The fork is in +design/decisions.md+,
+# +D_parallel_shells+.
 #
 # == Computer-only dependencies
 #

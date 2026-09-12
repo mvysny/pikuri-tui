@@ -7,18 +7,14 @@
 #
 # == Why a parallel copy of +Chat::+ and not a shared base
 #
-# The shell machinery (worker-thread turn loop, diagnostic-log wiring,
-# leader-menu / Ctrl+C shortcuts, status rule) is ~90% the same as {Chat::App},
-# but the two shells are kept as independent copies rather than factored
-# onto a common base: the project's "thin shell, readable not obfuscated"
-# ceiling doesn't ask for the DRY win, and the coding shell's one genuine
-# addition — a confirmation gate on the write/bash tools — is cheaper as a
-# little duplication than a base-class abstraction. The computer shell later made
-# the same call (reusing this namespace's {TranscriptConfirmer} / diff adapters,
-# which are cross-cutting tool wiring, not shell scaffolding). Only pieces
-# that carry *no* shell-specific divergence are extracted into {Shared}
-# instead of copied ({Shared::InputPane}, {Shared::StatusRuleLabel}, …);
-# duplicate only where the copies genuinely drift.
+# {App} and {Layout} are independent copies of {Chat::App} / {Chat::Layout},
+# never subclasses of them: only pieces carrying *no* shell-specific
+# divergence are extracted into {Shared} ({Shared::InputPane},
+# {Shared::StatusRuleLabel}, …), and the scaffolding that wires them together
+# is duplicated. The computer shell made the same call, and additionally
+# reuses this namespace's {TranscriptConfirmer} / diff adapters — those are
+# cross-cutting tool wiring, not shell scaffolding. The fork and the rejected
+# +AbstractApp+ are in +design/decisions.md+, +D_parallel_shells+.
 #
 # == Code-only dependencies
 #

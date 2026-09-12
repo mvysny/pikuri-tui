@@ -181,7 +181,7 @@ module Shared
 
     # Spawn a worker thread for one agent turn. Library exceptions are logged
     # (the long-running TUI takes the "exceptions logged, our bugs raise" path
-    # from CLAUDE.md) and a short red one-liner is echoed into the conversation
+    # from +D_tui_degrades_not_crashes+) and a short red one-liner is echoed into the conversation
     # pane; cancellation is silent because {Shared::ConversationTextView::Listener}
     # already rendered the +Cancelled+ event.
     #

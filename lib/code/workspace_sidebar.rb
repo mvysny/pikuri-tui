@@ -154,6 +154,12 @@ module Code
     # they paint nothing. The {GitWatcher} keeps polling either way, so
     # {#open_diff} still opens on a current diff.
     #
+    # Never short-circuit this on an empty rect. Children left pointing at the
+    # columns they used to hold survive every normal repaint and then paint at
+    # those stale coordinates the moment a popup close fires
+    # {Tuile::Screen#needs_full_repaint} — silent under test, and invisible in
+    # the +return if empty+ that would cause it.
+    #
     # @param new_rect [Tuile::Rect]
     # @return [void]
     def rect=(new_rect)
