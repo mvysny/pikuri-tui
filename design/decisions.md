@@ -38,9 +38,18 @@ one a parked {Code::TranscriptConfirmer} question lives in — so a toggle would
 while the tool thread is still blocked on its answer. Replay also cannot reconstruct a stream that
 was cancelled mid-flight.
 
+**Rejected: a marker where a hidden block was.** A hidden block draws *nothing* — no grey filler,
+no "reasoning hidden" row. A line you cannot click earns nothing in a terminal, which has no cheap
+per-block affordance to offer; the caption would cost a row per block and buy a reader nothing they
+can act on. (pikuri-web inverts this on the same argument: a browser can make that row clickable,
+which turns filler into the affordance.)
+
 **Consequences.** A block can only be re-rendered if it was filed with a kind, which is what keeps
-the `edit` / `write` diffs un-hideable (they are deliberately not kinded). Reasoning cancelled
-mid-stream has no bookend, so hiding and revealing it shows only what streamed — accepted.
+the `edit` / `write` diffs un-hideable (they are deliberately not kinded). While reasoning is
+hidden the listener drops the delta stream outright rather than rendering into a pane nobody sees,
+and lets the `Thinking` bookend land hidden — so a reveal shows the bookend's full text, not the
+streamed prefix. The cost of that: reasoning cancelled mid-stream never gets a bookend, so hiding
+and revealing it shows only what had streamed — accepted.
 
 ## D_transcript_confirmer — Ask the confirmation in the transcript, and let focus arm the keys (2026-09-04)
 
