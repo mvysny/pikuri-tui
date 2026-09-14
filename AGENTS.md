@@ -12,8 +12,10 @@ Pikuri owns the agent loop, tool execution, and LLM transport. This project owns
 
 ## Promises
 
-- **Nothing but the shell.** Agent loop, tool execution, LLM transport and prompts stay pikuri's; a behaviour implemented on both sides drifts, and the user sees it as "the TUI does something the CLI doesn't".
-- **Every outbound leg waits on a keystroke** in the coding and computer shells — a write, a `bash`, a research delegation, a mail or calendar hand-off. The chat shell is deliberately the lean one and makes no such promise.
+- **A terminal UI and nothing else.** Loop, tools, transport *and prompts* stay pikuri's; a behaviour implemented on both sides drifts, and the user sees it as "the TUI does something the CLI doesn't".
+- **pikuri's *Privacy first* holds at this layer.** No LLM connection ships built in, and no shell acquires a network reach its own pitch does not state — a convenience that quietly widens egress is a violation even when nobody triggers it.
+- **pikuri's *trifecta broken by construction*, kept by structure first.** Untrusted content is separated by construction — the computer shell's web research runs in a quarantined sub-agent, its `bash` is network-severed — never by filtering, because filters lose to adversarial text.
+- **Every outbound leg waits on a keystroke** in the coding and computer shells — a write, a `bash`, a research delegation, a mail or calendar hand-off. The computer shell holds all three trifecta legs at once, so where construction cannot separate them the human is the gate. The chat shell is deliberately the lean one and makes no such promise.
 
 ## Design docs
 
@@ -34,18 +36,26 @@ Every fact lives in exactly one of these; the others link to it.
 - **Tuile owns the event loop and repaint.** No `SIGWINCH` handler, no `puts` to the terminal once the screen is up, no repaint on a side thread.
 - **No second HTTP or LLM client in `lib/` or `bin/`.** pikuri owns the transport; a retry or a rescue added here drifts from the one it already implements. `spec/no_second_llm_client_spec.rb` is the check.
 - **A gap in the UI is a missing pikuri primitive** — a new listener event, an existing `Control`, a new tool — never a workaround on this side. See `D_pikuri_owns_the_runtime`.
+- **A short tool line's words are pikuri's**, never a tui-side table mapping tool names onto phrasings. See `D_short_tool_lines`.
+- **Nothing under `Shared::` references `Chat` / `Code` / `Computer`.** A block that needs to know its host takes it as a constructor argument or surfaces a listener the host subscribes to.
+- **Nothing under `Shared::` may require a `:code` / `:computer` gem.** The chat process eager-loads that whole directory; `Shared::FileCommands` is duck-typed on pikuri's registry for exactly this reason. See `D_bundler_groups`.
 - **Log through `Pikuri.logger_for`, never `Tuile.logger`.** One private `LOG` constant per class; `Tuile.logger` is reserved for capturing Tuile's own noise. See `D_log_through_pikuri`.
 - **Our bugs raise; a library's exceptions are logged and degraded.** An uncaught raise in the event loop tears the screen down and takes the session with it. See `D_tui_degrades_not_crashes`.
-- **A confirmation is answered in the transcript, and focus is what arms it.** No grace window, no timer, no text-entry popup. See `D_transcript_confirmer`.
-- **Hide a pane with `visible=`, never by detaching it from its box.** Detaching fires `on_detached` and stops whatever the pane is running — a data feed that hiding exists to preserve. See `D_visible_not_detach`.
-- **Never short-circuit `rect=` on an empty rect** in a container that computes its own child rects (`Code::WorkspaceSidebar`): children keep painting at the columns they used to hold.
-- **A short tool line's words are pikuri's**, never a tui-side table mapping tool names onto phrasings. See `D_short_tool_lines`.
 - **The conversation pane is never a log sink.** It is what the user reads; the log pane is what we read when something is wrong.
+- **A confirmation is answered in the transcript, and focus is what arms it.** No grace window, no timer, no text-entry popup. See `D_transcript_confirmer`.
+- **Decline-by-default lives in exactly two places** — `Ctrl+C` and quit, both through `Code::TranscriptConfirmer#reject_pending!`. Skip either and a parked tool leaves `Ctrl+C` looking broken, because the worker is blocked on the answer.
+- **A gated skill must not be *listed*.** `Code::SkillActivationListener` builds the palette's skill half from pikuri's activation, not its catalog, and re-lists as the `paths:` gate opens and closes.
+- **`Shared::ConversationTextView#clear` is not a redraw.** It drops every region, a parked confirmer question included; a density toggle re-runs kinded thunks instead. See `D_density_thunks`.
+- **The `edit` / `write` diff blocks are never kinded**, so no density toggle can hide them: a diff is reviewed, not skimmed. See `D_density_thunks`.
+- **Hide a pane with `visible=`, never by detaching it from its box.** Detaching fires `on_detached` and stops whatever the pane is running — a data feed that hiding exists to preserve. See `D_visible_not_detach`.
+- **`Code::GitWatcher` must keep polling while the sidebar is off screen** — the status-rule digest stands in for the hidden panes. See `D_visible_not_detach`.
+- **Never short-circuit `rect=` on an empty rect** in a container that computes its own child rects (`Code::WorkspaceSidebar`): children keep painting at the columns they used to hold.
+- **Every accent comes from `Shared::AppTheme`**, `theme.hint` first; a component that invents an RGB is the exception and says why in its rdoc. See `D_borderless_panes`.
 
 ## Module map
 
-- `lib/shared/` — the toolkit all three shells compose out of. Rules: `lib/shared/AGENTS.md`
-- `lib/code/` — the coding shell, plus the confirmer / diff adapters the computer shell reuses. Rules: `lib/code/AGENTS.md`
+- `lib/shared/` — the toolkit all three shells compose out of; `log/`, `markdown/` and `model/` are its sub-namespaces.
+- `lib/code/` — the coding shell, and the confirmer / diff adapters the computer shell reuses, so a change here changes two shells.
 - `lib/chat/` — `Chat::App` + `Chat::Layout`: the baseline shell the other two were copied from.
 - `lib/computer/` — `Computer::App` + `Computer::Layout`: chat's layout, the coding shell's safety machinery.
 - `lib/pikuri_tui.rb` — the Zeitwerk loader (root `lib/`) + eager-load; skips `Code` / `Computer` when their gems are absent.
@@ -63,7 +73,7 @@ Every fact lives in exactly one of these; the others link to it.
 - **A namespace-only module gets no doc *and no file*** — leave it a Zeitwerk implicit namespace. Add `foo.rb` back only when it states a rule next to the code it governs, as `code.rb` / `computer.rb` do.
 - **Widget-class suffix on Tuile subclasses and wrappers only**, named for what the component does rather than where it sits (`Shared::ConversationTextView`, not `TopTextView`); a non-widget takes a plain agent-noun name. The exception is `Layout`: a composite borderless pane takes `*Pane`, and each shell's root layout stays plain `Layout`.
 - **Grow by adding a component or a listener variant**, not by complicating the layout — neither `Chat::App` nor the bins should need to grow for a new surface.
-- **Dedup by extracting a block into `Shared::`, never by sharing scaffolding.** The three `App` / `Layout` copies stay parallel. See `D_parallel_shells`.
+- **Dedup by extracting a block into `Shared::`, never by sharing scaffolding.** The test is "does it stand alone with a clear contract?", not "is it a widget"; the three `App` / `Layout` copies stay parallel. See `D_parallel_shells`.
 - **Readable, not obfuscated.** This is a thin shell, and an abstraction added "in case" loses every argument against concrete code.
 - **Bundler.** `bin/*` self-bootstrap via `require 'bundler/setup'` with `BUNDLE_GEMFILE` pinned through `__dir__`, so the scripts work symlinked into `~/.local/bin/`. Each bin sets up only its own group. See `D_bundler_groups`.
 - **Tests: rspec-core with minitest-style asserts.** `describe` / `it`, but `assert_equal` / `refute` — the same convention as pikuri, so the two codebases read side by side.
