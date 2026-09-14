@@ -18,7 +18,7 @@ require 'tuile'
 # exists on no real terminal.
 #
 # Ported from virtui's +UI::Tint+, which carries the measurement table behind
-# {DELTA} in its +DECISIONS.md+ +D_tint_toward_grey+; the local consequences
+# {DELTA} in its +DECISIONS.md+ → +tint_toward_grey+; the local consequences
 # are in +design/decisions.md+, +D_borderless_panes+.
 #
 # Thread-safe (pure functions over immutable values).

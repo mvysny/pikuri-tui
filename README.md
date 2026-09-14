@@ -330,9 +330,8 @@ coding shell one `/<skill-name>` per skill currently in play.
 
 ## Hacking on it
 
-`AGENTS.md` is the contributor's index — the invariants, the module map, the
-conventions and the commands. The reasoning behind the code lives under
-`design/`: what must hold (`requirements.md`), why it is shaped this way
-(`decisions.md`), how the pieces are wired (`architecture.md`). Per-class truth
-is in the rdoc. `bundle exec rake check` runs the spec suite and the doc
-tripwires.
+`AGENTS.md` is the contributor's index — the promises, the invariants, the
+module map, the conventions and the commands. The reasoning behind the code
+lives under `design/`: why it is shaped this way (`decisions.md`), how the
+pieces are wired (`architecture.md`). Per-class truth is in the rdoc.
+`bundle exec rake check` runs the spec suite and the doc tripwire.

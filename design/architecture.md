@@ -1,17 +1,12 @@
 # Architecture
 
-The bird's-eye map of the code as it is: the major pieces, how they are wired, and the flows that
-cross several of them. **The code and its rdoc are the authority; this file describes them.** When
-they disagree, fix this file.
-
-Keep it short. Anything true of one class belongs in that class's rdoc, not here. This file holds
-only what no single symbol can: dependency direction, the threading and lifecycle story, and where
-a newcomer should start reading. Cite `R_` for what must hold and `D_` for why; argue nothing here.
-**The first entry in each section is the ruler** — later entries are trimmed to its length.
-
-The **map** — which directory holds what, one line each — is not here: it is in `AGENTS.md`, because
-an agent needs it every turn (root: one line per directory; `lib/shared/AGENTS.md` and
-`lib/code/AGENTS.md`: one line per class). This file starts where the map stops.
+How the pieces compose — what no single symbol can say and what would be expensive to overturn:
+wiring and dependency direction, the threading story, the two flows a newcomer needs, where to
+start reading. **Normative: the code conforms.** Change this file first, then the code. Not here:
+why (`decisions.md` — cite the `D_`), one symbol's behaviour (its rdoc), the module map
+(`AGENTS.md`, which an agent has every turn; this file starts where that map stops). Only the
+sections with content; the first entry in each is the ruler. Cap 12 KB — over it, rdoc content
+has crept in.
 
 ## Wiring
 
@@ -31,7 +26,7 @@ an agent needs it every turn (root: one line per directory; `lib/shared/AGENTS.m
 4. `Shared::ConversationTextView::Listener` renders each event: streamed deltas rewrite a `Shared::StreamedBlock` region in place through the Markdown buffers, tool events render short or verbose (`D_short_tool_lines`), and kinded blocks are filed for later re-render (`D_density_thunks`).
 5. The turn ends; the session delivers anything still queued as a fresh turn, drains a pending model switch, and clears the spinner.
 
-**A confirmation** (a write, a `bash`, a research task — `R_human_gated_egress`):
+**A confirmation** (a write, a `bash`, a research task — the *human-gated egress* promise):
 
 1. The tool thread calls `Code::TranscriptConfirmer#ask` and **blocks** there.
 2. The confirmer marshals onto the UI thread, renders the request through `Code::ConfirmRenderer` and hands the pane a `Shared::PendingDecision`; the status rule shows the badge.

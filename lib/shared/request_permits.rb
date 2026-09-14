@@ -23,7 +23,7 @@
 # off, +SubAgentTool+ runs its child's loop inline, {Shared::AgentSession}
 # takes one turn at a time), so the live effect is narrower: a sized server
 # counts as *known* and skips the boot +/props+ probe (pikuri's
-# +D_probe_when_unknown+). The ceiling itself is installed for the schema's
+# +decisions.md+ → +probe_when_unknown+). The ceiling is installed for the schema's
 # other consumer, pikuri-web, which does serve concurrent conversations — and
 # for the day this one does.
 module Shared::RequestPermits

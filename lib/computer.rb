@@ -15,8 +15,9 @@
 #
 # This is pikuri's "reassembled trifecta" — whole-disk private pool +
 # attacker-authorable email as an untrusted source + egress — with every
-# egress leg human-gated, never autonomous (see +bin/pikuri-tui-computer+,
-# and +R_human_gated_egress+ for the promise that makes). The Tuile shell is otherwise
+# egress leg human-gated, never autonomous (see +bin/pikuri-tui-computer+, and
+# the "every outbound leg waits on a keystroke" promise in +AGENTS.md+ that
+# makes). The Tuile shell is otherwise
 # identical to the chat/code shells; it owns nothing pikuri-side beyond
 # wiring these two extensions.
 #
