@@ -60,7 +60,7 @@ RSpec.describe Code::Layout do
   it 're-tones the separator on a light/dark flip' do
     layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
     Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
-    layout.__send__(:on_theme_changed)
+    layout.__send__(:handle_theme_changed)
     assert(layout.separator.text.spans.all? { |span| span.style.fg == Shared::AppTheme::LIGHT[:pane_frame] })
   end
 

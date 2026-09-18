@@ -45,7 +45,7 @@ class Shared::LeaderMenu
   class CancelPopup < Tuile::Component::Popup
     # @param key [String]
     # @return [Boolean] true if the key was handled.
-    def handle_key(key)
+    def handle_key?(key)
       return super unless key == Tuile::Keys::CTRL_C
 
       close

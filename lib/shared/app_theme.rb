@@ -3,28 +3,25 @@
 require 'tuile'
 
 # The app's own {Tuile::Theme}: the built-in accent tokens (active
-# highlight, input well, active border, status-bar hint) plus the extra
-# colors pikuri-tui paints that the framework doesn't know about, carried
-# in {Tuile::Theme#custom}. Subclassing (rather than passing a bare
-# +custom:+ hash) buys one coloring helper per token, mirroring the
-# built-in {Tuile::Theme#hint}:
+# highlight, input well, active border) plus the extra colors pikuri-tui
+# paints that the framework doesn't know about, carried in
+# {Tuile::Theme#custom}. Subclassing (rather than passing a bare
+# +custom:+ hash) buys one coloring helper per token:
 #
 #   theme.error('! boom')   # instead of theme.fg(:error, '! boom')
 #   theme.tool('Bash(ls)')  # → the conversation pane's tool-call color
 #
 # +Data#with+ keeps the subclass through a +with+.
 #
-# The one built-in token this theme *overrides* is +hint_color+: Tuile's
-# default is a teal (+LIGHT_SKY_BLUE3+ / +TURQUOISE4+), and pikuri-tui paints
-# its chrome accents in {TALUS} instead — kuri's own coat color, so the
-# keyboard hints, the +❯+ prompt marker, the pane captions and the status
-# rule's model / token readout all read as the mascot's palette. +:tool+ is
-# the same coat one step warmer ({CHESTNUT}), so the conversation pane's
-# machinery reads as a sibling of the chrome rather than as a fourth accent
-# hue — the panes keep them apart, the palette no longer has to.
-#
 # The tokens cover the chrome all three shells paint:
 #
+# - +:hint+ — the chrome accent, {TALUS}: kuri's own coat color, so the
+#   keyboard hints, the +❯+ prompt marker, the pane captions and the status
+#   rule's model / token readout all read as the mascot's palette. +:tool+
+#   below is the same coat one step warmer, so the conversation pane's
+#   machinery reads as a sibling of the chrome rather than as a second accent
+#   hue — the panes keep them apart, the palette no longer has to. See {#hint}
+#   for why this is ours rather than the built-in Tuile token it used to be.
 # - +:tool+ — the +Bash(ls)+ call lines (and, in the verbose form, the
 #   += result+ lines) {Shared::ConversationTextView::Listener} writes into the
 #   conversation pane, plus the slash-menu command names and the coding
@@ -100,7 +97,21 @@ require 'tuile'
 #
 # Immutable.
 class Shared::AppTheme < Tuile::Theme
-  # Renders +text+ in the +:tool+ foreground. See {Tuile::Theme#hint}.
+  # Renders +text+ in the +:hint+ foreground — the chrome accent: the +❯+
+  # prompt marker, the pane captions, the keyboard hints and the status
+  # rule's readout.
+  #
+  # Tuile carried this as a built-in +Theme#hint+ until it dropped the token
+  # after 0.15.0 — a "de-emphasized text" shade describes a look rather than a
+  # role, so the framework declines to name one. It is one of *our* {#custom}
+  # tokens now, which is the path Tuile documents for an app color that must
+  # follow the appearance, and is why it still survives a light/dark flip:
+  # {THEME_DEF} pairs the two variants.
+  # @param text [String]
+  # @return [String] ANSI-rendered text, ending with an SGR reset.
+  def hint(text) = fg(:hint, text)
+
+  # Renders +text+ in the +:tool+ foreground. See {#hint}.
   # @param text [String]
   # @return [String] ANSI-rendered text, ending with an SGR reset.
   def tool(text) = fg(:tool, text)
@@ -178,7 +189,7 @@ class Shared::AppTheme < Tuile::Theme
   # a mid gray near X11 +dimgray+.
   #
   # +:tool+ is the one accent that opts *out* of the remapping, the way
-  # +hint_color+ already does: it is {CHESTNUT}, an absolute RGB, because a
+  # +:hint+ already does: it is {CHESTNUT}, an absolute RGB, because a
   # terminal-remapped cyan cannot carry pikuri's own palette. Everything the
   # conversation pane marks as machinery — the tool call / result lines,
   # the slash-menu names, the coding shell's diff headers — follows it.
@@ -189,6 +200,7 @@ class Shared::AppTheme < Tuile::Theme
   # ground. When the real background RGB is known, {.derived} replaces both.
   # @return [Hash{Symbol => Tuile::Color}]
   DARK_CUSTOM = {
+    hint:     TALUS,
     tool:     CHESTNUT,
     notice:   Tuile::Color::YELLOW,
     error:    Tuile::Color::RED,
@@ -213,6 +225,7 @@ class Shared::AppTheme < Tuile::Theme
   # reasoning reads as muted secondary text without disappearing.
   # @return [Hash{Symbol => Tuile::Color}]
   LIGHT_CUSTOM = {
+    hint:     TALUS_SHADE,
     tool:     CHESTNUT_SHADE,
     notice:   Tuile::Color::DARK_ORANGE3,
     error:    Tuile::Color::RED3,
@@ -230,14 +243,14 @@ class Shared::AppTheme < Tuile::Theme
   }.freeze
 
   # The dark-background app theme: {Tuile::Theme::DARK}'s built-in
-  # accents (bar the {TALUS} hint) plus {DARK_CUSTOM}.
+  # accents plus {DARK_CUSTOM}.
   # @return [Shared::AppTheme]
-  DARK = new(**Tuile::Theme::DARK.to_h.merge(hint_color: TALUS, custom: DARK_CUSTOM))
+  DARK = new(**Tuile::Theme::DARK.to_h.merge(custom: DARK_CUSTOM))
 
   # The light-background app theme: {Tuile::Theme::LIGHT}'s built-in
-  # accents (bar the {TALUS_SHADE} hint) plus {LIGHT_CUSTOM}.
+  # accents plus {LIGHT_CUSTOM}.
   # @return [Shared::AppTheme]
-  LIGHT = new(**Tuile::Theme::LIGHT.to_h.merge(hint_color: TALUS_SHADE, custom: LIGHT_CUSTOM))
+  LIGHT = new(**Tuile::Theme::LIGHT.to_h.merge(custom: LIGHT_CUSTOM))
 
   # The pair to hand to +Tuile::Screen#theme_def=+ (and
   # +Tuile::ThemeDef.default=+ in the suite) so the screen picks the
@@ -270,8 +283,8 @@ class Shared::AppTheme < Tuile::Theme
   # (the hairlines: {Shared::StatusRuleLabel},
   # {Shared::PaneCaptionLabel}) — each shell's +App+ does, at the top of its
   # +build_components+ — because a +theme_def=+ on a screen with no content yet
-  # fires no +on_theme_changed+ to re-bake them. {Shared::RootLayout} then calls
-  # this again from its own +on_theme_changed+, which is what keeps the
+  # fires no +handle_theme_changed+ to re-bake them. {Shared::RootLayout} then calls
+  # this again from its own +handle_theme_changed+, which is what keeps the
   # derivation current across a light/dark flip or a fresh OSC-11 answer. That
   # second call is re-entrant by construction: the derivation is deterministic,
   # so it resolves to an equal theme and +Tuile::Screen#theme=+ no-ops.
@@ -284,7 +297,7 @@ class Shared::AppTheme < Tuile::Theme
 
   # The foregrounds actually painted *on* +:pane_bg+, which {.derived}'s
   # contrast guard defends: the prompt marker and sidebar captions
-  # ({Tuile::Theme#hint_color}), the placeholder / completed-task tone
+  # (+:hint+), the placeholder / completed-task tone
   # (+:detail+) and the three change-kind tones the git summary paints. The
   # named-ANSI ones among those have no knowable RGB and skip themselves inside
   # {Shared::Tint.pane_bg}.
@@ -296,7 +309,7 @@ class Shared::AppTheme < Tuile::Theme
   # @param theme [Shared::AppTheme] the variant to read the tokens from.
   # @return [Array<Tuile::Color>]
   def self.guard_colors(theme)
-    [theme.hint_color, theme[:detail], theme[:notice], theme[:added], theme[:removed]]
+    [theme[:hint], theme[:detail], theme[:notice], theme[:added], theme[:removed]]
   end
 
   # One variant with its derived tokens folded in — see {.derived}.

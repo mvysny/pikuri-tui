@@ -106,34 +106,34 @@ RSpec.describe Chat::App do
     it "picking 'c' clears the agent's conversation" do
       cleared = 0
       app.agent.define_singleton_method(:clear_conversation) { cleared += 1 }
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'c')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'c')
       assert_equal 1, cleared
     end
 
     it 'opens a modal menu popup on Ctrl+K' do
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
       assert_kind_of Shared::LeaderMenu, app.instance_variable_get(:@leader_menu)
       assert_kind_of Tuile::Component::PickerWindow, app.screen.pane.modal_popup&.content
     end
 
     it "picking 'l' opens the log popup" do
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'l')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'l')
       assert app.instance_variable_get(:@log_ui).log_popup.open?
     end
 
     it "picking 'q' stops the event loop" do
       stopped = spy_on_stop
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'q')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'q')
       assert stopped.call, 'expected the leader menu quit action to stop the loop'
     end
 
     it 'closes the menu on Ctrl+C, like ESC' do
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
       refute_nil app.screen.pane.modal_popup
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
       assert_nil app.screen.pane.modal_popup, 'Ctrl+C should cancel the menu'
     end
   end
@@ -324,7 +324,7 @@ RSpec.describe Chat::App do
   # release gem) so the test exercises the full chain: global-shortcut
   # lookup, the +over_popups: false+ gate, then {Shared::AgentSession#interrupt}.
   def press_ctrl_c(some_app = app)
-    some_app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+    some_app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
   end
 
   # Replaces the (no-op) FakeEventQueue#stop with a recorder and returns a

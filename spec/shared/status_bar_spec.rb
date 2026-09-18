@@ -36,10 +36,10 @@ RSpec.describe Shared::StatusBar do
     assert_equal '^C cancel  ^K menu (2)', rendered
   end
 
-  it 'restyles when on_theme_changed fires after a theme flip' do
+  it 'restyles when handle_theme_changed fires after a theme flip' do
     bar.refresh # bakes in the FakeScreen default (DARK) error tone
     Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
-    bar.on_theme_changed # Screen#theme= fires this tree-wide; here we drive it directly
+    bar.handle_theme_changed # Screen#theme= fires this tree-wide; here we drive it directly
     assert_equal Shared::AppTheme::LIGHT[:error], color_of('cancel')
   end
 end

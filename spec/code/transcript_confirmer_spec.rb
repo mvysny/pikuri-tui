@@ -47,7 +47,7 @@ RSpec.describe Code::TranscriptConfirmer do
   # conversation pane, which is where a focused transcript receives it.
   def decide(key)
     wait_until { conversation.pending_decision }
-    conversation.handle_key(key)
+    conversation.handle_key?(key)
   end
 
   # Type +text+ into the captured prompt and send it (+key:+ instead for the
@@ -55,10 +55,10 @@ RSpec.describe Code::TranscriptConfirmer do
   def type(text: nil, key: nil)
     wait_until { input.capturing? }
     if key
-      input.area.handle_key(key)
+      input.area.handle_key?(key)
     else
       input.area.text = text if text
-      input.area.handle_key(Tuile::Keys::ENTER)
+      input.area.handle_key?(Tuile::Keys::ENTER)
     end
   end
 
@@ -132,7 +132,7 @@ RSpec.describe Code::TranscriptConfirmer do
         decide('e')
         wait_until { input.capturing? }
         assert_equal 'summarize CVEs', input.area.text
-        input.area.handle_key(Tuile::Keys::ENTER)
+        input.area.handle_key?(Tuile::Keys::ENTER)
       end
     end
 
@@ -146,7 +146,7 @@ RSpec.describe Code::TranscriptConfirmer do
         decide('e')
         wait_until { input.capturing? }
         assert_equal '', input.area.text
-        input.area.handle_key(Tuile::Keys::ENTER)
+        input.area.handle_key?(Tuile::Keys::ENTER)
       end
     end
 
@@ -246,8 +246,8 @@ RSpec.describe Code::TranscriptConfirmer do
     it 'ignores decision keys typed at the prompt — they are text' do
       result = run(request) do
         wait_until { conversation.pending_decision }
-        input.area.handle_key('n')
-        input.area.handle_key('o')
+        input.area.handle_key?('n')
+        input.area.handle_key?('o')
         assert_equal 'no', input.area.text
         assert conversation.pending_decision, 'typing at the prompt must not answer a decision'
         decide('y')

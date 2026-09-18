@@ -100,7 +100,7 @@ class Shared::InputPane < Tuile::Component::Layout
     add(@area)
     # A Theme::Ref re-resolves against the theme on every paint, so the tint
     # follows a light/dark flip with no hook of our own; the marker's tone is
-    # baked into its text and does need {#on_theme_changed}.
+    # baked into its text and does need {#handle_theme_changed}.
     self.bg_color = Tuile::Theme.ref(:pane_bg)
     @area.bg_color = Tuile::Component::BG_INHERIT
     slash_menu.anchor = self if slash_menu
@@ -245,7 +245,7 @@ class Shared::InputPane < Tuile::Component::Layout
     end
 
     # Route keys with the slash palette in mind, then fall through to
-    # {Tuile::Component::TextArea#handle_key}. Returns +true+ on a consumed key
+    # {Tuile::Component::TextArea#handle_key?}. Returns +true+ on a consumed key
     # so it isn't re-dispatched up the tree as something else. While a palette
     # is present: Up/Down/ESC drive it *only when shown* (otherwise they edit
     # normally), and Enter on a leading-+/+ buffer runs a command instead of
@@ -253,7 +253,7 @@ class Shared::InputPane < Tuile::Component::Layout
     #
     # @param key [String]
     # @return [Boolean] +true+ if the key was consumed here.
-    def handle_key(key)
+    def handle_key?(key)
       # A capture owns Enter outright: no palette, no blank-buffer no-op — an
       # empty answer is a meaningful one (a reason skipped, a task cleared).
       return finish_capture(text.dup) if @capture && key == Tuile::Keys::ENTER && active?
@@ -277,7 +277,7 @@ class Shared::InputPane < Tuile::Component::Layout
     #
     # @param key [String]
     # @return [Boolean] +true+ if the key was consumed here.
-    def handle_text_input_key(key)
+    def handle_text_input_key?(key)
       return super if @capture # a captured answer isn't a turn, so it has no history to walk
 
       if key == Tuile::Keys::UP_ARROW && caret_row.zero?
@@ -411,7 +411,7 @@ class Shared::InputPane < Tuile::Component::Layout
   # the label's text, so a light/dark flip has to re-run it.
   #
   # @return [void]
-  def on_theme_changed
+  def handle_theme_changed
     super
     rebuild_marker
   end

@@ -257,29 +257,29 @@ RSpec.describe Computer::App do
 
     it "picking 'c' clears the agent's conversation" do
       agent = app.agent
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'c')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'c')
       assert_equal 1, agent.clear_count
     end
 
     it "picking 'p' toggles plan mode" do
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'p')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'p')
       assert app.instance_variable_get(:@plan_mode).active?
     end
 
     it "picking 'q' stops the event loop" do
       app
       stopped = spy_on_stop
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'q')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'q')
       assert stopped.call, 'expected the leader menu quit action to stop the loop'
     end
 
     it 'closes the menu on Ctrl+C, like ESC' do
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
       refute_nil app.screen.pane.modal_popup
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
       assert_nil app.screen.pane.modal_popup, 'Ctrl+C should cancel the menu'
     end
   end
@@ -331,7 +331,7 @@ RSpec.describe Computer::App do
   # release gem) so the test exercises the full chain: global-shortcut
   # lookup, the +over_popups: false+ gate, then {Shared::AgentSession#interrupt}.
   def press_ctrl_c
-    app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+    app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
   end
 
   # Replaces the (no-op) FakeEventQueue#stop with a recorder and returns a

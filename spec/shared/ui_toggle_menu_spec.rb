@@ -7,7 +7,7 @@ RSpec.describe Shared::UIToggleMenu do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  def press(key) = Tuile::Screen.instance.send(:handle_key, key)
+  def press(key) = Tuile::Screen.instance.send(:handle_key?, key)
 
   def labels = menu.actions.map(&:text)
 

@@ -67,7 +67,7 @@ RSpec.describe Code::GitDiffWindow do
       assert_equal 47, pane.send(:max_width)
     end
 
-    it 're-renders the retained diff when the pane width changes (on_width_changed)' do
+    it 're-renders the retained diff when the pane width changes (handle_width_changed)' do
       pane.snapshot = snapshot(diff: MODIFIED_DIFF)
       writes = 0
       view = pane.view
@@ -77,7 +77,7 @@ RSpec.describe Code::GitDiffWindow do
         original.call(value)
       end
 
-      pane.rect = Tuile::Rect.new(0, 0, 40, 10) # width 0 -> 40 fires on_width_changed
+      pane.rect = Tuile::Rect.new(0, 0, 40, 10) # width 0 -> 40 fires handle_width_changed
       assert writes.positive?, 'a width change should re-render the retained diff'
       assert_includes rendered, '✎ tracked.txt' # …and not blank it
     end

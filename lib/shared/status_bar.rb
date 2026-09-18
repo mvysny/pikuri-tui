@@ -16,7 +16,7 @@ require 'tuile'
 #
 # A block rather than assigned text is also what makes the row survive a
 # light/dark flip: +theme.hint+ / +theme.error+ bake their colors in as they
-# run, so {#on_theme_changed} just runs them again.
+# run, so {#handle_theme_changed} just runs them again.
 #
 # +^C cancel+ is unconditional — every shell binds +Ctrl+C+. There is
 # deliberately no +q quit+ segment: Tuile's loop still quits on an *unhandled*
@@ -51,7 +51,7 @@ class Shared::StatusBar < Tuile::Component::Label
   # this fires.
   #
   # @return [void]
-  def on_theme_changed
+  def handle_theme_changed
     super
     refresh
   end

@@ -60,7 +60,7 @@ module Code
   # left-elision would spend three of its columns on +.rb+.
   #
   # Truncation is width-dependent, so the pane keeps the last snapshot and
-  # re-renders on +on_width_changed+; a zero width (unmounted, or a sidebar
+  # re-renders on +handle_width_changed+; a zero width (unmounted, or a sidebar
   # column {Layout} collapsed) reads as *unknown* and truncates nothing.
   #
   # UI-thread-confined (the {WorkspaceSidebar} subscription marshals {#snapshot=}
@@ -143,7 +143,7 @@ module Code
     # headers are elided to.
     #
     # @return [void]
-    def on_width_changed
+    def handle_width_changed
       super
       render
     end

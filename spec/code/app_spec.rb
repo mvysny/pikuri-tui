@@ -295,7 +295,7 @@ RSpec.describe Code::App do
 
   it 'hands the caret back to the prompt when ESC leaves the transcript' do
     app.conversation.focus
-    app.screen.send(:handle_key, Tuile::Keys::ESC)
+    app.screen.send(:handle_key?, Tuile::Keys::ESC)
     assert_same app.layout.input.area, app.screen.focused
   end
 
@@ -363,7 +363,7 @@ RSpec.describe Code::App do
         assert_empty app.screen.popups, 'the question belongs in the transcript, not over it'
         assert_predicate app.status_rule, :decision_pending
         assert_includes app.conversation.text.to_s, '⏵ OK to run this?'
-        app.conversation.handle_key('n')
+        app.conversation.handle_key?('n')
       end
 
       assert_equal Pikuri::Workspace::Confirmer::Rejected.new(reason: nil), answer
@@ -520,42 +520,42 @@ RSpec.describe Code::App do
     it "picking 'c' clears the agent's conversation" do
       cleared = 0
       app.agent.define_singleton_method(:clear_conversation) { cleared += 1 }
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'c')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'c')
       assert_equal 1, cleared
     end
 
     it "picking 'd' opens the git diff popup" do
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'd')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'd')
       assert app.sidebar.diff_open?
     end
 
     it "picking 'p' toggles plan mode" do
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'p')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'p')
       assert app.instance_variable_get(:@plan_mode).active?
     end
 
     it "picking 's' cycles the sidebar width, letting the re-split be the feedback" do
       layout = app.instance_variable_get(:@layout)
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 's')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 's')
       assert_equal :narrow, layout.sidebar_mode
     end
 
     it "picking 'q' stops the event loop" do
       app
       stopped = spy_on_stop
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key, 'q')
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, 'q')
       assert stopped.call, 'expected the leader menu quit action to stop the loop'
     end
 
     it 'closes the menu on Ctrl+C, like ESC' do
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_K)
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
       refute_nil app.screen.pane.modal_popup
-      app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+      app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
       assert_nil app.screen.pane.modal_popup, 'Ctrl+C should cancel the menu'
     end
   end
@@ -650,7 +650,7 @@ RSpec.describe Code::App do
   # release gem) so the test exercises the full chain: global-shortcut
   # lookup, the +over_popups: false+ gate, then {Shared::AgentSession#interrupt}.
   def press_ctrl_c(some_app = app)
-    some_app.screen.send(:handle_key, Tuile::Keys::CTRL_C)
+    some_app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
   end
 
   # Replaces the (no-op) FakeEventQueue#stop with a recorder and returns a

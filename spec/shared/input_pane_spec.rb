@@ -69,7 +69,7 @@ RSpec.describe Shared::InputPane do
     screen.content = window
     window.focus
     window.area.text = 'hello'
-    screen.send(:handle_key, Tuile::Keys::ENTER)
+    screen.send(:handle_key?, Tuile::Keys::ENTER)
     assert_equal ['hello'], submitted
     assert_equal '', window.area.text.to_s
   end
@@ -81,7 +81,7 @@ RSpec.describe Shared::InputPane do
     screen.content = win
     win.focus
     win.area.text = 'hi'
-    screen.send(:handle_key, Tuile::Keys::ENTER)
+    screen.send(:handle_key?, Tuile::Keys::ENTER)
     assert_equal '', seen
   end
 
@@ -90,7 +90,7 @@ RSpec.describe Shared::InputPane do
     screen.content = window
     window.focus
     window.area.text = '   '
-    screen.send(:handle_key, Tuile::Keys::ENTER)
+    screen.send(:handle_key?, Tuile::Keys::ENTER)
     assert_empty submitted
   end
 
@@ -108,7 +108,7 @@ RSpec.describe Shared::InputPane do
       window.capture(marker: '✎', initial: initial) { |text| answers << text }
     end
 
-    def press(key) = Tuile::Screen.instance.send(:handle_key, key)
+    def press(key) = Tuile::Screen.instance.send(:handle_key?, key)
 
     it 'pre-fills the buffer and takes the caret' do
       capture(initial: 'summarize CVEs')
@@ -193,7 +193,7 @@ RSpec.describe Shared::InputPane do
       assert_predicate menu, :visible?
       pane.capture(marker: '✎') { |text| answers << text }
       refute_predicate menu, :visible?
-      Tuile::Screen.instance.send(:handle_key, Tuile::Keys::ESC)
+      Tuile::Screen.instance.send(:handle_key?, Tuile::Keys::ESC)
       assert_equal [nil], answers
     end
 
@@ -217,7 +217,7 @@ RSpec.describe Shared::InputPane do
       window.focus
     end
 
-    def press(key) = Tuile::Screen.instance.send(:handle_key, key)
+    def press(key) = Tuile::Screen.instance.send(:handle_key?, key)
 
     def submit(text)
       area.text = text
@@ -332,7 +332,7 @@ RSpec.describe Shared::InputPane do
       window.focus
     end
 
-    def press(key) = Tuile::Screen.instance.send(:handle_key, key)
+    def press(key) = Tuile::Screen.instance.send(:handle_key?, key)
 
     it 'makes the window the palette anchor' do
       assert_same window, menu.anchor
@@ -450,7 +450,7 @@ RSpec.describe Shared::InputPane do
       window.focus
     end
 
-    def press(key) = Tuile::Screen.instance.send(:handle_key, key)
+    def press(key) = Tuile::Screen.instance.send(:handle_key?, key)
 
     it 'pages the transcript down half a screen on PageDown' do
       conversation.scroll_top_row = 0
@@ -482,7 +482,7 @@ RSpec.describe Shared::InputPane do
       plain = described_class.new(on_submit: ->(text) { submitted << text })
       Tuile::Screen.instance.content = plain
       plain.focus
-      refute plain.area.handle_key(Tuile::Keys::PAGE_UP)
+      refute plain.area.handle_key?(Tuile::Keys::PAGE_UP)
     end
 
     context 'with the slash palette open' do

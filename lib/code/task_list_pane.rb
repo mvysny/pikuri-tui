@@ -43,7 +43,7 @@ module Code
   # {Tuile::Component::TextView} word-wraps unconditionally and offers no
   # truncate mode, so a long task would otherwise spill onto continuation rows
   # carrying no glyph. Truncation is width-dependent, so the pane keeps the last
-  # snapshot and re-renders on +on_width_changed+; a zero width (unmounted, or a
+  # snapshot and re-renders on +handle_width_changed+; a zero width (unmounted, or a
   # sidebar column {Layout} collapsed) reads as *unknown* and truncates nothing
   # until a real one lands.
   #
@@ -148,7 +148,7 @@ module Code
     # to.
     #
     # @return [void]
-    def on_width_changed
+    def handle_width_changed
       super
       render
     end

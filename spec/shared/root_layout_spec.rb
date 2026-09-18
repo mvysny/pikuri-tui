@@ -26,7 +26,7 @@ RSpec.describe Shared::RootLayout do
       screen.content = root
       screen.background_color = Tuile::Color.hex('#282c34')
 
-      root.__send__(:on_theme_changed)
+      root.__send__(:handle_theme_changed)
       expected = Shared::AppTheme.derived(Tuile::Color.hex('#282c34'))
       assert_equal expected.dark[:pane_bg], screen.theme_def.dark[:pane_bg]
       assert_equal expected.dark[:pane_frame], screen.theme_def.dark[:pane_frame]
@@ -37,9 +37,9 @@ RSpec.describe Shared::RootLayout do
       screen.content = root
       screen.background_color = Tuile::Color.hex('#1e1e2e')
 
-      root.__send__(:on_theme_changed)
+      root.__send__(:handle_theme_changed)
       before = screen.theme
-      root.__send__(:on_theme_changed)
+      root.__send__(:handle_theme_changed)
       assert_equal before, screen.theme
     end
   end

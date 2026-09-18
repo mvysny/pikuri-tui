@@ -115,7 +115,7 @@ module Code
       @on_sidebar_visibility = nil
       # The one-cell │ column between the conversation and the sidebar. Its
       # text is rebuilt to the row height by #rect=, its tone by
-      # #on_theme_changed — both are baked into the label's text.
+      # #handle_theme_changed — both are baked into the label's text.
       @separator = Tuile::Component::Label.new
       @separator.bg_color = Tuile::Theme.ref(:pane_bg)
       add(conversation)
@@ -200,7 +200,7 @@ module Code
     # Re-tones the separator column, whose color is baked into its text.
     #
     # @return [void]
-    def on_theme_changed
+    def handle_theme_changed
       super
       rebuild_separator
     end

@@ -15,14 +15,13 @@ RSpec.describe Shared::AppTheme do
 
     it 'carries exactly the tokens the app paints' do
       assert_equal %i[added detail diff_line_add diff_line_del diff_span_add diff_span_del
-                      error notice pane_bg pane_frame removed thinking tool user],
+                      error hint notice pane_bg pane_frame removed thinking tool user],
                    described_class::DARK.custom.keys.sort
     end
 
-    it 'paints its chrome accent in Talus, kuri own coat, not Tuile teal' do
-      assert_equal described_class::TALUS, described_class::DARK.hint_color
-      assert_equal described_class::TALUS_SHADE, described_class::LIGHT.hint_color
-      refute_equal Tuile::Theme::DARK.hint_color, described_class::DARK.hint_color
+    it 'paints its chrome accent in Talus, kuri own coat' do
+      assert_equal described_class::TALUS, described_class::DARK[:hint]
+      assert_equal described_class::TALUS_SHADE, described_class::LIGHT[:hint]
     end
 
     it 'keeps both Talus variants above the 4.5:1 text floor on their own grounds' do
@@ -66,7 +65,7 @@ RSpec.describe Shared::AppTheme do
 
     it 'leaves the non-derived tokens (and the Talus hint) alone' do
       derived = described_class.derived(Tuile::Color.hex('#1e1e2e')).dark
-      assert_equal described_class::TALUS, derived.hint_color
+      assert_equal described_class::TALUS, derived[:hint]
       assert_equal described_class::DARK[:tool], derived[:tool]
     end
 
@@ -84,7 +83,7 @@ RSpec.describe Shared::AppTheme do
     let(:theme) { described_class::DARK }
 
     it 'wraps text in the matching custom token foreground, ending with a reset' do
-      { tool: :tool, notice: :notice, error: :error, detail: :detail, user: :user,
+      { hint: :hint, tool: :tool, notice: :notice, error: :error, detail: :detail, user: :user,
         added: :added, removed: :removed }.each do |helper, token|
         out = theme.public_send(helper, 'x')
         assert_equal "#{theme[token].to_ansi(:fg)}x#{Tuile::Ansi::RESET}", out

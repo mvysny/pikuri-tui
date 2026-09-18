@@ -18,7 +18,7 @@ RSpec.describe Shared::PaneCaptionLabel do
     label.rect = Tuile::Rect.new(0, 0, 20, 1)
     theme = Tuile::Screen.instance.theme
     caption_span = label.text.spans.find { |span| span.text.include?('Tasks') }
-    assert_equal theme.hint_color, caption_span.style.fg
+    assert_equal theme[:hint], caption_span.style.fg
     assert_equal theme[:pane_frame], rule_spans.first.style.fg
   end
 
@@ -44,7 +44,7 @@ RSpec.describe Shared::PaneCaptionLabel do
     it 'fills the accent under the untoned spans and leaves the toned ones alone' do
       label.rect = Tuile::Rect.new(0, 0, 24, 1)
       label.caption = tally
-      assert_equal theme.hint_color, toned['Changes: 2; ']
+      assert_equal theme[:hint], toned['Changes: 2; ']
       assert_equal theme[:added], toned['+184']
     end
 
@@ -59,8 +59,8 @@ RSpec.describe Shared::PaneCaptionLabel do
   it 're-tones on a light/dark flip, since both colors are baked into the text' do
     label.rect = Tuile::Rect.new(0, 0, 20, 1)
     Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
-    label.__send__(:on_theme_changed)
-    assert_equal Shared::AppTheme::LIGHT.hint_color,
+    label.__send__(:handle_theme_changed)
+    assert_equal Shared::AppTheme::LIGHT[:hint],
                  label.text.spans.find { |span| span.text.include?('Tasks') }.style.fg
   end
 end

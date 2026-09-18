@@ -121,7 +121,7 @@ class Shared::Log::UI
   end
 
   # The status bar's +^K+ hint. The plain "menu" variant uses the theme's
-  # +hint_color+; the warning variant uses +:error+ to foreground the unread
+  # +:hint+; the warning variant uses +:error+ to foreground the unread
   # tally so the user notices something broke (and that the logs behind the
   # menu are worth opening) without us writing log lines into the
   # conversation pane.

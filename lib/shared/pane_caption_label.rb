@@ -54,7 +54,7 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
 
   # Re-renders at the new width — the rule fill is width-derived.
   # @return [void]
-  def on_width_changed
+  def handle_width_changed
     super
     refresh
   end
@@ -62,7 +62,7 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
   # Re-renders against the new {Tuile::Screen#theme}: both tones are baked into
   # the label's text.
   # @return [void]
-  def on_theme_changed
+  def handle_theme_changed
     super
     refresh
   end
@@ -77,7 +77,7 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
   def refresh
     theme = screen.theme
     caption = @caption.is_a?(Tuile::StyledString) ? @caption : Tuile::StyledString.plain(@caption)
-    text = under_fg(caption, theme.hint_color)
+    text = under_fg(caption, theme[:hint])
     fill = rect.width - caption.display_width - 1
     text += Tuile::StyledString.styled(" #{'─' * fill}", fg: theme[:pane_frame]) if fill.positive?
     self.text = text

@@ -9,7 +9,17 @@ ruby '>= 3.3'
 # there together with the Layout::Box / Screen#repaint half of the same fix
 # (tuile#17) — that is what stops a hidden pane painting back at stale
 # coordinates on the next full repaint.
-gem 'tuile', '~> 0.15'
+#
+# TEMPORARILY on `path: '../tuile'`, like the pikuri-* gems below and for the
+# same reason: this side has absorbed tuile master's post-0.15.0 API, which
+# 0.15.0 cannot satisfy. Three of its breaking changes reach us: `Theme#hint_color`
+# / `#hint` are gone (Shared::AppTheme carries `:hint` as a custom token now),
+# the override hooks are `handle_*` so `on_*` names only a listener slot, and
+# the routed handlers take a `?`. The mouse rework — the biggest half of that
+# release — misses us entirely: no shell here handles a mouse event.
+# CI can't build against a path gem: the cut of tuile 0.16
+# is what un-blocks it, and that commit restores this to `'~> 0.16'`.
+gem 'tuile', path: '../tuile'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching

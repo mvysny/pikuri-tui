@@ -43,8 +43,8 @@ require 'pikuri-core'
 # This is a component rather than the presenter it grew out of: with the pane
 # frames gone there is no +Window#footer_text+ chrome to drive, the rule is an
 # addressable row of its own, and owning the widget is what buys the
-# width-aware +─+ fill (+on_width_changed+) and the light/dark re-render
-# (+on_theme_changed+) for free.
+# width-aware +─+ fill (+handle_width_changed+) and the light/dark re-render
+# (+handle_theme_changed+) for free.
 #
 # Shared by all three shells.
 #
@@ -134,7 +134,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     # the prompt, and its hairline is +:pane_frame+ (derived for that tinted
     # ground) rather than one derived for the terminal's. A {Tuile::Theme::Ref}
     # re-resolves on every paint, so the tint follows a light/dark flip on its
-    # own; the hairline is baked into the text and needs {#on_theme_changed}.
+    # own; the hairline is baked into the text and needs {#handle_theme_changed}.
     self.bg_color = Tuile::Theme.ref(:pane_bg)
     token_log.on_status_line = method(:on_status_line)
     refresh
@@ -247,7 +247,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
 
   # Re-renders at the new width — the +─+ fill is width-derived.
   # @return [void]
-  def on_width_changed
+  def handle_width_changed
     super
     refresh
   end
@@ -255,7 +255,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # Re-renders against the new {Tuile::Screen#theme}, already in place when
   # this fires: the hairline and every segment tone are baked into the text.
   # @return [void]
-  def on_theme_changed
+  def handle_theme_changed
     super
     refresh
   end
@@ -309,7 +309,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
       else
         # The pads are hint-toned rather than uncolored so the whole readout —
         # padding included — is one uniform run on the non-plan path.
-        pad = Tuile::StyledString.plain(' ').with_fg(screen.theme.hint_color)
+        pad = Tuile::StyledString.plain(' ').with_fg(screen.theme[:hint])
         body = lead + pad + readout + pad
         body + hairline(rect.width - body.display_width)
       end
@@ -331,7 +331,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   #
   # @return [Tuile::StyledString, nil] +nil+ when there is nothing to say.
   def build_readout
-    hint = screen.theme.hint_color
+    hint = screen.theme[:hint]
     tail = tail_text
     parts = badges
     parts << Tuile::StyledString.plain(tail).with_fg(hint) unless tail.empty?

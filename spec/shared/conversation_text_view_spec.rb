@@ -269,7 +269,7 @@ RSpec.describe Shared::ConversationTextView do
                                                           on_choice: ->(outcome) { picked << outcome })
       pane.toggle_thinking
       assert_includes rendered, '⏵ OK to run this?'
-      assert_equal true, pane.handle_key('y')
+      assert_equal true, pane.handle_key?('y')
       assert_equal [:approve], picked
     end
 
@@ -816,18 +816,18 @@ RSpec.describe Shared::ConversationTextView do
 
     it 'reports the picked outcome and consumes the key' do
       pane.pending_decision = decision('y', 'n')
-      assert_equal true, pane.handle_key('n')
+      assert_equal true, pane.handle_key?('n')
       assert_equal [:n_picked], picked
     end
 
     it 'declines a key it was not offered, leaving the scroll ladder alone' do
       pane.pending_decision = decision('y')
-      assert_equal false, pane.handle_key('z')
+      assert_equal false, pane.handle_key?('z')
       assert_empty picked
     end
 
     it 'answers nothing when no decision is asked — y is just a key' do
-      assert_equal false, pane.handle_key('y')
+      assert_equal false, pane.handle_key?('y')
       assert_empty picked
     end
 
@@ -843,7 +843,7 @@ RSpec.describe Shared::ConversationTextView do
       pane.pending_decision = decision('y')
       pane.settle_pending_decision('approved')
       assert_nil pane.pending_decision
-      assert_equal false, pane.handle_key('y')
+      assert_equal false, pane.handle_key?('y')
       assert_empty picked
     end
 
@@ -863,7 +863,7 @@ RSpec.describe Shared::ConversationTextView do
       pane.pending_decision = decision('y')
       pane.clear
       assert_nil pane.pending_decision
-      assert_equal false, pane.handle_key('y')
+      assert_equal false, pane.handle_key?('y')
     end
   end
 
@@ -871,12 +871,12 @@ RSpec.describe Shared::ConversationTextView do
     it 'runs on_escape — the host hands the caret back to the prompt' do
       escaped = 0
       pane.on_escape = -> { escaped += 1 }
-      described_class::LEAVE_KEYS.each { |key| assert_equal true, pane.handle_key(key) }
+      described_class::LEAVE_KEYS.each { |key| assert_equal true, pane.handle_key?(key) }
       assert_equal described_class::LEAVE_KEYS.length, escaped
     end
 
     it 'leaves them unclaimed with no handler wired' do
-      described_class::LEAVE_KEYS.each { |key| assert_equal false, pane.handle_key(key) }
+      described_class::LEAVE_KEYS.each { |key| assert_equal false, pane.handle_key?(key) }
     end
   end
 end

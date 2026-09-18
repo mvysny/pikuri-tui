@@ -13,7 +13,7 @@ require 'tuile'
 # doesn't, the bar takes exactly one.
 #
 # Being the one component every shell mounts, this is also where the theme's
-# background-derived tokens are kept current: {#on_theme_changed} re-runs
+# background-derived tokens are kept current: {#handle_theme_changed} re-runs
 # {Shared::AppTheme.install}, so a light/dark flip or a fresh OSC-11 background
 # re-derives the tint and the hairlines for the whole tree. (The *first*
 # install is the +App+'s, before it builds any component — see
@@ -42,11 +42,11 @@ class Shared::RootLayout < Tuile::Component::Layout::Vertical
   # Re-derives the background-dependent theme tokens. Both a light/dark variant
   # flip and a fresh OSC-11 background RGB funnel into this hook (a changed
   # +Tuile::Screen#background_color+ fires it tree-wide), so there is no
-  # staleness handling anywhere else — every pane's own +on_theme_changed+ then
+  # staleness handling anywhere else — every pane's own +handle_theme_changed+ then
   # fires against the already-derived theme.
   #
   # @return [void]
-  def on_theme_changed
+  def handle_theme_changed
     super
     Shared::AppTheme.install(screen)
   end

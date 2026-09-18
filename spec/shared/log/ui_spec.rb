@@ -58,7 +58,7 @@ RSpec.describe Shared::Log::UI do
   it 'Ctrl+K fires the supplied open-menu action' do
     opened = false
     boot { opened = true }
-    screen.send(:handle_key, Tuile::Keys::CTRL_K)
+    screen.send(:handle_key?, Tuile::Keys::CTRL_K)
     assert opened, 'expected the Ctrl+K action to run the supplied block'
   end
 

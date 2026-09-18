@@ -296,15 +296,15 @@ RSpec.describe Shared::StatusRuleLabel do
     assert_equal '', footer_text.to_s
   end
 
-  it 'bakes the current theme hint_color into the readout (the status is hint chrome)' do
+  it 'bakes the current theme :hint into the readout (the status is hint chrome)' do
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
     label.send(:refresh)
-    hint = Tuile::Screen.instance.theme.hint_color
+    hint = Tuile::Screen.instance.theme[:hint]
     refute_empty readout_spans
     assert(readout_spans.all? { |span| span.style.fg == hint })
   end
 
-  it 'restyles when on_theme_changed fires after a theme flip' do
+  it 'restyles when handle_theme_changed fires after a theme flip' do
     label # construct first: refresh bakes the FakeScreen default (DARK) hint color in.
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
 
@@ -312,8 +312,8 @@ RSpec.describe Shared::StatusRuleLabel do
     # Screen#theme= fires this tree-wide; here we drive it directly. The hook is
     # protected plumbing since tuile 0.14 (its decisions.md → hook_visibility),
     # so reach it the way Tuile's own fan-out does.
-    label.__send__(:on_theme_changed)
-    assert(readout_spans.all? { |span| span.style.fg == Shared::AppTheme::LIGHT.hint_color })
+    label.__send__(:handle_theme_changed)
+    assert(readout_spans.all? { |span| span.style.fg == Shared::AppTheme::LIGHT[:hint] })
   end
 
   it 'carries the secondary-pane tint, so it reads as the prompt block top edge' do

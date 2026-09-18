@@ -16,13 +16,13 @@ module Code
   #     changes: [], diff_text: "diff --git a/x b/x\n@@ -1 +1 @@\n-old\n+new\n", error: nil)
   #
   # The inline bars pad to the pane width, so the retained snapshot re-renders at
-  # the new width on resize ({#on_width_changed}). Degrades to the raw plain diff
+  # the new width on resize ({#handle_width_changed}). Degrades to the raw plain diff
   # (logged) if {GitDiffRenderer} chokes on an unexpected diff shape, per
   # +D_tui_degrades_not_crashes+ ("external breakage is logged, we degrade"). A domain component built
   # by subclassing the generic {Tuile::Component::Window}.
   #
   # UI-thread-confined (the {WorkspaceSidebar} subscription marshals {#snapshot=}
-  # onto the UI thread; {#on_width_changed} already fires on it).
+  # onto the UI thread; {#handle_width_changed} already fires on it).
   class GitDiffWindow < Tuile::Component::Window
     # Shown when there is no diff. Toned +:detail+ as placeholder chrome.
     #
@@ -59,7 +59,7 @@ module Code
     # to {#max_width}, which tracks the window width.
     #
     # @return [void]
-    def on_width_changed
+    def handle_width_changed
       super
       rerender
     end
@@ -91,7 +91,7 @@ module Code
     # Content text width for the rendered bars: the window width less its left
     # border and the two columns the scrollbar claims (it takes the right
     # border's column), floored at 1 so a not-yet-laid-out pane (width 0, e.g.
-    # while the popup is closed) still renders - {#on_width_changed} redraws at the
+    # while the popup is closed) still renders - {#handle_width_changed} redraws at the
     # real width once the popup lays the pane out.
     #
     # @return [Integer]

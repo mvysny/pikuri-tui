@@ -154,7 +154,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   attr_reader :listener
 
   # @return [Shared::PendingDecision, nil] the decision this pane is currently
-  #   asking, +nil+ when there is none. While set, {#handle_key} claims that
+  #   asking, +nil+ when there is none. While set, {#handle_key?} claims that
   #   decision's keys.
   attr_reader :pending_decision
 
@@ -449,7 +449,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #
   # @param key [String]
   # @return [Boolean] +true+ if the key was consumed here.
-  def handle_key(key)
+  def handle_key?(key)
     return true if choose(key)
 
     if LEAVE_KEYS.include?(key) && @on_escape
