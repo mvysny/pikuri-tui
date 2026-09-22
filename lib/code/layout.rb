@@ -97,7 +97,7 @@ module Code
 
     # @param conversation [Shared::ConversationTextView] the transcript pane
     #   (top-left). Added as a child during construction; its rect is managed
-    #   by {#rect=}.
+    #   by {#relayout}.
     # @param status_rule [Shared::StatusRuleLabel] the full-width rule under
     #   both columns, carrying the agent status readout. Same lifecycle.
     # @param input [Shared::InputPane] the full-width tinted prompt well
@@ -114,7 +114,7 @@ module Code
       @sidebar_was_visible = nil
       @on_sidebar_visibility = nil
       # The one-cell │ column between the conversation and the sidebar. Its
-      # text is rebuilt to the row height by #rect=, its tone by
+      # text is rebuilt to the row height by #relayout, its tone by
       # #handle_theme_changed — both are baked into the label's text.
       @separator = Tuile::Component::Label.new
       @separator.bg_color = Tuile::Theme.ref(:pane_bg)
@@ -144,8 +144,10 @@ module Code
     # @return [Symbol] the current sidebar posture, one of {SIDEBAR_MODES}.
     attr_reader :sidebar_mode
 
-    # @param mode [Symbol] one of {SIDEBAR_MODES}. Re-splits the upper region
-    #   immediately.
+    # @param mode [Symbol] one of {SIDEBAR_MODES}. Marks the upper region for
+    #   a re-split, which {Tuile::Screen#dispatch} settles at the end of the
+    #   event — so a caller reading a pane's rect, or {#sidebar_visible?},
+    #   in the same turn calls {Tuile::Component#flush_layout} first.
     # @raise [ArgumentError] on any other symbol.
     # @return [void]
     def sidebar_mode=(mode)
@@ -153,7 +155,7 @@ module Code
       return if mode == @sidebar_mode
 
       @sidebar_mode = mode
-      reflow unless rect.empty?
+      invalidate_layout
     end
 
     # Advances {#sidebar_mode} one step around {SIDEBAR_MODES}, wrapping.
@@ -184,17 +186,6 @@ module Code
       @on_sidebar_visibility = block
     end
 
-    # Re-positions the five pieces whenever the layout's own rect changes.
-    #
-    # @param new_rect [Tuile::Rect]
-    # @return [void]
-    def rect=(new_rect)
-      super
-      return if rect.empty?
-
-      reflow
-    end
-
     protected
 
     # Re-tones the separator column, whose color is baked into its text.
@@ -207,29 +198,31 @@ module Code
 
     private
 
-    # Positions the five pieces across the current {#rect}: the bottom
+    # Positions the five pieces across the layout's own rect: the bottom
     # {INPUT_HEIGHT} rows go to the prompt and the row above them to the status
     # rule, both full width; what is left splits into a conversation column and
     # a sidebar column ({#sidebar_width}) with the {#separator} between them.
     # With no room for a readable sidebar, {#sidebar_width} returns +0+ and both
     # are hidden ({#place_sidebar}), leaving the conversation full width.
     #
-    # Also runs on a {#sidebar_mode=} change, when the rect itself has not
-    # moved — which is why the geometry is here rather than inline in {#rect=}.
+    # The one seam for all three inputs to this arithmetic: the layout's rect
+    # moving, a {#sidebar_mode=} change, and a child's {Tuile::Component#visible=}
+    # flip — which is also why {#announce_sidebar_visibility} can live here.
+    # {#place_sidebar}'s own flip re-marks this layout, so a settle runs the
+    # pass twice; being edge-triggered is what keeps the second one silent.
     #
     # @return [void]
-    def reflow
-      input_h = [INPUT_HEIGHT, rect.height].min
-      rule_h = rect.height > input_h ? 1 : 0
-      top_h = rect.height - input_h - rule_h
+    def relayout
+      input_h = [INPUT_HEIGHT, height].min
+      rule_h = height > input_h ? 1 : 0
+      top_h = height - input_h - rule_h
 
-      right_w = sidebar_width(rect.width)
-      left_w = rect.width - (right_w.positive? ? right_w + 1 : 0)
+      right_w = sidebar_width(width)
+      left_w = width - (right_w.positive? ? right_w + 1 : 0)
 
-      @conversation.rect = Tuile::Rect.new(rect.left + CONTENT_INSET, rect.top,
-                                           [left_w - CONTENT_INSET, 0].max, top_h)
-      @status_rule.rect = Tuile::Rect.new(rect.left, rect.top + top_h, rect.width, rule_h)
-      @input.rect = Tuile::Rect.new(rect.left, rect.top + top_h + rule_h, rect.width, input_h)
+      @conversation.rect = Tuile::Rect.new(CONTENT_INSET, 0, [left_w - CONTENT_INSET, 0].max, top_h)
+      @status_rule.rect = Tuile::Rect.new(0, top_h, width, rule_h)
+      @input.rect = Tuile::Rect.new(0, top_h + rule_h, width, input_h)
       place_sidebar(left_w, top_h, right_w)
       announce_sidebar_visibility
     end

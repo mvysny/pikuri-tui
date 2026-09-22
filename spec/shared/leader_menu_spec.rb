@@ -18,8 +18,7 @@ RSpec.describe Shared::LeaderMenu do
   def painted_rows
     picker = modal_popup.content
     picker.rect = Tuile::Rect.new(0, 0, 30, 4)
-    picker.content.repaint
-    Tuile::Screen.instance.buffer.region_text(picker.content.rect).map(&:strip).reject(&:empty?)
+    painted_region(settle(picker).content).map(&:strip).reject(&:empty?)
   end
 
   it 'is empty until an action is added' do
@@ -80,8 +79,7 @@ RSpec.describe Shared::LeaderMenu do
     # The picker's list holds Option items and renders them at paint time, so the
     # rows are read off the painted buffer.
     picker.rect = Tuile::Rect.new(0, 0, 20, 4)
-    picker.content.repaint
-    rows = Tuile::Screen.instance.buffer.region_text(picker.content.rect).map(&:strip)
+    rows = painted_region(settle(picker).content).map(&:strip)
     assert_equal ['l logs', 'q quit'], rows.reject(&:empty?)
   end
 

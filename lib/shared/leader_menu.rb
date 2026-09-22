@@ -128,7 +128,7 @@ class Shared::LeaderMenu
       @screen.event_queue.submit { action.callback.call } if action
     end
     popup = CancelPopup.new(content: picker)
-    picker.on_pick = -> { popup.close }
+    picker.on_pick { popup.close }
     popup.open
   end
 end

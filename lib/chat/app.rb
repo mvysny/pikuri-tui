@@ -146,7 +146,7 @@ module Chat
       @status_rule.current_model = @agent.transport
 
       @leader_menu = build_leader_menu
-      @screen.on_error = method(:on_screen_error)
+      @screen.on_error << method(:on_screen_error)
       @screen.content = Shared::RootLayout.new(@layout, @status_bar)
       # The prompt is the shell's only focus target; Shared::InputPane#focus
       # forwards onto its private editable area.
@@ -198,7 +198,7 @@ module Chat
       # through to the loop's unhandled-key quit. This shell asks no
       # confirmations, but Tab still reaches the pane.
       @ui_toggles = Shared::UIToggleMenu.new(screen: @screen, conversation: @conversation)
-      @conversation.on_escape = -> { @input.focus }
+      @conversation.on_escape { @input.focus }
 
       @layout = Layout.new(
         conversation: @conversation,
@@ -340,9 +340,11 @@ module Chat
       @screen.event_queue.stop
     end
 
-    # @param exception [StandardError]
+    # @param event [Tuile::EventQueue::ErrorEvent] the uncaught exception, in
+    #   the event the empty-means-re-raise slot hands its listeners.
     # @return [void]
-    def on_screen_error(exception)
+    def on_screen_error(event)
+      exception = event.error
       LOG.error(
         "#{exception.class}: #{exception.message}\n#{(exception.backtrace || []).join("\n")}"
       )

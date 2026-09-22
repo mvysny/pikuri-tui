@@ -750,9 +750,7 @@ RSpec.describe Shared::ConversationTextView do
     # the blank Tuile reserves) so neither lands in the compared text.
     def painted(view)
       view.rect = Tuile::Rect.new(0, 0, 60, 6)
-      view.repaint
-      text_area = Tuile::Rect.new(0, 0, view.rect.width - 2, view.rect.height)
-      Tuile::Screen.instance.buffer.region_text(text_area).map(&:rstrip)
+      painted_region(view, trim_right: 2).map(&:rstrip)
     end
 
     it 'paints the indent: prefix, so sub-agent blocks nest visibly' do
@@ -869,13 +867,13 @@ RSpec.describe Shared::ConversationTextView do
 
   describe 'leaving the pane' do
     it 'runs on_escape — the host hands the caret back to the prompt' do
-      escaped = 0
-      pane.on_escape = -> { escaped += 1 }
+      escaped = []
+      pane.on_escape { |e| escaped << e.source }
       described_class::LEAVE_KEYS.each { |key| assert_equal true, pane.handle_key?(key) }
-      assert_equal described_class::LEAVE_KEYS.length, escaped
+      assert_equal [pane] * described_class::LEAVE_KEYS.length, escaped
     end
 
-    it 'leaves them unclaimed with no handler wired' do
+    it 'leaves them unclaimed with an empty slot' do
       described_class::LEAVE_KEYS.each { |key| assert_equal false, pane.handle_key?(key) }
     end
   end

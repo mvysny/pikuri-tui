@@ -21,8 +21,7 @@ RSpec.describe Shared::SlashMenuPopup do
   # The list holds SlashCommands and renders them at paint time, so the rows are
   # read off the painted buffer (blank filler rows dropped).
   def rows
-    list.repaint
-    Tuile::Screen.instance.buffer.region_text(list.rect).map(&:strip).reject(&:empty?)
+    painted_region(list).map(&:strip).reject(&:empty?)
   end
 
   it 'stands up as a non-modal, borderless Overlay wrapping a List directly' do

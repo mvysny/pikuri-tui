@@ -20,12 +20,14 @@ RSpec.describe Code::Layout do
 
   it 'runs the status rule and the prompt full width, under both columns' do
     layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+    settle(layout)
     assert_equal Tuile::Rect.new(0, top_height, WIDE, 1), status_rule.rect
     assert_equal Tuile::Rect.new(0, top_height + 1, WIDE, described_class::INPUT_HEIGHT), input.rect
   end
 
   it 'splits the upper region into conversation | separator | sidebar' do
     layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+    settle(layout)
     right_w = (WIDE * described_class::SIDEBAR_FRACTION).round
     left_w = WIDE - right_w - 1
     inset = described_class::CONTENT_INSET
@@ -37,6 +39,7 @@ RSpec.describe Code::Layout do
 
   it 'draws the separator as one :pane_frame │ per row of the upper region' do
     layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+    settle(layout)
     assert_equal Array.new(top_height, '│').join("\n"), layout.separator.text.to_s
     assert(layout.separator.text.spans.all? { |span| span.style.fg == Tuile::Screen.instance.theme[:pane_frame] })
   end
@@ -47,6 +50,7 @@ RSpec.describe Code::Layout do
 
   it 'hides the sidebar and its separator on a terminal too narrow for both' do
     layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
+    settle(layout)
     refute_predicate sidebar, :visible?
     refute_predicate layout.separator, :visible?
     assert_equal 40 - described_class::CONTENT_INSET, conversation.rect.width
@@ -54,11 +58,13 @@ RSpec.describe Code::Layout do
 
   it 'keeps the prompt full width even when the sidebar collapses' do
     layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
+    settle(layout)
     assert_equal 40, input.rect.width
   end
 
   it 're-tones the separator on a light/dark flip' do
     layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+    settle(layout)
     Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
     layout.__send__(:handle_theme_changed)
     assert(layout.separator.text.spans.all? { |span| span.style.fg == Shared::AppTheme::LIGHT[:pane_frame] })
@@ -70,19 +76,24 @@ RSpec.describe Code::Layout do
     it 'starts full — the fraction of the width' do
       assert_equal :full, layout.sidebar_mode
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       assert_equal (WIDE * described_class::SIDEBAR_FRACTION).round, sidebar.rect.width
     end
 
     it 'narrows the column to a fixed width, handing the rest to the conversation' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       layout.sidebar_mode = :narrow
+      settle(layout)
       narrow = described_class::NARROW_SIDEBAR_WIDTH
       assert_equal [WIDE - narrow - 1 - described_class::CONTENT_INSET, 1, narrow], widths
     end
 
     it 'drops the sidebar and its separator entirely when hidden' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       layout.sidebar_mode = :hidden
+      settle(layout)
       refute_predicate sidebar, :visible?
       refute_predicate layout.separator, :visible?
       assert_equal WIDE - described_class::CONTENT_INSET, conversation.rect.width
@@ -90,9 +101,12 @@ RSpec.describe Code::Layout do
 
     it 'gives the column its geometry back when it comes out of hiding' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       full = sidebar.rect
       layout.sidebar_mode = :hidden
+      settle(layout)
       layout.sidebar_mode = :full
+      settle(layout)
       assert_predicate sidebar, :visible?
       assert_equal full, sidebar.rect
       assert_equal Tuile::Rect.new(full.left - 1, 0, 1, top_height), layout.separator.rect
@@ -100,15 +114,19 @@ RSpec.describe Code::Layout do
 
     it 're-splits immediately, without waiting for a resize' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       before = sidebar.rect.width
       layout.sidebar_mode = :narrow
+      settle(layout)
       refute_equal before, sidebar.rect.width
     end
 
     it 'keeps the prompt and status rule full width in every mode' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       described_class::SIDEBAR_MODES.each do |mode|
         layout.sidebar_mode = mode
+        settle(layout)
         assert_equal WIDE, input.rect.width, "input in #{mode}"
         assert_equal WIDE, status_rule.rect.width, "status rule in #{mode}"
       end
@@ -116,6 +134,7 @@ RSpec.describe Code::Layout do
 
     it 'cycles full → narrow → hidden and back around' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       assert_equal %i[narrow hidden full], Array.new(3) { layout.cycle_sidebar_mode }
     end
 
@@ -128,15 +147,19 @@ RSpec.describe Code::Layout do
       # 40 columns leaves the conversation under MIN_CONVERSATION_WIDTH once a
       # 24-column sidebar and its separator are taken out.
       layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
+      settle(layout)
       layout.sidebar_mode = :narrow
+      settle(layout)
       refute_predicate sidebar, :visible?
       assert_equal 40, input.rect.width
     end
 
     it 'survives a mode change before it has a rect' do
       layout.sidebar_mode = :narrow
+      settle(layout)
       assert_equal :narrow, layout.sidebar_mode
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       assert_equal described_class::NARROW_SIDEBAR_WIDTH, sidebar.rect.width
     end
   end
@@ -146,40 +169,51 @@ RSpec.describe Code::Layout do
       seen = []
       layout.on_sidebar_visibility { |visible| seen << visible }
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       assert_equal [true], seen
       assert_predicate layout, :sidebar_visible?
     end
 
     it 'fires on a mode change' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       seen = []
       layout.on_sidebar_visibility { |visible| seen << visible }
       layout.sidebar_mode = :hidden
+      settle(layout)
       layout.sidebar_mode = :full
+      settle(layout)
       assert_equal [false, true], seen
     end
 
     it 'fires on a resize that collapses the column, which no host would see otherwise' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       seen = []
       layout.on_sidebar_visibility { |visible| seen << visible }
       layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
+      settle(layout)
       assert_equal [false], seen
       refute_predicate layout, :sidebar_visible?
     end
 
     it 'is edge-triggered: a reflow that changes nothing says nothing' do
       layout.rect = Tuile::Rect.new(0, 0, WIDE, TALL)
+      settle(layout)
       seen = 0
       layout.on_sidebar_visibility { seen += 1 }
       layout.rect = Tuile::Rect.new(0, 0, WIDE - 4, TALL)
+      settle(layout)
       layout.sidebar_mode = :narrow
+      settle(layout)
       assert_equal 0, seen
     end
 
     it 'answers sidebar_visible? on the column, not the mode — a narrow mode can still collapse' do
       layout.rect = Tuile::Rect.new(0, 0, 40, TALL)
+      settle(layout)
       layout.sidebar_mode = :narrow
+      settle(layout)
       assert_equal :narrow, layout.sidebar_mode
       refute_predicate layout, :sidebar_visible?
     end

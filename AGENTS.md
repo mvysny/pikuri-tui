@@ -49,7 +49,8 @@ Every fact lives in exactly one of these; the others link to it.
 - **The `edit` / `write` diff blocks are never kinded**, so no density toggle can hide them: a diff is reviewed, not skimmed. See `D_density_thunks`.
 - **Hide a pane with `visible=`, never by detaching it from its box.** Detaching fires `on_detached` and stops whatever the pane is running — a data feed that hiding exists to preserve. See `D_visible_not_detach`.
 - **`Code::GitWatcher` must keep polling while the sidebar is off screen** — the status-rule digest stands in for the hidden panes. See `D_visible_not_detach`.
-- **Never short-circuit `rect=` on an empty rect** in a container that computes its own child rects (`Code::WorkspaceSidebar`): children keep painting at the columns they used to hold.
+- **A container assigns its child rects in `relayout`, all of them on every pass** — an empty rect included (`Code::WorkspaceSidebar`), or a child keeps painting at the columns it used to hold. Coordinates are measured inside the parent; screen-space wants `absolute_rect`.
+- **Layout is deferred**: `rect=`, a `visible=` flip and `Code::Layout#sidebar_mode=` only mark, and Tuile settles at the end of the event — read a rect in the turn that dirtied it only after `flush_layout` (`settle` in specs).
 - **Every accent comes from `Shared::AppTheme`**, `theme.hint` first; a component that invents an RGB is the exception and says why in its rdoc. See `D_borderless_panes`.
 
 ## Module map
@@ -60,7 +61,7 @@ Every fact lives in exactly one of these; the others link to it.
 - `lib/computer/` — `Computer::App` + `Computer::Layout`: chat's layout, the coding shell's safety machinery.
 - `lib/pikuri_tui.rb` — the Zeitwerk loader (root `lib/`) + eager-load; skips `Code` / `Computer` when their gems are absent.
 - `bin/` — one boot script per shell (CLI, config, pre-screen prompts, then the `App`), plus `setup` / `install` / `uninstall`.
-- `spec/support/` — `marshalling_fake_screen.rb` (`fake_screen`, `wait_until`) and the tool-event builders.
+- `spec/support/` — `marshalling_fake_screen.rb` (`fake_screen`, `wait_until`), the tool-event builders, `settle` (the deferred layout pass) and `paint` / `painted_region` (one component through its own canvas).
 
 ## Conventions
 

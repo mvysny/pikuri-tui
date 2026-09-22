@@ -4,18 +4,28 @@ source 'https://rubygems.org'
 
 ruby '>= 3.3'
 
-# Component-oriented terminal UI framework. The floor is 0.16 because this side
-# is on that release's renamed API: `Theme#hint_color` / `#hint` are gone
-# (Shared::AppTheme carries `:hint` as a custom token now), the override hooks
-# are `handle_*` so `on_*` names only a listener slot, and the routed handlers
-# take a `?`. The mouse rework — the biggest half of that release — misses us
-# entirely: no shell here handles a mouse event.
+# Component-oriented terminal UI framework.
+#
+# TEMPORARILY on `path: '../tuile'`: this side is ported onto master's
+# post-0.16.0 API, which the released 0.16.0 gem no longer builds. Three
+# breaking changes reach us — every container divides its rect in a protected
+# `relayout` instead of a `rect=` override, in coordinates measured *inside*
+# the parent; that pass is deferred, so a rect read in the turn that dirtied it
+# wants `Component#flush_layout`; and a listener slot is an append-only list
+# with no setter (`screen.on_error << …`, `field.on_change { |e| … }`), each
+# firing one event object. The two that miss us entirely are the canvas seam
+# (no shell here overrides `repaint`) and the mouse rework (none handles a
+# mouse event).
+#
+# CI can't build against a path gem, so whichever comes first, the cut of
+# tuile 0.17 is what un-blocks CI, and that commit reverts this line to
+# `'~> 0.17'`.
 #
 # 0.15 still matters underneath it: Code::Layout hides the sidebar column with
-# Component#visible=, which landed there together with the Layout::Box /
-# Screen#repaint half of the same fix (tuile#17) — that is what stops a hidden
-# pane painting back at stale coordinates on the next full repaint.
-gem 'tuile', '~> 0.16'
+# Component#visible=, which landed there (tuile#17) and now also marks the
+# parent's `relayout` — that is what stops a hidden pane painting back at stale
+# coordinates on the next full repaint.
+gem 'tuile', path: '../tuile'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching

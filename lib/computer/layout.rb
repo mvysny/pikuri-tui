@@ -31,7 +31,7 @@ module Computer
 
     # @param conversation [Shared::ConversationTextView] the transcript pane
     #   (top). Added as a child during construction; its rect is managed by
-    #   {#rect=}.
+    #   {#relayout}.
     # @param status_rule [Shared::StatusRuleLabel] the one-row rule between the
     #   two panes, carrying the agent status readout. Same lifecycle.
     # @param input [Shared::InputPane] the tinted prompt well (bottom). Same
@@ -55,25 +55,22 @@ module Computer
     # @return [Shared::InputPane]
     attr_reader :input
 
-    # Re-positions the three rows whenever the layout's own rect changes. The
-    # prompt takes the bottom {INPUT_HEIGHT} rows and the rule the one above
-    # it; the conversation takes everything left, inset by {CONTENT_INSET}. On
-    # a terminal too short for all three the prompt shrinks first, then the
-    # rule drops out, then the conversation.
-    #
-    # @param new_rect [Tuile::Rect]
-    # @return [void]
-    def rect=(new_rect)
-      super
-      return if rect.empty?
+    private
 
-      input_h = [INPUT_HEIGHT, rect.height].min
-      rule_h = rect.height > input_h ? 1 : 0
-      top_h = rect.height - input_h - rule_h
-      @conversation.rect = Tuile::Rect.new(rect.left + CONTENT_INSET, rect.top,
-                                           [rect.width - CONTENT_INSET, 0].max, top_h)
-      @status_rule.rect = Tuile::Rect.new(rect.left, rect.top + top_h, rect.width, rule_h)
-      @input.rect = Tuile::Rect.new(rect.left, rect.top + top_h + rule_h, rect.width, input_h)
+    # Divides the layout's own rect between the three rows. The prompt takes
+    # the bottom {INPUT_HEIGHT} rows and the rule the one above it; the
+    # conversation takes everything left, inset by {CONTENT_INSET}. On a
+    # terminal too short for all three the prompt shrinks first, then the rule
+    # drops out, then the conversation.
+    #
+    # @return [void]
+    def relayout
+      input_h = [INPUT_HEIGHT, height].min
+      rule_h = height > input_h ? 1 : 0
+      top_h = height - input_h - rule_h
+      @conversation.rect = Tuile::Rect.new(CONTENT_INSET, 0, [width - CONTENT_INSET, 0].max, top_h)
+      @status_rule.rect = Tuile::Rect.new(0, top_h, width, rule_h)
+      @input.rect = Tuile::Rect.new(0, top_h + rule_h, width, input_h)
     end
   end
 end

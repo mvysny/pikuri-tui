@@ -58,17 +58,20 @@ RSpec.describe Code::App do
     it 'moves the counts into the rule when the sidebar is hidden' do
       emit_changes(42, 7)
       app.send(:set_sidebar, 'off')
+      settle(app.screen)
       assert_includes rule.text.to_s, '1 file +42/-7'
     end
 
     it 'picks up data arriving after the sidebar is already hidden' do
       app.send(:set_sidebar, 'off')
+      settle(app.screen)
       emit_changes(3, 0)
       assert_includes rule.text.to_s, '1 file +3'
     end
 
     it 'takes the tasks half from the task pane, not just the git poll' do
       app.send(:set_sidebar, 'off')
+      settle(app.screen)
       sidebar.task_listener.on_event(
         Pikuri::Tasks::ListChanged.new(items: [
                                          Pikuri::Tasks::Item.new(id: 1, content: 'a', status: 'completed'),
@@ -81,8 +84,10 @@ RSpec.describe Code::App do
     it 'hands the counts back to the panes when the sidebar returns' do
       emit_changes(9, 2)
       app.send(:set_sidebar, 'off')
+      settle(app.screen)
       assert_includes rule.text.to_s, '1 file'
       app.send(:set_sidebar, 'full')
+      settle(app.screen)
       assert_nil rule.workspace_digest
       refute_includes rule.text.to_s, 'file'
     end
@@ -451,7 +456,8 @@ RSpec.describe Code::App do
 
   it 'installs an on_error handler that funnels uncaught exceptions to the pikuri log' do
     app
-    log = capture_log { app.screen.on_error.call(RuntimeError.new('oops')) }
+    error = Tuile::EventQueue::ErrorEvent.new(error: RuntimeError.new('oops'))
+    log = capture_log { app.screen.on_error.fire(error) }
     assert_includes log, 'RuntimeError'
     assert_includes log, 'oops'
   end

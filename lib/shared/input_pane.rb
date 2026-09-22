@@ -160,23 +160,6 @@ class Shared::InputPane < Tuile::Component::Layout
     @area.finish_capture(nil) if @area.capturing?
   end
 
-  # Lays the marker and the editable area out across the tinted well: the
-  # marker on the first row at the very left edge, the area filling the rest
-  # bar {TRAILING_PAD} columns. The base {Tuile::Component#repaint} fills
-  # whatever the two children don't cover with {#bg_color} — which is what
-  # paints the trailing pad and the rows under the marker.
-  #
-  # @param new_rect [Tuile::Rect]
-  # @return [void]
-  def rect=(new_rect)
-    super
-    return if rect.empty?
-
-    @marker.rect = Tuile::Rect.new(rect.left, rect.top, MARKER_WIDTH, 1)
-    @area.rect = Tuile::Rect.new(rect.left + MARKER_WIDTH, rect.top,
-                                 [rect.width - MARKER_WIDTH - TRAILING_PAD, 0].max, rect.height)
-  end
-
   # The editable content: a {Tuile::Component::TextArea} that rebinds Enter
   # from "insert a newline" to "submit the buffer and clear it".
   #
@@ -210,8 +193,11 @@ class Shared::InputPane < Tuile::Component::Layout
       @capture = nil
       # No palette while capturing: a captured answer is prose, so a leading
       # slash is a character and not the start of a command.
-      self.on_change = ->(text) { slash_menu.sync(text) unless @recalling || @capture } if slash_menu
-      self.on_escape = method(:escape)
+      on_change { |e| slash_menu.sync(e.text) unless @recalling || @capture } if slash_menu
+      # ESC is history-then-clear here, never a blur: #escape owns all of it, so
+      # the field's own blur is turned off rather than followed.
+      self.escape_clears_focus = false
+      on_escape << method(:escape)
     end
 
     # Route the next Enter / ESC to +on_finish+ instead of submitting a turn.
@@ -318,8 +304,9 @@ class Shared::InputPane < Tuile::Component::Layout
       true
     end
 
-    # ESC outside the palette, in place of the inherited clear-focus default:
-    # leave history if browsing, otherwise wipe the buffer.
+    # ESC outside the palette, in place of the inherited blur (turned off with
+    # {Tuile::Component::AbstractStringField#escape_clears_focus} in the
+    # constructor): leave history if browsing, otherwise wipe the buffer.
     #
     # @return [void]
     def escape
@@ -417,6 +404,18 @@ class Shared::InputPane < Tuile::Component::Layout
   end
 
   private
+
+  # Lays the marker and the editable area out across the tinted well: the
+  # marker on the first row at the very left edge, the area filling the rest
+  # bar {TRAILING_PAD} columns. The base {Tuile::Component#repaint} fills
+  # whatever the two children don't cover with {#bg_color} — which is what
+  # paints the trailing pad and the rows under the marker.
+  #
+  # @return [void]
+  def relayout
+    @marker.rect = Tuile::Rect.new(0, 0, [MARKER_WIDTH, width].min, [1, height].min)
+    @area.rect = Tuile::Rect.new(MARKER_WIDTH, 0, [width - MARKER_WIDTH - TRAILING_PAD, 0].max, height)
+  end
 
   # Re-renders the marker label; its accent is baked into the text.
   # @return [void]

@@ -229,7 +229,8 @@ RSpec.describe Chat::App do
 
   it 'installs an on_error handler that funnels uncaught exceptions to the pikuri log' do
     app
-    log = capture_log { app.screen.on_error.call(RuntimeError.new('oops')) }
+    error = Tuile::EventQueue::ErrorEvent.new(error: RuntimeError.new('oops'))
+    log = capture_log { app.screen.on_error.fire(error) }
     assert_includes log, 'RuntimeError'
     assert_includes log, 'oops'
   end

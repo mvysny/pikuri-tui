@@ -129,10 +129,10 @@ component's parent, its rect and everything it is running, and fires no lifecycl
 the documented road: it fires `on_detached` down the subtree, and {Code::WorkspaceSidebar} owns
 the {Code::GitWatcher} poll that keeps the status-rule digest alive *precisely* while the column
 is off screen — so remove/add stops the data feed that hiding exists to preserve. It also churns
-the tree on every resize across the starve floor. The Gemfile's `tuile ~> 0.15` floor is this
-decision's: `Component#visible=` landed there together with the `Layout::Box` / `Screen#repaint`
-half of the same fix (tuile#17), which is what stops a hidden pane painting back at stale
-coordinates.
+the tree on every resize across the starve floor. `visible=` carries the re-division with it:
+flipping it marks the parent's `relayout`, so {Code::Layout} re-splits the upper region from the
+one seam whether the trigger was the leader key, a resize or the flag — and a hidden pane cannot
+paint back at the columns it used to hold.
 
 ## D_short_tool_lines — Why does pikuri compose the short tool line rather than a renderer here?
 

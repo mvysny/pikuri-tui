@@ -145,7 +145,6 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     @pending_decision = nil
     @decision_region = nil
     @decision_body = nil
-    @on_escape = nil
   end
 
   # @return [Listener] the transcript listener bound to this pane, created once
@@ -158,10 +157,20 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #   decision's keys.
   attr_reader :pending_decision
 
-  # @return [Proc, nil] zero-arg callable run when the user leaves this pane
-  #   ({LEAVE_KEYS}) — normally "put focus back on the prompt". Leave it unset
-  #   and those keys fall through unclaimed, which stops the event loop.
-  attr_accessor :on_escape
+  # What {#on_escape} fires.
+  #
+  # @!attribute [r] source
+  #   @return [Shared::ConversationTextView] the pane the user is leaving.
+  EscapeEvent = Data.define(:source) { include Tuile::Event }
+
+  # @!method on_escape
+  #   Fired with an {EscapeEvent} when the user leaves this pane
+  #   ({LEAVE_KEYS}) — normally "put focus back on the prompt".
+  #
+  #   **Empty means the pane declines those keys**, so they fall through
+  #   unclaimed and the event loop stops on them.
+  #   @return [Tuile::Listeners]
+  listener :on_escape
 
   # @return [Hash{String => #render_call, #render_result}] the per-tool
   #   formatters, consulted by the {Listener} on each tool call.
@@ -452,8 +461,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   def handle_key?(key)
     return true if choose(key)
 
-    if LEAVE_KEYS.include?(key) && @on_escape
-      @on_escape.call
+    if LEAVE_KEYS.include?(key) && !on_escape.empty?
+      on_escape.fire(EscapeEvent.new(source: self))
       return true
     end
 

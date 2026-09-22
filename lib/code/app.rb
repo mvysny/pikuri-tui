@@ -231,7 +231,7 @@ module Code
       @status_rule.current_model = @agent.transport
 
       @leader_menu = build_leader_menu
-      @screen.on_error = method(:on_screen_error)
+      @screen.on_error << method(:on_screen_error)
       @screen.content = Shared::RootLayout.new(@layout, @status_bar)
       # Focus the window, not the inner area: Tuile's Window→content focus
       # cascade re-points onto the input area so the caret lands there.
@@ -328,7 +328,7 @@ module Code
       # ESC on the transcript (where the user answers a confirmation) hands the
       # caret back rather than falling through to the loop's unhandled-key quit.
       @ui_toggles = Shared::UIToggleMenu.new(screen: @screen, conversation: @conversation)
-      @conversation.on_escape = -> { @input.focus }
+      @conversation.on_escape { @input.focus }
       @plan_mode_listener = PlanModeListener.new(status_rule: @status_rule, screen: @screen)
 
       @layout = Layout.new(
@@ -636,9 +636,11 @@ module Code
       "Sidebar: #{mode}."
     end
 
-    # @param exception [StandardError]
+    # @param event [Tuile::EventQueue::ErrorEvent] the uncaught exception, in
+    #   the event the empty-means-re-raise slot hands its listeners.
     # @return [void]
-    def on_screen_error(exception)
+    def on_screen_error(event)
+      exception = event.error
       LOG.error(
         "#{exception.class}: #{exception.message}\n#{(exception.backtrace || []).join("\n")}"
       )

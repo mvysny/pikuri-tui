@@ -149,28 +149,26 @@ module Code
       @on_digest = block
     end
 
+    private
+
     # Stacks a fixed {TASK_HEIGHT} task pane over the git change-summary pane
     # across the sidebar rect; an empty one makes both panes' rects empty, so
     # they paint nothing. The {GitWatcher} keeps polling either way, so
     # {#open_diff} still opens on a current diff.
     #
-    # Never short-circuit this on an empty rect. Children left pointing at the
-    # columns they used to hold survive every normal repaint and then paint at
-    # those stale coordinates the moment a popup close fires
-    # {Tuile::Screen#needs_full_repaint} — silent under test, and invisible in
-    # the +return if empty+ that would cause it.
+    # Assigns both panes on every pass, empty rect included — Tuile's own rule
+    # for a container whose rect has gone empty, and here the bite is concrete:
+    # children left pointing at the columns they used to hold survive every
+    # normal repaint and then paint at those stale coordinates the moment a
+    # popup close fires {Tuile::Screen#needs_full_repaint}, silent under test.
     #
-    # @param new_rect [Tuile::Rect]
     # @return [void]
-    def rect=(new_rect)
-      super
-      tasks_h = [TASK_HEIGHT, rect.height].min
-      git_h   = rect.height - tasks_h
-      @task_pane.rect = Tuile::Rect.new(rect.left, rect.top, rect.width, tasks_h)
-      @git_summary_pane.rect = Tuile::Rect.new(rect.left, rect.top + tasks_h, rect.width, git_h)
+    def relayout
+      tasks_h = [TASK_HEIGHT, height].min
+      git_h   = height - tasks_h
+      @task_pane.rect = Tuile::Rect.new(0, 0, width, tasks_h)
+      @git_summary_pane.rect = Tuile::Rect.new(0, tasks_h, width, git_h)
     end
-
-    private
 
     # @return [void]
     def emit_digest = @on_digest&.call(digest)
