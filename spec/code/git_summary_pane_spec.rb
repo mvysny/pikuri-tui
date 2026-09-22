@@ -7,12 +7,14 @@ RSpec.describe Code::GitSummaryPane do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  def rendered = pane.view.text.to_s
+  # The pane renders in its own relayout, so a read settles first.
+  def view_text = settle(pane).view.text
+  def rendered = view_text.to_s
   def rows = rendered.lines.map(&:chomp)
-  def caption = pane.caption_label.caption.to_s
+  def caption = settle(pane).caption_label.caption.to_s
 
   # Gives the pane a real width, so the width-dependent eliding runs.
-  def size!(width = 24) = pane.rect = Tuile::Rect.new(0, 0, width, 12)
+  def size!(width = 24) = place(pane, Tuile::Rect.new(0, 0, width, 12))
 
   it 'displays and nothing more: Tab never parks focus on the sidebar' do
     assert_kind_of Shared::PassiveTextView, pane.view
@@ -37,11 +39,11 @@ RSpec.describe Code::GitSummaryPane do
   # The porcelain code is the span carrying the change-kind tone; the filename
   # beside it is deliberately left in the default foreground.
   def code_color(code)
-    pane.view.text.spans.find { |span| span.text.strip == code.strip && span.style.fg }&.style&.fg
+    view_text.spans.find { |span| span.text.strip == code.strip && span.style.fg }&.style&.fg
   end
 
   def span_containing(substr)
-    pane.view.text.spans.find { |span| span.text.include?(substr) }
+    view_text.spans.find { |span| span.text.include?(substr) }
   end
 
   # Header rows as they stand, file rows reduced to their basename.
@@ -174,7 +176,7 @@ RSpec.describe Code::GitSummaryPane do
       size!
       pane.snapshot = snapshot(changes: [change(' M', 'a.rb', 100, 10),
                                          change(' M', 'b.rb', 84, 7)])
-      toned = pane.caption_label.caption.spans.to_h { |span| [span.text, span.style.fg] }
+      toned = settle(pane).caption_label.caption.spans.to_h { |span| [span.text, span.style.fg] }
       assert_equal theme[:added], toned['+184']
       assert_equal theme[:removed], toned['-17']
       assert_nil toned['Changes: 2; '], 'prose must stay unset so the caption accent fills it'

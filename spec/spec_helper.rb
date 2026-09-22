@@ -52,6 +52,9 @@ require_relative 'support/tool_events'
 # trigger.
 require_relative 'support/deferred_layout'
 
+# +place+ — a rect put through what places it; only a parent may write one.
+require_relative 'support/placing'
+
 # +paint+ / +painted_region+ — one component painted through its own
 # Tuile::Canvas, for the specs that read rows back off the buffer.
 require_relative 'support/paint_one'
@@ -87,6 +90,7 @@ RSpec.configure do |config|
   config.include ThreadedUi
   config.include ToolEvents
   config.include DeferredLayout
+  config.include Placing
   config.include PaintOne
   config.include(Module.new do
     attr_writer :assertions

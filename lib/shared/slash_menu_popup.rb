@@ -39,11 +39,10 @@ require 'tuile'
 #
 # == Implementation details
 #
-# Geometry is owned by {#reposition} (the Tuile hook called on open and on
-# every layout pass, so it tracks SIGWINCH): full screen width less one column
-# each edge, {HEIGHT} tall, its bottom edge just above the {#anchor} input.
-# {Tuile::Component::Overlay} declares no size of its own — reposition assigns
-# the rect outright.
+# Geometry is the placement's ({AboveAnchor}, or {AtBottom} with no {#anchor}):
+# full screen width less one column each edge, {HEIGHT} tall, bottom edge just
+# above the anchor. The {Tuile::ScreenPane} runs it on every layout pass, so it
+# tracks a resize and the input moving.
 #
 # {#submit} resolves the command *before* the caller clears the buffer (the
 # {Shared::InputPane} calls submit first, then wipes the field), so the
@@ -63,10 +62,48 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
   # @return [Integer]
   HEIGHT = 10
 
-  # The input window the palette floats above; its rect gives the bottom edge
-  # to anchor to. Set by the {Shared::InputPane} that owns this popup. When
-  # nil (bare use / tests) the palette anchors to the screen bottom.
-  # @return [Tuile::Component::Window, nil]
+  # The palette's rect for a bar whose bottom edge sits at row +bottom+.
+  # @param bottom [Integer] the screen row the palette ends just above.
+  # @param screen_size [Tuile::Size]
+  # @return [Tuile::Rect]
+  def self.bar_above(bottom, screen_size)
+    width = [screen_size.width - (PAD * 2), 1].max
+    Tuile::Rect.new(PAD, [bottom - HEIGHT, 0].max, width, HEIGHT)
+  end
+
+  # Places the palette just above +anchor+. Answering {#anchor_rect} makes the
+  # {Tuile::ScreenPane} follow the anchor as it moves.
+  AboveAnchor = Data.define(:anchor) do
+    # @return [Tuile::Rect, nil] the anchor in screen coordinates; nil while it,
+    #   or any ancestor, is hidden or detached.
+    def anchor_rect
+      node = anchor
+      until node.nil?
+        return nil unless node.visible?
+
+        node = node.parent
+      end
+      anchor.attached? ? anchor.absolute_extent_rect : nil
+    end
+
+    # @param _popup [Shared::SlashMenuPopup]
+    # @param screen_size [Tuile::Size]
+    # @return [Tuile::Rect]
+    def rect_for(_popup, screen_size) = Shared::SlashMenuPopup.bar_above(anchor_rect.top, screen_size)
+  end
+
+  # Places the palette just above the bottom screen edge, for the bare use.
+  AtBottom = Data.define do
+    # @param _popup [Shared::SlashMenuPopup]
+    # @param screen_size [Tuile::Size]
+    # @return [Tuile::Rect]
+    def rect_for(_popup, screen_size) = Shared::SlashMenuPopup.bar_above(screen_size.height, screen_size)
+  end
+
+  # The input the palette floats above, set by the {Shared::InputPane} that owns
+  # it before the first open. When nil (bare use / tests) the palette sits at
+  # the screen bottom.
+  # @return [Tuile::Component, nil]
   attr_accessor :anchor
 
   # @param screen [Tuile::Screen] mounts the popup, defers callbacks, resolves
@@ -75,8 +112,6 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
   # @param conversation [Shared::ConversationTextView] where command echoes and
   #   outcomes are written (never the agent context).
   def initialize(screen:, commands:, conversation:)
-    # Set before +super+: {Tuile::Component::Popup#initialize} calls {#reposition},
-    # which reads @screen and @anchor.
     @screen = screen
     @conversation = conversation
     @anchor = nil
@@ -118,7 +153,6 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
     self.items = matches
     self.cursor = Tuile::Component::List::Cursor.new
     open unless open?
-    reposition
   end
 
   # Move the selection or dismiss while the palette is open. Called by the
@@ -164,17 +198,9 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
     end
   end
 
-  # Full width less {PAD} each edge, {HEIGHT} tall, bottom edge just above the
-  # {#anchor} input (screen bottom when unset). Overrides the base so the
-  # palette owns its own geometry on open and every layout pass (tracks resize).
-  # @return [void]
-  def reposition
-    screen_size = @screen.size
-    width = [screen_size.width - (PAD * 2), 1].max
-    bottom = anchor ? anchor.rect.top : screen_size.height
-    top = [bottom - HEIGHT, 0].max
-    self.rect = Tuile::Rect.new(PAD, top, width, HEIGHT)
-  end
+  # What {#open} places the palette with.
+  # @return [AboveAnchor, AtBottom]
+  def default_placement = anchor ? AboveAnchor.new(anchor: anchor) : AtBottom.new
 
   private
 

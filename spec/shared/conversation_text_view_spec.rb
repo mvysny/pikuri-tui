@@ -40,7 +40,7 @@ RSpec.describe Shared::ConversationTextView do
 
   describe '#buffer_width' do
     it 'is the wrap width — the pane less the columns the scrollbar claims' do
-      pane.rect = Tuile::Rect.new(0, 0, 40, 3)
+      place(pane, Tuile::Rect.new(0, 0, 40, 3))
       # 40 columns less the bar's own and the blank Tuile reserves beside it.
       assert_equal 38, pane.buffer_width
     end
@@ -71,7 +71,7 @@ RSpec.describe Shared::ConversationTextView do
     let(:half_page) { pane.rect.height / 2 }
 
     before do
-      pane.rect = Tuile::Rect.new(0, 0, 40, 10)
+      place(pane, Tuile::Rect.new(0, 0, 40, 10))
       30.times { |i| pane.add_block("line #{i}") }
     end
 
@@ -764,7 +764,7 @@ RSpec.describe Shared::ConversationTextView do
     # Read back short of the two columns the scrollbar claims (its glyph plus
     # the blank Tuile reserves) so neither lands in the compared text.
     def painted(view)
-      view.rect = Tuile::Rect.new(0, 0, 60, 6)
+      place(view, Tuile::Rect.new(0, 0, 60, 6))
       painted_region(view, trim_right: 2).map(&:rstrip)
     end
 

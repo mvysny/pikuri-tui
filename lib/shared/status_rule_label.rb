@@ -43,7 +43,7 @@ require 'pikuri-core'
 # This is a component rather than the presenter it grew out of: with the pane
 # frames gone there is no +Window#footer_text+ chrome to drive, the rule is an
 # addressable row of its own, and owning the widget is what buys the
-# width-aware +─+ fill (+handle_width_changed+) and the light/dark re-render
+# width-aware +─+ fill (painted in {#repaint}) and the light/dark re-render
 # (+handle_theme_changed+) for free.
 #
 # Shared by all three shells.
@@ -243,17 +243,22 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   #   is in its +ListenerList+.
   def to_s = 'Shared::StatusRuleLabel'
 
-  protected
-
-  # Re-renders at the new width — the +─+ fill is width-derived.
+  # Paints the readout, then the hairline out to the right edge (the whole row
+  # with no readout) — ink, not text, because only at paint time is the width
+  # settled.
+  #
+  # @param canvas [Tuile::Canvas]
   # @return [void]
-  def handle_width_changed
+  def repaint(canvas)
     super
-    refresh
+    used = text.display_width
+    canvas.set_text(used, 0, hairline(width - used)) if width > used
   end
 
+  protected
+
   # Re-renders against the new {Tuile::Screen#theme}, already in place when
-  # this fires: the hairline and every segment tone are baked into the text.
+  # this fires: the lead hairline and every segment tone are baked into the text.
   # @return [void]
   def handle_theme_changed
     super
@@ -294,25 +299,23 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     end
   end
 
-  # Rebuild the row from the current state: {LEAD} hairline columns, the
+  # Rebuild the text from the current state: {LEAD} hairline columns, then the
   # readout (badge, spinner, queued count, token line) padded by a space on
-  # each side, then hairline out to the right edge. With an empty readout the
-  # row is one unbroken hairline.
+  # each side; {#repaint} fills the rest of the row. With an empty readout the
+  # text is empty and the row is one unbroken hairline.
   #
   # @return [void]
   def refresh
     readout = build_readout
-    lead = hairline(LEAD)
-    self.text =
-      if readout.nil?
-        hairline(rect.width)
-      else
-        # The pads are hint-toned rather than uncolored so the whole readout —
-        # padding included — is one uniform run on the non-plan path.
-        pad = Tuile::StyledString.plain(' ').with_fg(screen.theme[:hint])
-        body = lead + pad + readout + pad
-        body + hairline(rect.width - body.display_width)
-      end
+    if readout.nil?
+      self.text = Tuile::StyledString::EMPTY
+      return
+    end
+
+    # The pads are hint-toned rather than uncolored so the whole readout —
+    # padding included — is one uniform run on the non-plan path.
+    pad = Tuile::StyledString.plain(' ').with_fg(screen.theme[:hint])
+    self.text = hairline(LEAD) + pad + readout + pad
   end
 
   # @param width [Integer] how many columns to fill; non-positive yields an

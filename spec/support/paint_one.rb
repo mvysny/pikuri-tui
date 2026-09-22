@@ -11,11 +11,13 @@
 module PaintOne
   # Settles the layout first, exactly as {Tuile::Screen#repaint} does — paint is
   # the heaviest reader of rects there is, and a spec dispatches no event to
-  # settle them.
+  # settle them. The whole screen, since an ancestor (the pane, once a popup
+  # opens) may owe this component its rect.
   #
   # @param component [Tuile::Component]
   # @return [void]
   def paint(component)
+    Tuile::Screen.instance.flush_layout
     component.flush_layout
     component.repaint(Tuile::Screen.instance.canvas_for(component))
   end

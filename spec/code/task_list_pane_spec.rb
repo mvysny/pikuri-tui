@@ -7,11 +7,12 @@ RSpec.describe Code::TaskListPane do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  def rendered = window.view.text.to_s
-  def caption = window.caption_label.caption
+  # The pane renders in its own relayout, so a read settles first.
+  def rendered = settle(window).view.text.to_s
+  def caption = settle(window).caption_label.caption
 
   # Gives the pane a real width, so the width-dependent ellipsizing runs.
-  def size!(width = 24) = window.rect = Tuile::Rect.new(0, 0, width, 8)
+  def size!(width = 24) = place(window, Tuile::Rect.new(0, 0, width, 8))
 
   it 'displays and nothing more: Tab never parks focus on the sidebar' do
     assert_kind_of Shared::PassiveTextView, window.view
@@ -110,7 +111,7 @@ RSpec.describe Code::TaskListPane do
       size!
       window.items = [item(1, 'x' * 60, 'pending')]
       assert_equal 1, rendered.lines.size
-      assert_equal 24, window.view.text.display_width
+      assert_equal 24, settle(window).view.text.display_width
       assert rendered.end_with?('…'), "expected an ellipsis, got #{rendered.inspect}"
     end
 
@@ -123,9 +124,9 @@ RSpec.describe Code::TaskListPane do
     it 're-ellipsizes when the pane is resized' do
       size!(40)
       window.items = [item(1, 'y' * 60, 'pending')]
-      assert_equal 40, window.view.text.display_width
+      assert_equal 40, settle(window).view.text.display_width
       size!(16)
-      assert_equal 16, window.view.text.display_width
+      assert_equal 16, settle(window).view.text.display_width
     end
 
     it 'truncates nothing while the pane has no width yet' do

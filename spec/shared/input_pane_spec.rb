@@ -26,7 +26,7 @@ RSpec.describe Shared::InputPane do
   end
 
   it 'hangs the marker off the left edge, with the area starting past it' do
-    window.rect = Tuile::Rect.new(0, 0, 40, described_class::HEIGHT)
+    place(window, Tuile::Rect.new(0, 0, 40, described_class::HEIGHT))
     settle(window)
     width = described_class::MARKER_WIDTH
     # The marker owns one row at column 0; every row is editable.
@@ -36,13 +36,13 @@ RSpec.describe Shared::InputPane do
   end
 
   it 'leaves only the trailing pad unclaimed, so the buffer gets the rest' do
-    window.rect = Tuile::Rect.new(0, 0, 40, described_class::HEIGHT)
+    place(window, Tuile::Rect.new(0, 0, 40, described_class::HEIGHT))
     settle(window)
     assert_equal 40 - described_class::MARKER_WIDTH - described_class::TRAILING_PAD, window.area.rect.width
   end
 
   it 'floors the area width at 0 on a pane too narrow for the marker and pad' do
-    window.rect = Tuile::Rect.new(0, 0, 2, described_class::HEIGHT)
+    place(window, Tuile::Rect.new(0, 0, 2, described_class::HEIGHT))
     settle(window)
     assert_equal 0, window.area.rect.width
   end
@@ -50,7 +50,7 @@ RSpec.describe Shared::InputPane do
   it 'paints the buffer on the inherited pane tint, not on a well of its own' do
     screen = Tuile::Screen.instance
     screen.content = window
-    window.rect = Tuile::Rect.new(0, 0, 40, described_class::HEIGHT)
+    place(window, Tuile::Rect.new(0, 0, 40, described_class::HEIGHT))
     settle(window)
     tint = screen.theme[:pane_bg]
     # The buffer's own column, read off the painted cells rather than off
@@ -448,7 +448,7 @@ RSpec.describe Shared::InputPane do
 
     before do
       screen = Tuile::Screen.instance
-      conversation.rect = Tuile::Rect.new(0, 0, 40, 10)
+      place(conversation, Tuile::Rect.new(0, 0, 40, 10))
       30.times { |i| conversation.add_block("line #{i}") }
       screen.content = window
       window.focus

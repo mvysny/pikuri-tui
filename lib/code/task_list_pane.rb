@@ -43,9 +43,9 @@ module Code
   # {Tuile::Component::TextView} word-wraps unconditionally and offers no
   # truncate mode, so a long task would otherwise spill onto continuation rows
   # carrying no glyph. Truncation is width-dependent, so the pane keeps the last
-  # snapshot and re-renders on +handle_width_changed+; a zero width (unmounted, or a
-  # sidebar column {Layout} collapsed) reads as *unknown* and truncates nothing
-  # until a real one lands.
+  # snapshot and renders it in {#relayout}, where the width is settled; a zero
+  # width (unmounted, or a sidebar column {Layout} collapsed) reads as *unknown*
+  # and truncates nothing until a real one lands.
   #
   # UI-thread-confined (the nested {Listener} marshals the stream onto the UI
   # thread before calling {#items=}).
@@ -133,22 +133,25 @@ module Code
     end
 
     # Rewrite the whole pane from a task snapshot. Must run on the UI thread
-    # (the {Listener} marshals it there).
+    # (the {Listener} marshals it there). {#on_tally} fires at once; the rows
+    # render when the layout settles.
     #
     # @param items [Array<Pikuri::Tasks::Item>] a frozen snapshot.
     # @return [void]
     def items=(items)
       @items = items
-      render
+      announce_tally(items.count { |item| item.status == 'completed' })
+      invalidate_layout
     end
 
     protected
 
-    # Re-renders every row against the new width, which each one is ellipsized
-    # to.
+    # Stacks the caption over the view, then renders the rows at the width just
+    # settled, which each is ellipsized to — a snapshot can land before the pass
+    # that sizes this pane.
     #
     # @return [void]
-    def handle_width_changed
+    def relayout
       super
       render
     end
@@ -169,7 +172,6 @@ module Code
         else
           join(live.map { |item| render_item(item) })
         end
-      announce_tally(done.size)
     end
 
     # Fires {#on_tally} when the count has actually moved.
@@ -202,9 +204,9 @@ module Code
     # @return [Integer, nil] columns a task's content may occupy, or +nil+ when
     #   the pane has no width yet and nothing should be truncated.
     def content_width
-      return nil unless rect.width.positive?
+      return nil unless width.positive?
 
-      [rect.width - GLYPH_WIDTH, 1].max
+      [width - GLYPH_WIDTH, 1].max
     end
 
     # @param text [String]

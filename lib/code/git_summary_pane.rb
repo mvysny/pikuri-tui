@@ -60,8 +60,9 @@ module Code
   # left-elision would spend three of its columns on +.rb+.
   #
   # Truncation is width-dependent, so the pane keeps the last snapshot and
-  # re-renders on +handle_width_changed+; a zero width (unmounted, or a sidebar
-  # column {Layout} collapsed) reads as *unknown* and truncates nothing.
+  # renders it in {#relayout}, where the width is settled; a zero width
+  # (unmounted, or a sidebar column {Layout} collapsed) reads as *unknown* and
+  # truncates nothing.
   #
   # UI-thread-confined (the {WorkspaceSidebar} subscription marshals {#snapshot=}
   # onto the UI thread before calling it).
@@ -128,22 +129,24 @@ module Code
     attr_reader :caption_label
 
     # Rewrite the pane from a git snapshot. Ignores the snapshot's diff (that's
-    # the {GitDiffWindow}'s half). Must run on the UI thread.
+    # the {GitDiffWindow}'s half). Must run on the UI thread. Only marks; the
+    # rows render when the layout settles.
     #
     # @param snapshot [GitWatcher::Snapshot]
     # @return [void]
     def snapshot=(snapshot)
       @snapshot = snapshot
-      render
+      invalidate_layout
     end
 
     protected
 
-    # Re-renders every row against the new width, which the filenames and
-    # headers are elided to.
+    # Stacks the caption over the view, then renders the rows at the width just
+    # settled, which filenames and headers are elided to — a snapshot can land
+    # before the pass that sizes this pane.
     #
     # @return [void]
-    def handle_width_changed
+    def relayout
       super
       render
     end
@@ -177,9 +180,9 @@ module Code
                 [Tuile::StyledString.plain("#{CAPTION}: #{changes.size}; ") + counts,
                  Tuile::StyledString.plain("#{CAPTION} ") + counts, bare]
               end
-      return forms.first unless rect.width.positive?
+      return forms.first unless width.positive?
 
-      forms.find { |form| form.display_width + HAIRLINE_ROOM <= rect.width } || bare
+      forms.find { |form| form.display_width + HAIRLINE_ROOM <= width } || bare
     end
 
     # @return [Array<GitWatcher::Change>] the changes to list — empty before the
@@ -249,10 +252,10 @@ module Code
     # @return [Integer, nil] columns a filename may occupy, or +nil+ when the
     #   pane has no width yet and nothing should be elided.
     def name_width(counts_width)
-      return nil unless rect.width.positive?
+      return nil unless width.positive?
 
       reserved = INDENT + CODE_WIDTH + 1 + (counts_width.positive? ? counts_width + 1 : 0)
-      [rect.width - reserved, 1].max
+      [width - reserved, 1].max
     end
 
     # @param added [Integer] lines added, by one file or by the whole tree.
@@ -302,7 +305,7 @@ module Code
     end
 
     # @return [Integer, nil] the pane's width, or +nil+ when it has none yet.
-    def available_width = rect.width.positive? ? rect.width : nil
+    def available_width = width.positive? ? width : nil
 
     # @param text [String]
     # @return [Tuile::StyledString] +text+ in the placeholder tone.

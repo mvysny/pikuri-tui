@@ -39,9 +39,8 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
   # @return [String, Tuile::StyledString] the pane's name, as set.
   attr_reader :caption
 
-  # @param caption [String, Tuile::StyledString] the pane's new name.
-  #   Re-renders the row, so the hairline re-fills to whatever width the new
-  #   name leaves.
+  # @param caption [String, Tuile::StyledString] the pane's new name; the
+  #   hairline re-fills to whatever width it leaves.
   # @return [void]
   def caption=(caption)
     return if caption == @caption
@@ -50,17 +49,25 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
     refresh
   end
 
-  protected
-
-  # Re-renders at the new width — the rule fill is width-derived.
+  # Paints the caption, then the hairline out to the right edge — ink, not
+  # text, because only at paint time is the width settled. A width too narrow
+  # for the rule drops it.
+  #
+  # @param canvas [Tuile::Canvas]
   # @return [void]
-  def handle_width_changed
+  def repaint(canvas)
     super
-    refresh
+    used = text.display_width
+    fill = width - used - 1
+    return unless fill.positive?
+
+    canvas.set_text(used, 0, Tuile::StyledString.styled(" #{'─' * fill}", fg: screen.theme[:pane_frame]))
   end
 
-  # Re-renders against the new {Tuile::Screen#theme}: both tones are baked into
-  # the label's text.
+  protected
+
+  # Re-renders against the new {Tuile::Screen#theme}: the caption's tone is
+  # baked into the label's text.
   # @return [void]
   def handle_theme_changed
     super
@@ -69,18 +76,13 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
 
   private
 
-  # Rebuilds the row: caption, a space, then hairline to the right edge. A
-  # width too narrow for the rule simply drops it (the {Tuile::Component::Label}
-  # ellipsizes the caption itself).
+  # Rebuilds the caption text in the hint accent; {#repaint} adds the rule (the
+  # {Tuile::Component::Label} ellipsizes the caption itself).
   #
   # @return [void]
   def refresh
-    theme = screen.theme
     caption = @caption.is_a?(Tuile::StyledString) ? @caption : Tuile::StyledString.plain(@caption)
-    text = under_fg(caption, theme[:hint])
-    fill = rect.width - caption.display_width - 1
-    text += Tuile::StyledString.styled(" #{'─' * fill}", fg: theme[:pane_frame]) if fill.positive?
-    self.text = text
+    self.text = under_fg(caption, screen.theme[:hint])
   end
 
   # +text+ with +fg+ on the spans that carry none, the rest untouched — the

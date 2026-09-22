@@ -141,14 +141,21 @@ RSpec.describe Shared::SlashMenuPopup do
   describe 'geometry' do
     it 'spans the screen width less one column each edge, ten rows tall' do
       menu.sync('/')
+      settle(Tuile::Screen.instance)
       assert_equal 1, menu.rect.left
       assert_equal Tuile::Screen.instance.size.width - 2, menu.rect.width
       assert_equal 10, menu.rect.height
     end
 
     it 'anchors its bottom edge just above the anchor input' do
-      menu.anchor = Struct.new(:rect).new(Tuile::Rect.new(0, 20, 80, 4))
+      # Mounted, since a detached anchor has no screen position to float over.
+      input = Tuile::Component::Label.new
+      holder = Tuile::Component::Layout::Absolute.new
+      holder.add(input, Tuile::Rect.new(0, 20, 80, 4))
+      Tuile::Screen.instance.content = holder
+      menu.anchor = input
       menu.sync('/')
+      settle(Tuile::Screen.instance)
       assert_equal 10, menu.rect.top # 20 (input top) - 10 (height)
     end
   end

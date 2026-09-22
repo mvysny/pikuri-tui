@@ -12,7 +12,7 @@ RSpec.describe Code::WorkspaceSidebar do
 
   describe 'layout' do
     it 'stacks a fixed-height task pane over the git changes pane' do
-      sidebar.rect = Tuile::Rect.new(0, 0, 30, 20)
+      place(sidebar, Tuile::Rect.new(0, 0, 30, 20))
       settle(sidebar)
       tasks = sidebar.instance_variable_get(:@task_pane)
       changes = sidebar.git_summary_pane
@@ -24,7 +24,7 @@ RSpec.describe Code::WorkspaceSidebar do
     end
 
     it 'leaves both panes empty when handed an empty rect (collapsed sidebar)' do
-      sidebar.rect = Tuile::Rect.new(0, 0, 0, 0)
+      place(sidebar, Tuile::Rect.new(0, 0, 0, 0))
       settle(sidebar)
       assert sidebar.instance_variable_get(:@task_pane).rect.empty?
       assert sidebar.git_summary_pane.rect.empty?
@@ -35,12 +35,12 @@ RSpec.describe Code::WorkspaceSidebar do
     # columns they used to hold. This one lays the column out first.
     it 'empties both panes when the column is emptied after having been laid out' do
       tasks = sidebar.instance_variable_get(:@task_pane)
-      sidebar.rect = Tuile::Rect.new(96, 0, 24, 20)
+      place(sidebar, Tuile::Rect.new(96, 0, 24, 20))
       settle(sidebar)
       refute_predicate tasks.rect, :empty?
       refute_predicate sidebar.git_summary_pane.rect, :empty?
 
-      sidebar.rect = Tuile::Rect.new(120, 0, 0, 20)
+      place(sidebar, Tuile::Rect.new(120, 0, 0, 20))
       settle(sidebar)
       assert_predicate tasks.rect, :empty?
       assert_predicate sidebar.git_summary_pane.rect, :empty?
@@ -68,7 +68,7 @@ RSpec.describe Code::WorkspaceSidebar do
     # wire without starting the poll thread.
     def emit(snapshot) = sidebar.git_watcher.send(:emit, snapshot)
 
-    def summary_text = sidebar.git_summary_pane.view.text.to_s
+    def summary_text = settle(sidebar).git_summary_pane.view.text.to_s
     def diff_text = sidebar.git_diff_window.view.text.to_s
 
     it 'projects an emitted snapshot onto the two git panes' do

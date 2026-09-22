@@ -188,12 +188,13 @@ module Code
 
     protected
 
-    # Re-tones the separator column, whose color is baked into its text.
+    # Re-tones the separator column, whose color is baked into its text, in the
+    # next pass.
     #
     # @return [void]
     def handle_theme_changed
       super
-      rebuild_separator
+      invalidate_layout
     end
 
     private
@@ -208,8 +209,8 @@ module Code
     # The one seam for all three inputs to this arithmetic: the layout's rect
     # moving, a {#sidebar_mode=} change, and a child's {Tuile::Component#visible=}
     # flip — which is also why {#announce_sidebar_visibility} can live here.
-    # {#place_sidebar}'s own flip re-marks this layout, so a settle runs the
-    # pass twice; being edge-triggered is what keeps the second one silent.
+    # The sidebar's flip comes before any child is placed, so Tuile drops the
+    # mark it makes here instead of running the pass twice.
     #
     # @return [void]
     def relayout
@@ -219,6 +220,8 @@ module Code
 
       right_w = sidebar_width(width)
       left_w = width - (right_w.positive? ? right_w + 1 : 0)
+      @separator.visible = right_w.positive?
+      @sidebar.visible = right_w.positive?
 
       @conversation.rect = Tuile::Rect.new(CONTENT_INSET, 0, [left_w - CONTENT_INSET, 0].max, top_h)
       @status_rule.rect = Tuile::Rect.new(0, top_h, width, rule_h)
@@ -227,22 +230,19 @@ module Code
       announce_sidebar_visibility
     end
 
-    # Places the sidebar column and its {#separator}, or hides both — a hidden
-    # component keeps the rect it last had, so the hiding branch assigns none.
+    # Places the sidebar column and its {#separator} when shown — a hidden
+    # component keeps the rect it last had, so a hidden column gets none.
     #
     # @param left_w [Integer] columns the conversation column occupies.
     # @param top_h [Integer] rows in the upper region.
-    # @param right_w [Integer] {#sidebar_width}; +0+ hides the column.
+    # @param right_w [Integer] {#sidebar_width}; +0+ when the column is hidden.
     # @return [void]
     def place_sidebar(left_w, top_h, right_w)
-      showing = right_w.positive?
-      if showing
-        @separator.rect = Tuile::Rect.new(rect.left + left_w, rect.top, 1, top_h)
-        @sidebar.rect = Tuile::Rect.new(rect.left + left_w + 1, rect.top, right_w, top_h)
-        rebuild_separator
-      end
-      @separator.visible = showing
-      @sidebar.visible = showing
+      return unless right_w.positive?
+
+      @separator.rect = Tuile::Rect.new(left_w, 0, 1, top_h)
+      @sidebar.rect = Tuile::Rect.new(left_w + 1, 0, right_w, top_h)
+      rebuild_separator
     end
 
     # Fires {#on_sidebar_visibility} when the sidebar has just appeared or
@@ -259,7 +259,7 @@ module Code
     end
 
     # Rebuilds the separator column: one +:pane_frame+ +│+ per row of the upper
-    # region.
+    # region. Only from {#relayout}, where the separator's rect is current.
     #
     # @return [void]
     def rebuild_separator
