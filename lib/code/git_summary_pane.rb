@@ -41,11 +41,9 @@ module Code
   #
   # == Implementation details
   #
-  # **Why grouping.** One row per file is forced on us —
-  # {Tuile::Component::TextView} word-wraps unconditionally with no truncate
-  # mode — and at a 24-column sidebar the arithmetic leaves
-  # +24 - 2 (code) - 7 (counts + gap) = 15+ columns of path, which nothing under
-  # +lib/+ fits. Stating the directory once is what buys the filename room
+  # **Why grouping.** One list row per file, and at a 24-column sidebar the
+  # list's gutters, the code and the counts leave barely a dozen columns of
+  # path, which nothing under +lib/+ fits. Stating the directory once is what buys the filename room
   # without dropping to bare basenames, where +lib/code/app.rb+,
   # +lib/chat/app.rb+ and +lib/computer/app.rb+ would all render +M app.rb+.
   #
@@ -59,10 +57,11 @@ module Code
   # the front (+git_diff_wind…+ / +git_diff_popu…+ / +git_diff_rend…+), and
   # left-elision would spend three of its columns on +.rb+.
   #
-  # Truncation is width-dependent, so the pane keeps the last snapshot and
-  # renders it in {#relayout}, where the width is settled; a zero width
-  # (unmounted, or a sidebar column {Layout} collapsed) reads as *unknown* and
-  # truncates nothing.
+  # The rows are width-dependent — names cut to a budget so the counts align,
+  # headers elided from the left — so a {Shared::PassiveList} renders them
+  # against the width it hands its renderer, at paint time. A zero width (no
+  # rect yet) reads as *unknown* and truncates nothing. The caption degrades by
+  # the pane's width too, so it is chosen in {#relayout}.
   #
   # UI-thread-confined (the {WorkspaceSidebar} subscription marshals {#snapshot=}
   # onto the UI thread before calling it).
@@ -109,18 +108,27 @@ module Code
     # @return [Integer]
     HAIRLINE_ROOM = 2
 
-    # Stacks a "Changes" caption row over a fresh text view.
+    # A directory header row, introducing the files under it.
+    Header = Data.define(:directory)
+
+    # A file row: the change and its rendered counts.
+    FileRow = Data.define(:change, :counts)
+
+    # Stacks a "Changes" caption row over a fresh list.
     def initialize
       super()
+      @snapshot = nil
+      @counts_width = 0
       # Passive and scrollbar-less: nothing in the sidebar is focusable, so
       # neither a tab stop nor a bar could ever be driven.
-      @view = Shared::PassiveTextView.new
+      @view = Shared::PassiveList.new
+      @view.renderer = method(:row)
       @caption_label = Shared::PaneCaptionLabel.new(CAPTION)
       add(@caption_label, Fixed[1])
       add(@view, Expand[1])
     end
 
-    # @return [Shared::PassiveTextView] the content view under the caption;
+    # @return [Shared::PassiveList] the content view under the caption;
     #   exposed for tests, production drives it through {#snapshot=}.
     attr_reader :view
 
@@ -129,35 +137,40 @@ module Code
     attr_reader :caption_label
 
     # Rewrite the pane from a git snapshot. Ignores the snapshot's diff (that's
-    # the {GitDiffWindow}'s half). Must run on the UI thread. Only marks; the
-    # rows render when the layout settles.
+    # the {GitDiffWindow}'s half). Must run on the UI thread. The caption is
+    # only marked, and settles with the layout.
     #
     # @param snapshot [GitWatcher::Snapshot]
     # @return [void]
     def snapshot=(snapshot)
       @snapshot = snapshot
+      entries = entries_for(snapshot)
+      @counts_width = entries.grep(FileRow).map { |entry| entry.counts.display_width }.max || 0
+      @view.items = entries
       invalidate_layout
     end
 
     protected
 
-    # Stacks the caption over the view, then renders the rows at the width just
-    # settled, which filenames and headers are elided to — a snapshot can land
-    # before the pass that sizes this pane.
+    # Stacks the caption over the view, then picks the caption form that fits
+    # the width just settled — a snapshot can land before the pass that sizes
+    # this pane.
     #
     # @return [void]
     def relayout
       super
-      render
+      @caption_label.caption = caption_text
+    end
+
+    # Re-renders the rows and the caption: the counts bake their tones in.
+    #
+    # @return [void]
+    def handle_theme_changed
+      super
+      self.snapshot = @snapshot
     end
 
     private
-
-    # @return [void]
-    def render
-      @caption_label.caption = caption_text
-      @view.text = body_text
-    end
 
     # The caption, degraded to the widest form that still leaves
     # {HAIRLINE_ROOM}: +"Changes: 6; +184/-17"+, then +"Changes +184/-17"+, then
@@ -194,26 +207,40 @@ module Code
       @snapshot.changes
     end
 
-    # @return [Tuile::StyledString] the degraded notice, the {PLACEHOLDER}, or
-    #   the directory-grouped file list.
-    def body_text
-      return Tuile::StyledString::EMPTY if @snapshot.nil?
-      return dim(@snapshot.error) if @snapshot.error
-      return dim(PLACEHOLDER) if @snapshot.changes.empty?
+    # The list entries for +snapshot+: nothing before the first one, the
+    # degraded notice, the {PLACEHOLDER}, or a {Header} wherever the directory
+    # changes and a {FileRow} per file.
+    #
+    # @param snapshot [GitWatcher::Snapshot, nil]
+    # @return [Array<Tuile::StyledString, Header, FileRow>]
+    def entries_for(snapshot)
+      return [] if snapshot.nil?
+      return [dim(snapshot.error)] if snapshot.error
+      return [dim(PLACEHOLDER)] if snapshot.changes.empty?
 
-      counted = @snapshot.changes.map { |change| [change, counts_for(change.added, change.deleted)] }
-      counts_width = counted.map { |(_, counts)| counts.display_width }.max
       group = nil
-      rows = []
-      counted.each do |(change, counts)|
+      snapshot.changes.flat_map do |change|
         directory = group_of(change.path)
-        if directory != group
-          group = directory
-          rows << group_row(directory)
-        end
-        rows << change_row(change, counts, counts_width)
+        file = FileRow.new(change: change, counts: counts_for(change.added, change.deleted))
+        next [file] if directory == group
+
+        group = directory
+        [Header.new(directory: directory), file]
       end
-      join(rows)
+    end
+
+    # One list row, laid out against +width+.
+    #
+    # @param entry [Tuile::StyledString, Header, FileRow]
+    # @param width [Integer] the columns the list gives the row; +0+ before it
+    #   has a rect, which elides nothing.
+    # @return [Tuile::StyledString]
+    def row(entry, width)
+      case entry
+      when Header then group_row(entry.directory, width)
+      when FileRow then change_row(entry.change, entry.counts, width)
+      else entry
+      end
     end
 
     # @param path [String] a repo-relative path.
@@ -225,22 +252,27 @@ module Code
     end
 
     # @param directory [String]
-    # @return [Tuile::StyledString] the header row, dimmed so it recedes behind
-    #   the filenames it introduces.
-    def group_row(directory)
-      elide_left(directory, available_width).with_fg(screen.theme[:detail])
+    # @param width [Integer] see {#row}.
+    # @return [Tuile::StyledString] the header row, elided from the left and
+    #   dimmed so it recedes behind the filenames it introduces.
+    def group_row(directory, width)
+      header = Tuile::StyledString.plain(directory)
+      header = header.ellipsize(width, at: :start) if width.positive?
+      header.with_fg(screen.theme[:detail])
     end
 
     # @param change [GitWatcher::Change]
     # @param counts [Tuile::StyledString] its rendered counts, from {#counts_for}.
-    # @param counts_width [Integer] the widest counts in this snapshot, which
-    #   every row reserves so the numbers align on one right edge. Measured
-    #   rather than fixed because a single file reaches +"+184/-17"+ — 8 columns.
-    # @return [Tuile::StyledString] +"  M task_list_pa… +31/-8"+.
-    def change_row(change, counts, counts_width)
+    # @param width [Integer] see {#row}.
+    # @return [Tuile::StyledString] +"  M task_list_pa… +31/-8"+ — every file
+    #   row reserves the snapshot's widest counts, so the numbers align on one
+    #   right edge. Measured rather than fixed because a single file reaches
+    #   +"+184/-17"+ — 8 columns.
+    def change_row(change, counts, width)
+      counts_width = @counts_width
       code = Tuile::StyledString.styled(change.code.rjust(CODE_WIDTH), fg: kind_color(change.code))
       name = Tuile::StyledString.plain(File.basename(change.path))
-      budget = name_width(counts_width)
+      budget = name_width(counts_width, width)
       name = name.ellipsize(budget) if budget
       pad = budget ? budget - name.display_width : 0
       gap = counts_width.positive? ? pad + 1 + (counts_width - counts.display_width) : pad
@@ -249,9 +281,10 @@ module Code
     end
 
     # @param counts_width [Integer] columns the counts column reserves.
+    # @param width [Integer] see {#row}.
     # @return [Integer, nil] columns a filename may occupy, or +nil+ when the
-    #   pane has no width yet and nothing should be elided.
-    def name_width(counts_width)
+    #   row has no width yet and nothing should be elided.
+    def name_width(counts_width, width)
       return nil unless width.positive?
 
       reserved = INDENT + CODE_WIDTH + 1 + (counts_width.positive? ? counts_width + 1 : 0)
@@ -294,28 +327,7 @@ module Code
     end
 
     # @param text [String]
-    # @param width [Integer, nil] columns available, or +nil+ for no limit.
-    # @return [Tuile::StyledString] +text+ with a leading +…+ standing in for
-    #   whatever came off its front.
-    def elide_left(text, width)
-      styled = Tuile::StyledString.plain(text)
-      return styled if width.nil? || styled.display_width <= width
-
-      Tuile::StyledString.plain('…') + styled.slice(-(width - 1), width - 1)
-    end
-
-    # @return [Integer, nil] the pane's width, or +nil+ when it has none yet.
-    def available_width = width.positive? ? width : nil
-
-    # @param text [String]
     # @return [Tuile::StyledString] +text+ in the placeholder tone.
     def dim(text) = Tuile::StyledString.styled(text, fg: screen.theme[:detail])
-
-    # @param rows [Array<Tuile::StyledString>] at least one row.
-    # @return [Tuile::StyledString] the rows as one newline-separated block.
-    def join(rows)
-      separator = Tuile::StyledString.plain("\n")
-      rows.inject { |block, row| block + separator + row }
-    end
   end
 end

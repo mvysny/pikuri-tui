@@ -175,8 +175,10 @@ module Code
     #
     # @param entry [Pikuri::Tasks::Item, String] a live task, or {PLACEHOLDER} /
     #   {ALL_DONE}.
+    # @param _width [Integer] the columns the list gives the row, unused — the
+    #   list's own trailing ellipsis is the cut a task wants.
     # @return [Tuile::StyledString]
-    def row(entry)
+    def row(entry, _width)
       return Tuile::StyledString.styled(entry, fg: screen.theme[:detail]) if entry.is_a?(String)
 
       row = Tuile::StyledString.plain("#{GLYPHS.fetch(entry.status, '?')} #{entry.content}")

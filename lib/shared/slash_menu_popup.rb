@@ -244,8 +244,10 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
   # description in the dim detail tone. Padded before coloring so the SGR codes
   # don't throw off the column width.
   # @param command [Shared::SlashCommand]
+  # @param _width [Integer] the columns the list gives the row, unused — a long
+  #   description takes the list's trailing ellipsis.
   # @return [String] ANSI, parsed by the list.
-  def row(command)
+  def row(command, _width)
     "#{theme.tool(command.name.ljust(@name_width))}  #{theme.detail(command.description)}"
   end
 

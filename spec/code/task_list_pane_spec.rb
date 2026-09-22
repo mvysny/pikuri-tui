@@ -8,7 +8,7 @@ RSpec.describe Code::TaskListPane do
   after  { Tuile::Screen.close }
 
   # Each row as the renderer builds it, before the list fits it to a width.
-  def rendered = window.view.items.map { |entry| window.view.renderer.call(entry).to_s }.join("\n")
+  def rendered = window.view.items.map { |entry| window.view.renderer.call(entry, 0).to_s }.join("\n")
   def caption = window.caption_label.caption
 
   # The rows as painted, where the list ellipsizes them — its one-column gutter

@@ -65,8 +65,8 @@ RSpec.describe Code::WorkspaceSidebar do
     def emit(snapshot) = sidebar.git_watcher.send(:emit, snapshot)
 
     def summary_text
-      sidebar.flush_layout
-      sidebar.git_summary_pane.view.text.to_s
+      list = sidebar.git_summary_pane.view
+      list.items.map { |entry| list.renderer.call(entry, 0).to_s }.join("\n")
     end
     def diff_text = sidebar.git_diff_window.view.text.to_s
 

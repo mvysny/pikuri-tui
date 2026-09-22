@@ -7,14 +7,16 @@ RSpec.describe Code::GitSummaryPane do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  # The pane renders in its own relayout, so a read settles first.
-  def view_text
+  # Each row as the list renders it, at the width it hands the renderer.
+  def styled_rows
     pane.flush_layout
-    pane.view.text
+    width = pane.view.__send__(:text_width)
+    pane.view.items.map { |entry| pane.view.renderer.call(entry, width) }
   end
 
-  def rendered = view_text.to_s
-  def rows = rendered.lines.map(&:chomp)
+  def spans = styled_rows.flat_map(&:spans)
+  def rows = styled_rows.map(&:to_s)
+  def rendered = rows.join("\n")
   def caption = caption_text.to_s
 
   def caption_text
@@ -25,13 +27,17 @@ RSpec.describe Code::GitSummaryPane do
   # Gives the pane a real width, so the width-dependent eliding runs.
   def size!(width = 24) = Tuile::Testing.place(pane, Tuile::Rect.new(0, 0, width, 12))
 
+  # What a 24-column pane gives each row: the list keeps a column of gutter
+  # either side.
+  ROW_WIDTH = 22
+
   it 'displays and nothing more: Tab never parks focus on the sidebar' do
-    assert_kind_of Shared::PassiveTextView, pane.view
+    assert_kind_of Shared::PassiveList, pane.view
     refute_predicate pane.view, :tab_stop?
     refute_predicate pane.view, :focusable?
   end
 
-  it 'stands up as a borderless "Changes" caption row over a text view' do
+  it 'stands up as a borderless "Changes" caption row over a list' do
     assert_kind_of Shared::PaneCaptionLabel, pane.caption_label
     assert_equal pane.caption_label, pane.children.first
     assert_equal described_class::CAPTION, caption
@@ -48,11 +54,11 @@ RSpec.describe Code::GitSummaryPane do
   # The porcelain code is the span carrying the change-kind tone; the filename
   # beside it is deliberately left in the default foreground.
   def code_color(code)
-    view_text.spans.find { |span| span.text.strip == code.strip && span.style.fg }&.style&.fg
+    spans.find { |span| span.text.strip == code.strip && span.style.fg }&.style&.fg
   end
 
   def span_containing(substr)
-    view_text.spans.find { |span| span.text.include?(substr) }
+    spans.find { |span| span.text.include?(substr) }
   end
 
   # Header rows as they stand, file rows reduced to their basename.
@@ -99,7 +105,7 @@ RSpec.describe Code::GitSummaryPane do
       pane.snapshot = snapshot(changes: [change(' M', 'lib/shared/markdown/deeply/nested/x.rb', 1, 0)])
       assert rows.first.start_with?('…'), "expected a leading ellipsis, got #{rows.first.inspect}"
       assert rows.first.end_with?('nested/'), "expected the tail kept, got #{rows.first.inspect}"
-      assert_equal 24, rows.first.length
+      assert_equal ROW_WIDTH, rows.first.length
     end
   end
 
@@ -121,7 +127,7 @@ RSpec.describe Code::GitSummaryPane do
                                          change(' M', 'lib/b.rb', 184, 17)])
       file_rows = rows.reject { |row| row.end_with?('/') }
       assert_equal 2, file_rows.size
-      assert_equal [24, 24], file_rows.map(&:length)
+      assert_equal [ROW_WIDTH, ROW_WIDTH], file_rows.map(&:length)
       assert file_rows.all? { |row| row.end_with?('1', '7') }, "counts not right-aligned: #{file_rows.inspect}"
     end
 
@@ -203,8 +209,8 @@ RSpec.describe Code::GitSummaryPane do
       size!
       pane.snapshot = snapshot(changes: [change(' M', 'lib/code/task_list_pane.rb', 31, 8)])
       file_row = rows.last
-      assert_equal 24, file_row.length
-      assert_includes file_row, 'task_list_pa…'
+      assert_equal ROW_WIDTH, file_row.length
+      assert_includes file_row, 'task_list_…'
       assert file_row.end_with?('+31/-8')
     end
 
@@ -213,7 +219,7 @@ RSpec.describe Code::GitSummaryPane do
       pane.snapshot = snapshot(changes: [change(' M', 'lib/code/task_list_pane.rb', 31, 8)])
       assert_includes rows.last, 'task_list_pane.rb'
       size!(24)
-      assert_includes rows.last, 'task_list_pa…'
+      assert_includes rows.last, 'task_list_…'
     end
 
     it 'elides nothing while the pane has no width yet' do
