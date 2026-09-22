@@ -7,15 +7,19 @@ RSpec.describe Code::TaskListPane do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  # The pane renders in its own relayout, so a read settles first.
-  def rendered = settle(window).view.text.to_s
-  def caption = settle(window).caption_label.caption
+  # Each row as the renderer builds it, before the list fits it to a width.
+  def rendered = window.view.items.map { |entry| window.view.renderer.call(entry).to_s }.join("\n")
+  def caption = window.caption_label.caption
+
+  # The rows as painted, where the list ellipsizes them — its one-column gutter
+  # either side stripped.
+  def painted = painted_region(window.view).map(&:strip).reject(&:empty?)
 
   # Gives the pane a real width, so the width-dependent ellipsizing runs.
   def size!(width = 24) = place(window, Tuile::Rect.new(0, 0, width, 8))
 
   it 'displays and nothing more: Tab never parks focus on the sidebar' do
-    assert_kind_of Shared::PassiveTextView, window.view
+    assert_kind_of Shared::PassiveList, window.view
     refute_predicate window.view, :tab_stop?
     refute_predicate window.view, :focusable?
   end
@@ -23,12 +27,12 @@ RSpec.describe Code::TaskListPane do
   def changed(*items) = Pikuri::Tasks::ListChanged.new(items: items)
   def item(id, content, status) = Pikuri::Tasks::Item.new(id: id, content: content, status: status)
 
-  it 'stands up as a borderless "Tasks" caption row over a text view' do
+  it 'stands up as a borderless "Tasks" caption row over a list' do
     assert_kind_of Tuile::Component::Layout::Vertical, window
     assert_kind_of Shared::PaneCaptionLabel, window.caption_label
     assert_equal window.caption_label, window.children.first
     assert_equal described_class::CAPTION, caption
-    assert_kind_of Tuile::Component::TextView, window.view
+    assert_kind_of Tuile::Component::List, window.view
   end
 
   it 'sets no background of its own — it inherits the sidebar tint' do
@@ -107,32 +111,37 @@ RSpec.describe Code::TaskListPane do
   end
 
   describe 'one row per task, ellipsized to the pane width' do
-    it 'truncates a long task instead of letting TextView wrap it' do
+    it 'truncates a long task instead of wrapping it' do
       size!
       window.items = [item(1, 'x' * 60, 'pending')]
-      assert_equal 1, rendered.lines.size
-      assert_equal 24, settle(window).view.text.display_width
-      assert rendered.end_with?('…'), "expected an ellipsis, got #{rendered.inspect}"
+      assert_equal 1, painted.size
+      assert painted.first.end_with?('…'), "expected an ellipsis, got #{painted.inspect}"
     end
 
     it 'leaves a task that fits untouched' do
       size!
       window.items = [item(1, 'short', 'pending')]
-      assert_equal '○ short', rendered
+      assert_equal ['○ short'], painted
     end
 
     it 're-ellipsizes when the pane is resized' do
       size!(40)
       window.items = [item(1, 'y' * 60, 'pending')]
-      assert_equal 40, settle(window).view.text.display_width
+      wide = painted.first.length
       size!(16)
-      assert_equal 16, settle(window).view.text.display_width
+      assert_operator painted.first.length, :<, wide
     end
+  end
 
-    it 'truncates nothing while the pane has no width yet' do
-      window.items = [item(1, 'z' * 60, 'pending')]
-      assert_includes rendered, 'z' * 60
-    end
+  it 're-tones the rows on a light/dark flip' do
+    size!
+    window.items = [item(1, 'busy', 'in_progress')]
+    painted
+    Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
+    window.__send__(:handle_theme_changed)
+    painted
+    x = window.view.absolute_rect.left + 1
+    assert_equal Shared::AppTheme::LIGHT[:notice], Tuile::Screen.instance.buffer.cell(x, window.view.absolute_rect.top).style.fg
   end
 
   describe '#tally / #on_tally' do
