@@ -7,16 +7,15 @@ RSpec.describe Code::GitSummaryPane do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  # Each row as the list renders it, at the width it hands the renderer.
-  def styled_rows
-    pane.flush_layout
-    width = pane.view.__send__(:text_width)
-    pane.view.items.map { |entry| pane.view.renderer.call(entry, width) }
-  end
-
+  # Each row as the renderer lays it out at +width+ — +0+, the list's width
+  # before it has a rect, elides nothing.
+  def styled_rows(width = 0) = pane.view.items.map { |entry| pane.view.renderer.call(entry, width) }
+  def rows(width = 0) = styled_rows(width).map(&:to_s)
   def spans = styled_rows.flat_map(&:spans)
-  def rows = styled_rows.map(&:to_s)
   def rendered = rows.join("\n")
+
+  # The list's rows as painted, its gutter stripped.
+  def painted_rows = painted_region(pane.view).map(&:strip).reject(&:empty?)
   def caption = caption_text.to_s
 
   def caption_text
@@ -24,7 +23,7 @@ RSpec.describe Code::GitSummaryPane do
     pane.caption_label.caption
   end
 
-  # Gives the pane a real width, so the width-dependent eliding runs.
+  # Gives the pane a real width, for the caption and the painted rows.
   def size!(width = 24) = Tuile::Testing.place(pane, Tuile::Rect.new(0, 0, width, 12))
 
   # What a 24-column pane gives each row: the list keeps a column of gutter
@@ -101,11 +100,11 @@ RSpec.describe Code::GitSummaryPane do
     end
 
     it 'elides a deep directory header from the left, keeping its own name' do
-      size!
       pane.snapshot = snapshot(changes: [change(' M', 'lib/shared/markdown/deeply/nested/x.rb', 1, 0)])
-      assert rows.first.start_with?('…'), "expected a leading ellipsis, got #{rows.first.inspect}"
-      assert rows.first.end_with?('nested/'), "expected the tail kept, got #{rows.first.inspect}"
-      assert_equal ROW_WIDTH, rows.first.length
+      header = rows(ROW_WIDTH).first
+      assert header.start_with?('…'), "expected a leading ellipsis, got #{header.inspect}"
+      assert header.end_with?('nested/'), "expected the tail kept, got #{header.inspect}"
+      assert_equal ROW_WIDTH, header.length
     end
   end
 
@@ -122,10 +121,9 @@ RSpec.describe Code::GitSummaryPane do
     end
 
     it 'reserves the snapshot\'s widest counts, so every file row is one width' do
-      size!
       pane.snapshot = snapshot(changes: [change(' M', 'lib/a.rb', 2, 1),
                                          change(' M', 'lib/b.rb', 184, 17)])
-      file_rows = rows.reject { |row| row.end_with?('/') }
+      file_rows = rows(ROW_WIDTH).reject { |row| row.end_with?('/') }
       assert_equal 2, file_rows.size
       assert_equal [ROW_WIDTH, ROW_WIDTH], file_rows.map(&:length)
       assert file_rows.all? { |row| row.end_with?('1', '7') }, "counts not right-aligned: #{file_rows.inspect}"
@@ -206,9 +204,8 @@ RSpec.describe Code::GitSummaryPane do
 
   describe 'width awareness' do
     it 'elides a long filename from the right, keeping its head' do
-      size!
       pane.snapshot = snapshot(changes: [change(' M', 'lib/code/task_list_pane.rb', 31, 8)])
-      file_row = rows.last
+      file_row = rows(ROW_WIDTH).last
       assert_equal ROW_WIDTH, file_row.length
       assert_includes file_row, 'task_list_…'
       assert file_row.end_with?('+31/-8')
@@ -217,9 +214,9 @@ RSpec.describe Code::GitSummaryPane do
     it 're-renders at the new width on resize' do
       size!(40)
       pane.snapshot = snapshot(changes: [change(' M', 'lib/code/task_list_pane.rb', 31, 8)])
-      assert_includes rows.last, 'task_list_pane.rb'
+      assert_includes painted_rows.last, 'task_list_pane.rb'
       size!(24)
-      assert_includes rows.last, 'task_list_…'
+      assert_includes painted_rows.last, 'task_list_…'
     end
 
     it 'elides nothing while the pane has no width yet' do
