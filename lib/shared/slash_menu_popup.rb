@@ -71,33 +71,33 @@ class Shared::SlashMenuPopup < Tuile::Component::ListDropdown
     Tuile::Rect.new(PAD, [bottom - HEIGHT, 0].max, width, HEIGHT)
   end
 
-  # Places the palette just above +anchor+. Answering {#anchor_rect} makes the
-  # {Tuile::ScreenPane} follow the anchor as it moves.
+  # Places the palette just above +anchor+. The +anchor+ member is the
+  # {Tuile::Component::Overlay::Placement} anchor, so the {Tuile::ScreenPane}
+  # resolves it — following the input as it moves, and leaving the palette put
+  # rather than placing it against nothing once the input is hidden or detached.
   AboveAnchor = Data.define(:anchor) do
-    # @return [Tuile::Rect, nil] the anchor in screen coordinates; nil while it,
-    #   or any ancestor, is hidden or detached.
-    def anchor_rect
-      node = anchor
-      until node.nil?
-        return nil unless node.visible?
-
-        node = node.parent
-      end
-      anchor.attached? ? anchor.absolute_extent_rect : nil
-    end
+    include Tuile::Component::Overlay::Placement
 
     # @param _popup [Shared::SlashMenuPopup]
     # @param screen_size [Tuile::Size]
+    # @param anchor_rect [Tuile::Rect] {#anchor} in screen coordinates, resolved by the pane.
     # @return [Tuile::Rect]
-    def rect_for(_popup, screen_size) = Shared::SlashMenuPopup.bar_above(anchor_rect.top, screen_size)
+    def rect_for(_popup, screen_size, anchor_rect)
+      Shared::SlashMenuPopup.bar_above(anchor_rect.top, screen_size)
+    end
   end
 
   # Places the palette just above the bottom screen edge, for the bare use.
   AtBottom = Data.define do
+    include Tuile::Component::Overlay::Placement
+
     # @param _popup [Shared::SlashMenuPopup]
     # @param screen_size [Tuile::Size]
+    # @param _anchor_rect [Tuile::Rect, nil] unused: this placement declares no {#anchor}.
     # @return [Tuile::Rect]
-    def rect_for(_popup, screen_size) = Shared::SlashMenuPopup.bar_above(screen_size.height, screen_size)
+    def rect_for(_popup, screen_size, _anchor_rect)
+      Shared::SlashMenuPopup.bar_above(screen_size.height, screen_size)
+    end
   end
 
   # The input the palette floats above, set by the {Shared::InputPane} that owns
