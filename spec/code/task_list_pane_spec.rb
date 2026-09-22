@@ -19,7 +19,7 @@ RSpec.describe Code::TaskListPane do
   def size!(width = 24) = Tuile::Testing.place(window, Tuile::Rect.new(0, 0, width, 8))
 
   it 'displays and nothing more: Tab never parks focus on the sidebar' do
-    assert_kind_of Shared::PassiveList, window.view
+    refute_predicate window.view, :interactive?
     refute_predicate window.view, :tab_stop?
     refute_predicate window.view, :focusable?
   end

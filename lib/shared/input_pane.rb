@@ -193,7 +193,7 @@ class Shared::InputPane < Tuile::Component::Layout
       @capture = nil
       # No palette while capturing: a captured answer is prose, so a leading
       # slash is a character and not the start of a command.
-      on_change { |e| slash_menu.sync(e.text) unless @recalling || @capture } if slash_menu
+      on_value_change { |e| slash_menu.sync(e.value) unless @recalling || @capture } if slash_menu
       # ESC is history-then-clear here, never a blur: #escape owns all of it, so
       # the field's own blur is turned off rather than followed.
       self.escape_clears_focus = false
@@ -313,7 +313,7 @@ class Shared::InputPane < Tuile::Component::Layout
       if @capture
         finish_capture(nil)
       elsif @history.at_draft?
-        self.text = ''
+        self.value = ''
       else
         recall(@history.jump_to_draft)
       end
@@ -352,7 +352,7 @@ class Shared::InputPane < Tuile::Component::Layout
     # @return [void]
     def set_text_quietly(value)
       @recalling = true
-      self.text = value
+      self.value = value
       self.caret = text.length
     ensure
       @recalling = false
@@ -368,7 +368,7 @@ class Shared::InputPane < Tuile::Component::Layout
       command = text.dup
       @history.append(command)
       @slash_menu.submit(command)
-      self.text = ''
+      self.value = ''
       true
     end
 
@@ -384,7 +384,7 @@ class Shared::InputPane < Tuile::Component::Layout
       return true if message.strip.empty?
 
       @history.append(message)
-      self.text = ''
+      self.value = ''
       @on_submit.call(message)
       true
     end

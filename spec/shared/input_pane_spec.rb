@@ -70,7 +70,7 @@ RSpec.describe Shared::InputPane do
     screen = Tuile::Screen.instance
     screen.content = window
     window.focus
-    window.area.text = 'hello'
+    window.area.value = 'hello'
     screen.send(:handle_key?, Tuile::Keys::ENTER)
     assert_equal ['hello'], submitted
     assert_equal '', window.area.text.to_s
@@ -82,7 +82,7 @@ RSpec.describe Shared::InputPane do
     screen = Tuile::Screen.instance
     screen.content = win
     win.focus
-    win.area.text = 'hi'
+    win.area.value = 'hi'
     screen.send(:handle_key?, Tuile::Keys::ENTER)
     assert_equal '', seen
   end
@@ -91,7 +91,7 @@ RSpec.describe Shared::InputPane do
     screen = Tuile::Screen.instance
     screen.content = window
     window.focus
-    window.area.text = '   '
+    window.area.value = '   '
     screen.send(:handle_key?, Tuile::Keys::ENTER)
     assert_empty submitted
   end
@@ -128,7 +128,7 @@ RSpec.describe Shared::InputPane do
 
     it 'sends the answer on Enter instead of submitting a turn, then clears' do
       capture
-      area.text = 'use the other library'
+      area.value = 'use the other library'
       press(Tuile::Keys::ENTER)
       assert_equal ['use the other library'], answers
       assert_empty submitted
@@ -138,7 +138,7 @@ RSpec.describe Shared::InputPane do
 
     it 'sends an emptied buffer as an answer (blank is a decision, not a no-op)' do
       capture(initial: 'draft')
-      area.text = ''
+      area.value = ''
       press(Tuile::Keys::ENTER)
       assert_equal [''], answers
     end
@@ -163,7 +163,7 @@ RSpec.describe Shared::InputPane do
 
     it 'keeps a leading slash literal — an answer is text, not a command' do
       capture
-      area.text = '/etc/hosts is the wrong file'
+      area.value = '/etc/hosts is the wrong file'
       press(Tuile::Keys::ENTER)
       assert_equal ['/etc/hosts is the wrong file'], answers
     end
@@ -178,7 +178,7 @@ RSpec.describe Shared::InputPane do
       Tuile::Screen.instance.content = pane
       pane.focus
       pane.capture(marker: '✎') { |text| answers << text }
-      pane.area.text = '/lo'
+      pane.area.value = '/lo'
       refute_predicate menu, :visible?
     end
 
@@ -191,7 +191,7 @@ RSpec.describe Shared::InputPane do
       pane = described_class.new(on_submit: ->(_text) {}, slash_menu: menu)
       Tuile::Screen.instance.content = pane
       pane.focus
-      pane.area.text = '/lo'
+      pane.area.value = '/lo'
       assert_predicate menu, :visible?
       pane.capture(marker: '✎') { |text| answers << text }
       refute_predicate menu, :visible?
@@ -200,10 +200,10 @@ RSpec.describe Shared::InputPane do
     end
 
     it 'stays out of the history: the answer is not recallable as a turn' do
-      area.text = 'a real turn'
+      area.value = 'a real turn'
       press(Tuile::Keys::ENTER)
       capture
-      area.text = 'an answer'
+      area.value = 'an answer'
       press(Tuile::Keys::ENTER)
       press(Tuile::Keys::UP_ARROW)
       assert_equal 'a real turn', area.text.to_s
@@ -222,7 +222,7 @@ RSpec.describe Shared::InputPane do
     def press(key) = Tuile::Screen.instance.send(:handle_key?, key)
 
     def submit(text)
-      area.text = text
+      area.value = text
       press(Tuile::Keys::ENTER)
     end
 
@@ -236,7 +236,7 @@ RSpec.describe Shared::InputPane do
     it 'walks back through older messages and forward again to the draft' do
       submit('first')
       submit('second')
-      area.text = 'half typed'
+      area.value = 'half typed'
       area.caret = area.text.length
 
       press(Tuile::Keys::UP_ARROW)
@@ -271,7 +271,7 @@ RSpec.describe Shared::InputPane do
 
     it 'moves the caret instead of recalling while there is a row above' do
       submit('sent')
-      area.text = "two\nlines"
+      area.value = "two\nlines"
       area.caret = area.text.length
 
       press(Tuile::Keys::UP_ARROW)
@@ -280,7 +280,7 @@ RSpec.describe Shared::InputPane do
     end
 
     it "leaves TextArea's edge snap in place when history has nothing to give" do
-      area.text = 'unsent'
+      area.value = 'unsent'
       area.caret = area.text.length
       press(Tuile::Keys::UP_ARROW)
       # Declined, not consumed: the plain TextArea behaviour survives.
@@ -290,7 +290,7 @@ RSpec.describe Shared::InputPane do
 
     it 'returns to the draft on ESC, then clears the buffer on a second ESC' do
       submit('sent')
-      area.text = 'half typed'
+      area.value = 'half typed'
       area.caret = area.text.length
       press(Tuile::Keys::UP_ARROW)
       assert_equal 'sent', area.text.to_s
@@ -308,7 +308,7 @@ RSpec.describe Shared::InputPane do
 
     it 'does not record a blank submit' do
       submit('real message')
-      area.text = '   '
+      area.value = '   '
       press(Tuile::Keys::ENTER)
       press(Tuile::Keys::UP_ARROW)
       assert_equal 'real message', area.text.to_s
@@ -341,18 +341,18 @@ RSpec.describe Shared::InputPane do
     end
 
     it 'opens the palette as soon as the buffer starts with a slash' do
-      window.area.text = '/'
+      window.area.value = '/'
       assert menu.visible?
     end
 
     it 'closes the palette when the buffer stops being a slash command' do
-      window.area.text = '/'
-      window.area.text = 'hello'
+      window.area.value = '/'
+      window.area.value = 'hello'
       refute menu.visible?
     end
 
     it 'runs the slash command on Enter instead of submitting a turn, then clears' do
-      window.area.text = '/quit'
+      window.area.value = '/quit'
       press(Tuile::Keys::ENTER)
       assert_equal [[:quit, '']], ran
       assert_empty submitted
@@ -360,7 +360,7 @@ RSpec.describe Shared::InputPane do
     end
 
     it 'runs a slash command with a trailing argument (palette already hidden past the space)' do
-      window.area.text = '/diff run the migration'
+      window.area.value = '/diff run the migration'
       refute menu.visible?
       press(Tuile::Keys::ENTER)
       assert_equal [[:diff, 'run the migration']], ran
@@ -369,42 +369,42 @@ RSpec.describe Shared::InputPane do
     end
 
     it 'blocks an unknown slash command from reaching the agent' do
-      window.area.text = '/nope'
+      window.area.value = '/nope'
       press(Tuile::Keys::ENTER)
       assert_empty submitted
       assert_includes conversation.text.to_s, 'Command not found'
     end
 
     it 'forwards Down to the palette while it is shown, so Enter runs the selection' do
-      window.area.text = '/'
+      window.area.value = '/'
       press(Tuile::Keys::DOWN_ARROW) # /diff -> /quit
       press(Tuile::Keys::ENTER)
       assert_equal [[:quit, '']], ran
     end
 
     it 'still submits an ordinary turn on Enter when the buffer is not a slash' do
-      window.area.text = 'hello there'
+      window.area.value = 'hello there'
       press(Tuile::Keys::ENTER)
       assert_equal ['hello there'], submitted
       assert_empty ran
     end
 
     it 'records slash commands in history too, though they never reach on_submit' do
-      window.area.text = '/quit'
+      window.area.value = '/quit'
       press(Tuile::Keys::ENTER)
       press(Tuile::Keys::UP_ARROW)
       assert_equal '/quit', window.area.text.to_s
     end
 
     it 'leaves the palette shut when a recalled entry starts with a slash' do
-      window.area.text = '/quit'
+      window.area.value = '/quit'
       press(Tuile::Keys::ENTER)
       press(Tuile::Keys::UP_ARROW)
       refute menu.visible?
     end
 
     it 'runs a recalled slash command on Enter, palette or no palette' do
-      window.area.text = '/quit'
+      window.area.value = '/quit'
       press(Tuile::Keys::ENTER)
       press(Tuile::Keys::UP_ARROW)
       press(Tuile::Keys::ENTER)
@@ -412,7 +412,7 @@ RSpec.describe Shared::InputPane do
     end
 
     it 'opens the palette again as soon as a recalled command is edited' do
-      window.area.text = '/di'
+      window.area.value = '/di'
       press(Tuile::Keys::ENTER) # unknown command, but still an entry
       press(Tuile::Keys::UP_ARROW)
       refute menu.visible?
@@ -422,9 +422,9 @@ RSpec.describe Shared::InputPane do
     end
 
     it 'lets the palette keep Up while it is shown, so recall never traps it' do
-      window.area.text = 'a turn'
+      window.area.value = 'a turn'
       press(Tuile::Keys::ENTER)
-      window.area.text = '/'
+      window.area.value = '/'
       assert menu.visible?
       press(Tuile::Keys::UP_ARROW)
       # The palette moved its selection; the buffer was not overwritten by history.
@@ -467,7 +467,7 @@ RSpec.describe Shared::InputPane do
     end
 
     it 'leaves the prompt buffer and caret untouched while paging' do
-      window.area.text = 'half typed'
+      window.area.value = 'half typed'
       window.area.caret = 4
       press(Tuile::Keys::PAGE_UP)
       assert_equal 'half typed', window.area.text.to_s
@@ -494,7 +494,7 @@ RSpec.describe Shared::InputPane do
 
       it 'pages the palette, not the transcript' do
         conversation.scroll_top_row = 5
-        window.area.text = '/'
+        window.area.value = '/'
         assert menu.visible?
         press(Tuile::Keys::PAGE_DOWN)
         assert_equal 5, conversation.scroll_top_row
@@ -502,7 +502,7 @@ RSpec.describe Shared::InputPane do
 
       it 'pages the transcript again once the palette is gone' do
         conversation.scroll_top_row = 5
-        window.area.text = ''
+        window.area.value = ''
         refute menu.visible?
         press(Tuile::Keys::PAGE_DOWN)
         assert_equal 5 + half_page, conversation.scroll_top_row

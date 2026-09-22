@@ -18,8 +18,9 @@ ruby '>= 3.3'
 # a module the placement includes whose declared `anchor` the pane itself
 # resolves and follows, and a fake screen raises on an unsettled rect read — so
 # width-derived output is built where the width is settled, in `repaint` or
-# `relayout`. `Code::Layout` hiding its sidebar from its own `relayout` needs
-# tuile#50's fix. The mouse rework
+# `relayout`. A string field's one writer and change slot are `value=` /
+# `on_value_change` (`text=` and `on_change` are gone). `Code::Layout` hiding
+# its sidebar from its own `relayout` needs tuile#50's fix. The mouse rework
 # misses us (nothing here handles a mouse event).
 #
 # CI can't build against a path gem, so whichever comes first, the cut of

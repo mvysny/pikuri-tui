@@ -40,9 +40,9 @@ module Code
   # made any tasks.
   #
   # **Every task takes exactly one row**, which is why the view is a
-  # {Shared::PassiveList} and not a text view: a text view word-wraps, so a long
-  # task would spill onto continuation rows carrying no glyph, while the list
-  # ellipsizes each row to the width at paint time.
+  # display-only {Tuile::Component::List} and not a text view: a text view
+  # word-wraps, so a long task would spill onto continuation rows carrying no
+  # glyph, while the list ellipsizes each row to the width at paint time.
   #
   # UI-thread-confined (the nested {Listener} marshals the stream onto the UI
   # thread before calling {#items=}).
@@ -83,10 +83,11 @@ module Code
       @items = []
       @tally = [0, 0]
       @on_tally = nil
-      # Passive, so Tab stays a two-stop cycle between the transcript and the
+      # Display-only, so Tab stays a two-stop cycle between the transcript and the
       # prompt, and left on Tuile's default +:gone+ scrollbar — with nothing in
       # the sidebar focusable, no key could drive either one.
-      @view = Shared::PassiveList.new
+      @view = Tuile::Component::List.new
+      @view.interactive = false
       @view.renderer = method(:row)
       @view.items = [PLACEHOLDER]
       @caption_label = Shared::PaneCaptionLabel.new(CAPTION)
@@ -95,7 +96,7 @@ module Code
       @listener = Listener.new(pane: self, screen: screen)
     end
 
-    # @return [Shared::PassiveList] the content view under the caption;
+    # @return [Tuile::Component::List] the content view under the caption;
     #   exposed for tests, production drives it through {#items=} / {#listener}.
     attr_reader :view
 

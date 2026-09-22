@@ -31,7 +31,7 @@ RSpec.describe Code::GitSummaryPane do
   ROW_WIDTH = 22
 
   it 'displays and nothing more: Tab never parks focus on the sidebar' do
-    assert_kind_of Shared::PassiveList, pane.view
+    refute_predicate pane.view, :interactive?
     refute_predicate pane.view, :tab_stop?
     refute_predicate pane.view, :focusable?
   end

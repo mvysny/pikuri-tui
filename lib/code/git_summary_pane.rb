@@ -58,9 +58,10 @@ module Code
   # left-elision would spend three of its columns on +.rb+.
   #
   # The rows are width-dependent — names cut to a budget so the counts align,
-  # headers elided from the left — so a {Shared::PassiveList} renders them
-  # against the width it hands its renderer, at paint time. A zero width (no
-  # rect yet) reads as *unknown* and truncates nothing. The caption degrades by
+  # headers elided from the left — so a display-only {Tuile::Component::List}
+  # renders them against the width it hands its renderer, at paint time. A zero
+  # width (no rect yet) reads as *unknown* and truncates nothing. The caption
+  # degrades by
   # the pane's width too, so it is chosen in {#relayout}.
   #
   # UI-thread-confined (the {WorkspaceSidebar} subscription marshals {#snapshot=}
@@ -119,16 +120,17 @@ module Code
       super()
       @snapshot = nil
       @counts_width = 0
-      # Passive and scrollbar-less: nothing in the sidebar is focusable, so
+      # Display-only and scrollbar-less: nothing in the sidebar is focusable, so
       # neither a tab stop nor a bar could ever be driven.
-      @view = Shared::PassiveList.new
+      @view = Tuile::Component::List.new
+      @view.interactive = false
       @view.renderer = method(:row)
       @caption_label = Shared::PaneCaptionLabel.new(CAPTION)
       add(@caption_label, Fixed[1])
       add(@view, Expand[1])
     end
 
-    # @return [Shared::PassiveList] the content view under the caption;
+    # @return [Tuile::Component::List] the content view under the caption;
     #   exposed for tests, production drives it through {#snapshot=}.
     attr_reader :view
 

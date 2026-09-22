@@ -57,7 +57,7 @@ RSpec.describe Code::TranscriptConfirmer do
     if key
       input.area.handle_key?(key)
     else
-      input.area.text = text if text
+      input.area.value = text if text
       input.area.handle_key?(Tuile::Keys::ENTER)
     end
   end
