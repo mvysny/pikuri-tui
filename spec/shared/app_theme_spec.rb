@@ -31,6 +31,11 @@ RSpec.describe Shared::AppTheme do
                       :>=, 4.5
     end
 
+    it 'paints the user-turn echo solid black on light, solid white on dark' do
+      assert_equal Tuile::Color.new([0, 0, 0]), described_class::LIGHT[:user]
+      assert_equal Tuile::Color.new([255, 255, 255]), described_class::DARK[:user]
+    end
+
     it 'paints the tool lines in the coat too, not a terminal cyan' do
       assert_equal described_class::CHESTNUT, described_class::DARK[:tool]
       assert_equal described_class::CHESTNUT_SHADE, described_class::LIGHT[:tool]
@@ -50,32 +55,41 @@ RSpec.describe Shared::AppTheme do
     end
   end
 
-  describe '.derived' do
+  describe 'the derived pane tokens' do
+    def hex(value) = Tuile::Color.hex(value)
+
     it 'falls back to the fixed-tint floor when the terminal reports no background' do
-      assert_same described_class::THEME_DEF, described_class.derived(nil)
+      dark = described_class::DARK.resolve(nil)
+      light = described_class::LIGHT.resolve(nil)
+      assert_equal [hex('#121212'), hex('#333333')], [dark[:pane_bg], dark[:pane_frame]]
+      assert_equal [hex('#f0f0f0'), hex('#cccccc')], [light[:pane_bg], light[:pane_frame]]
     end
 
     it 'steps the pane tint off a reported background, and the hairline off the tint' do
-      derived = described_class.derived(Tuile::Color.hex('#000000')).dark
-      refute_equal described_class::DARK[:pane_bg], derived[:pane_bg]
+      derived = described_class::DARK.resolve(hex('#000000'))
+      refute_equal described_class::DARK.resolve(nil)[:pane_bg], derived[:pane_bg]
       # The hairline steps from :pane_bg, the ground it actually rules on —
       # not from the raw terminal background.
       assert_equal Shared::Tint.hairline(derived[:pane_bg]), derived[:pane_frame]
     end
 
     it 'leaves the non-derived tokens (and the Talus hint) alone' do
-      derived = described_class.derived(Tuile::Color.hex('#1e1e2e')).dark
+      derived = described_class::DARK.resolve(hex('#1e1e2e'))
       assert_equal described_class::TALUS, derived[:hint]
       assert_equal described_class::DARK[:tool], derived[:tool]
     end
 
     it 'stays an AppTheme, so the coloring helpers survive the derivation' do
-      assert_kind_of described_class, described_class.derived(Tuile::Color.hex('#282c34')).light
+      assert_kind_of described_class, described_class::LIGHT.resolve(hex('#282c34'))
     end
 
-    it 'paints the user-turn echo solid black on light, solid white on dark' do
-      assert_equal Tuile::Color.new([0, 0, 0]), described_class::LIGHT[:user]
-      assert_equal Tuile::Color.new([255, 255, 255]), described_class::DARK[:user]
+    it 'follows the background the screen reports' do
+      Tuile::Screen.fake
+      screen = Tuile::Screen.instance
+      screen.background_color = hex('#282c34')
+      assert_equal described_class::DARK.resolve(hex('#282c34'))[:pane_bg], screen.theme[:pane_bg]
+    ensure
+      Tuile::Screen.close
     end
   end
 

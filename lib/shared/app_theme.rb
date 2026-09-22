@@ -56,7 +56,7 @@ require 'tuile'
 #   panes now that nothing is framed (the status rule, the sidebar's captions
 #   and its left-edge column). Derived from +:pane_bg+, the ground all of
 #   them rule on — a hairline must step from the ground it sits on, not from
-#   the terminal's. See {.derived}.
+#   the terminal's. See {.pane_bg_token}.
 # - +:diff_line_add+ / +:diff_line_del+ / +:diff_span_add+ /
 #   +:diff_span_del+ — the four *background* tones {Code::DiffRenderer}
 #   paints for the edit / write tool diff view: a dim whole-line bar
@@ -94,6 +94,12 @@ require 'tuile'
 # light/dark flips re-pick the legible variant; tests point
 # +Tuile::ThemeDef.default+ at it once so every +Screen.fake+ resolves
 # the custom tokens.
+#
+# +:pane_bg+ and +:pane_frame+ are Tuile *derived tokens* — Procs of the
+# terminal's reported background, which the screen resolves whenever the
+# theme or +Tuile::Screen#background_color+ changes — so {DARK} / {LIGHT} are
+# unresolved themes: read those two tokens off +screen.theme+, or off
+# +DARK.resolve(background)+, never off the constants.
 #
 # Immutable.
 class Shared::AppTheme < Tuile::Theme
@@ -182,6 +188,31 @@ class Shared::AppTheme < Tuile::Theme
   # @return [Tuile::Color]
   CHESTNUT_SHADE = Tuile::Color.hex('#715433')
 
+  # The derived +:pane_bg+ token: the terminal's background stepped toward
+  # mid-grey ({Shared::Tint.pane_bg}), guarded so the foregrounds painted on
+  # the tint ({.guard_colors}) keep their contrast. With no reported
+  # background (+nil+ — plenty of terminals answer no OSC 11) it is +floor+.
+  #
+  # @param floor [Tuile::Color] the fixed tint assumed for the variant's
+  #   common ground.
+  # @return [Proc] +(background, theme) -> Tuile::Color+.
+  def self.pane_bg_token(floor)
+    ->(background, theme) { background ? Shared::Tint.pane_bg(background, guard: guard_colors(theme)) : floor }
+  end
+  private_class_method :pane_bg_token
+
+  # The derived +:pane_frame+ token: a hairline on the +:pane_bg+ ground
+  # ({Shared::Tint.hairline}), since every rule it colors sits on that tint
+  # rather than on the terminal's own background. +floor+ with no reported
+  # background, paired with {.pane_bg_token}'s.
+  #
+  # @param floor [Tuile::Color]
+  # @return [Proc] +(background, theme) -> Tuile::Color+.
+  def self.pane_frame_token(floor)
+    ->(background, theme) { background ? Shared::Tint.hairline(theme[:pane_bg]) : floor }
+  end
+  private_class_method :pane_frame_token
+
   # The custom tokens tuned for dark terminal backgrounds. The accents
   # are the named ANSI colors (terminal-remapped, so they track the
   # user's own palette — the same rationale {Tuile::Theme::DARK} uses
@@ -194,11 +225,11 @@ class Shared::AppTheme < Tuile::Theme
   # conversation pane marks as machinery — the tool call / result lines,
   # the slash-menu names, the coding shell's diff headers — follows it.
   #
-  # +:pane_bg+ / +:pane_frame+ are the *fixed-tint floor* — the values used
-  # when the terminal answers no OSC 11 and
-  # +Tuile::Screen#background_color+ is +nil+, assuming the common near-black
-  # ground. When the real background RGB is known, {.derived} replaces both.
-  # @return [Hash{Symbol => Tuile::Color}]
+  # +:pane_bg+ / +:pane_frame+ are derived ({.pane_bg_token}); their
+  # *fixed-tint floor* — used when the terminal answers no OSC 11 and
+  # +Tuile::Screen#background_color+ is +nil+ — assumes the common near-black
+  # ground.
+  # @return [Hash{Symbol => Tuile::Color, Proc}]
   DARK_CUSTOM = {
     hint:     TALUS,
     tool:     CHESTNUT,
@@ -213,8 +244,8 @@ class Shared::AppTheme < Tuile::Theme
     diff_line_del: Tuile::Color.hex('#3f0001'),
     diff_span_add: Tuile::Color.hex('#006000'),
     diff_span_del: Tuile::Color.hex('#901011'),
-    pane_bg:    Tuile::Color.hex('#121212'),
-    pane_frame: Tuile::Color.hex('#333333')
+    pane_bg:    pane_bg_token(Tuile::Color.hex('#121212')),
+    pane_frame: pane_frame_token(Tuile::Color.hex('#333333'))
   }.freeze
 
   # The custom tokens tuned for light terminal backgrounds: the bright
@@ -223,7 +254,7 @@ class Shared::AppTheme < Tuile::Theme
   # the gray tones step darker so they read against a light "paper"
   # background — +:thinking+ kept a touch lighter than +:detail+ so
   # reasoning reads as muted secondary text without disappearing.
-  # @return [Hash{Symbol => Tuile::Color}]
+  # @return [Hash{Symbol => Tuile::Color, Proc}]
   LIGHT_CUSTOM = {
     hint:     TALUS_SHADE,
     tool:     CHESTNUT_SHADE,
@@ -238,8 +269,8 @@ class Shared::AppTheme < Tuile::Theme
     diff_line_del: Tuile::Color.hex('#ffe0e0'),
     diff_span_add: Tuile::Color.hex('#a0efa0'),
     diff_span_del: Tuile::Color.hex('#ffc0c0'),
-    pane_bg:    Tuile::Color.hex('#f0f0f0'),
-    pane_frame: Tuile::Color.hex('#cccccc')
+    pane_bg:    pane_bg_token(Tuile::Color.hex('#f0f0f0')),
+    pane_frame: pane_frame_token(Tuile::Color.hex('#cccccc'))
   }.freeze
 
   # The dark-background app theme: {Tuile::Theme::DARK}'s built-in
@@ -255,47 +286,10 @@ class Shared::AppTheme < Tuile::Theme
   # The pair to hand to +Tuile::Screen#theme_def=+ (and
   # +Tuile::ThemeDef.default=+ in the suite) so the screen picks the
   # legible variant at startup and re-picks on every OS appearance flip.
-  # Prefer {.derived}, which folds the terminal's reported background in.
   # @return [Tuile::ThemeDef]
   THEME_DEF = Tuile::ThemeDef.new(dark: DARK, light: LIGHT)
 
-  # The theme pair with +:pane_bg+ and its hairline derived from the
-  # terminal's *actual* background ({Shared::Tint}), replacing the fixed floors
-  # baked into {DARK_CUSTOM} / {LIGHT_CUSTOM}: +:pane_bg+ steps the background
-  # toward mid-grey, and +:pane_frame+ becomes a hairline on *that* tinted
-  # ground rather than on the terminal's. With no reported background
-  # (+nil+ — plenty of terminals answer no OSC 11) the fixed floor
-  # {THEME_DEF} stands.
-  #
-  #   screen.theme_def = Shared::AppTheme.derived(screen.background_color)
-  #
-  # @param background [Tuile::Color, nil] +Tuile::Screen#background_color+.
-  # @return [Tuile::ThemeDef] the pair to assign to +screen.theme_def=+.
-  def self.derived(background)
-    return THEME_DEF if background.nil?
-
-    Tuile::ThemeDef.new(dark: derive_variant(DARK, background), light: derive_variant(LIGHT, background))
-  end
-
-  # Installs {.derived} for +screen+'s currently reported background.
-  #
-  # Call it *before* building any component whose text bakes in a derived tone
-  # (the hairlines: {Shared::StatusRuleLabel},
-  # {Shared::PaneCaptionLabel}) — each shell's +App+ does, at the top of its
-  # +build_components+ — because a +theme_def=+ on a screen with no content yet
-  # fires no +handle_theme_changed+ to re-bake them. {Shared::RootLayout} then calls
-  # this again from its own +handle_theme_changed+, which is what keeps the
-  # derivation current across a light/dark flip or a fresh OSC-11 answer. That
-  # second call is re-entrant by construction: the derivation is deterministic,
-  # so it resolves to an equal theme and +Tuile::Screen#theme=+ no-ops.
-  #
-  # @param screen [Tuile::Screen]
-  # @return [void]
-  def self.install(screen)
-    screen.theme_def = derived(screen.background_color)
-  end
-
-  # The foregrounds actually painted *on* +:pane_bg+, which {.derived}'s
+  # The foregrounds actually painted *on* +:pane_bg+, which {.pane_bg_token}'s
   # contrast guard defends: the prompt marker and sidebar captions
   # (+:hint+), the placeholder / completed-task tone
   # (+:detail+) and the three change-kind tones the git summary paints. The
@@ -306,23 +300,11 @@ class Shared::AppTheme < Tuile::Theme
   # +:thinking+, the diff backgrounds): that pane keeps the terminal's own
   # background, so no tint can hurt them.
   #
-  # @param theme [Shared::AppTheme] the variant to read the tokens from.
+  # @param theme [Shared::AppTheme, Tuile::Theme::Resolver] the variant to
+  #   read the tokens from — a resolved theme, or the resolver a derived token
+  #   is handed.
   # @return [Array<Tuile::Color>]
   def self.guard_colors(theme)
     [theme[:hint], theme[:detail], theme[:notice], theme[:added], theme[:removed]]
   end
-
-  # One variant with its derived tokens folded in — see {.derived}.
-  #
-  # @param base [Shared::AppTheme] {DARK} or {LIGHT}.
-  # @param background [Tuile::Color] the terminal background RGB.
-  # @return [Shared::AppTheme]
-  def self.derive_variant(base, background)
-    pane_bg = Shared::Tint.pane_bg(background, guard: guard_colors(base))
-    base.with(custom: base.custom.merge(
-      pane_bg: pane_bg,
-      pane_frame: Shared::Tint.hairline(pane_bg)
-    ))
-  end
-  private_class_method :derive_variant
 end

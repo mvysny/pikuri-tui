@@ -13,7 +13,7 @@ RSpec.describe Shared::Tint do
   }.freeze
 
   def hex(value) = Tuile::Color.hex(value)
-  def lightness(color) = described_class.to_hsl(described_class.rgb_of(color))[2]
+  def lightness(color) = described_class.to_hsl(color.rgb)[2]
 
   describe '.pane_bg' do
     it 'steps a dark background lighter and a light one darker — toward mid-grey' do
@@ -29,8 +29,8 @@ RSpec.describe Shared::Tint do
     end
 
     it 'preserves the hue of a tinted background' do
-      mocha = described_class.rgb_of(hex('#1e1e2e'))
-      tinted = described_class.rgb_of(described_class.pane_bg(hex('#1e1e2e')))
+      mocha = hex('#1e1e2e').rgb
+      tinted = described_class.pane_bg(hex('#1e1e2e')).rgb
       assert_in_delta described_class.to_hsl(mocha)[0], described_class.to_hsl(tinted)[0], 2.0
     end
 
@@ -41,7 +41,7 @@ RSpec.describe Shared::Tint do
       background = hex('#255') # dark teal — toward grey = lighter
       token = hex('#c4c4c4')   # ~4.8:1 on the raw background, no headroom
       assert_operator described_class.contrast(token, background), :>=, described_class::CONTRAST_FLOOR
-      toward = Tuile::Color.rgb(*described_class.step(described_class.rgb_of(background), described_class::DELTA))
+      toward = Tuile::Color.rgb(*described_class.step(background.rgb, described_class::DELTA))
       assert_operator described_class.contrast(token, toward), :<, described_class::CONTRAST_FLOOR
 
       chosen = described_class.pane_bg(background, guard: [token])
@@ -74,34 +74,17 @@ RSpec.describe Shared::Tint do
     end
   end
 
-  describe '.rgb_of' do
-    it 'reads an RGB color straight through' do
-      assert_equal [30, 30, 46], described_class.rgb_of(hex('#1e1e2e'))
-    end
-
-    it 'resolves a 256-palette cube index and a grey-ramp index' do
-      assert_equal [0, 95, 175], described_class.rgb_of(Tuile::Color.palette(25))
-      assert_equal [128, 128, 128], described_class.rgb_of(Tuile::Color.palette(244))
-    end
-
-    it 'declines symbolic ANSI, whose look the terminal scheme owns' do
-      assert_nil described_class.rgb_of(Tuile::Color::GREEN)
-      assert_nil described_class.rgb_of(Tuile::Color.palette(9))
-    end
-  end
-
   # The spec form of the measurement that picked the direction and DELTA:
   # across the representative backgrounds, no guarded token that clears the
   # floor against the raw background may lose it against the derived tint.
-  describe 'the guard table, as Shared::AppTheme.derived applies it' do
+  describe "the guard table, as Shared::AppTheme's derived :pane_bg applies it" do
     BACKGROUNDS.each do |name, value|
       it "keeps every passing tinted-pane token above the floor on #{name}" do
         background = Tuile::Color.hex(value)
-        derived = Shared::AppTheme.derived(background)
-        [derived.dark, derived.light].each do |theme|
+        [Shared::AppTheme::DARK, Shared::AppTheme::LIGHT].map { _1.resolve(background) }.each do |theme|
           pane_bg = theme[:pane_bg]
           Shared::AppTheme.guard_colors(theme).each do |color|
-            next if described_class.rgb_of(color).nil? # symbolic ANSI — the terminal's scheme owns it
+            next if color.rgb.nil? # symbolic ANSI — the terminal's scheme owns it
             next if described_class.contrast(color, background) < described_class::CONTRAST_FLOOR
 
             assert_operator described_class.contrast(color, pane_bg), :>=, described_class::CONTRAST_FLOOR,
@@ -112,7 +95,7 @@ RSpec.describe Shared::Tint do
     end
 
     it 'derives the hairline from the tinted ground it rules on, not the terminal one' do
-      derived = Shared::AppTheme.derived(hex('#282c34')).dark
+      derived = Shared::AppTheme::DARK.resolve(hex('#282c34'))
       assert_equal described_class.hairline(derived[:pane_bg]), derived[:pane_frame]
       refute_equal described_class.hairline(hex('#282c34')), derived[:pane_frame]
     end

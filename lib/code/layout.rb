@@ -113,10 +113,9 @@ module Code
       @sidebar_mode = SIDEBAR_MODES.first
       @sidebar_was_visible = nil
       @on_sidebar_visibility = nil
-      # The one-cell │ column between the conversation and the sidebar. Its
-      # text is rebuilt to the row height by #relayout, its tone by
-      # #handle_theme_changed — both are baked into the label's text.
-      @separator = Tuile::Component::Label.new
+      # The one-cell │ column between the conversation and the sidebar; Fill
+      # paints it to whatever height #relayout gives it, in a live theme ref.
+      @separator = Tuile::Component::Fill.new('│', color: Tuile::Theme.ref(:pane_frame))
       @separator.bg_color = Tuile::Theme.ref(:pane_bg)
       add(conversation)
       add(@separator)
@@ -137,7 +136,7 @@ module Code
     # @return [WorkspaceSidebar]
     attr_reader :sidebar
 
-    # @return [Tuile::Component::Label] the +│+ column between the conversation
+    # @return [Tuile::Component::Fill] the +│+ column between the conversation
     #   and the sidebar; exposed for tests.
     attr_reader :separator
 
@@ -186,17 +185,6 @@ module Code
       @on_sidebar_visibility = block
     end
 
-    protected
-
-    # Re-tones the separator column, whose color is baked into its text, in the
-    # next pass.
-    #
-    # @return [void]
-    def handle_theme_changed
-      super
-      invalidate_layout
-    end
-
     private
 
     # Positions the five pieces across the layout's own rect: the bottom
@@ -242,7 +230,6 @@ module Code
 
       @separator.rect = Tuile::Rect.new(left_w, 0, 1, top_h)
       @sidebar.rect = Tuile::Rect.new(left_w + 1, 0, right_w, top_h)
-      rebuild_separator
     end
 
     # Fires {#on_sidebar_visibility} when the sidebar has just appeared or
@@ -256,15 +243,6 @@ module Code
 
       @sidebar_was_visible = visible
       @on_sidebar_visibility&.call(visible)
-    end
-
-    # Rebuilds the separator column: one +:pane_frame+ +│+ per row of the upper
-    # region. Only from {#relayout}, where the separator's rect is current.
-    #
-    # @return [void]
-    def rebuild_separator
-      column = Array.new(@separator.rect.height, '│').join("\n")
-      @separator.text = Tuile::StyledString.styled(column, fg: screen.theme[:pane_frame])
     end
 
     # The sidebar column width for a given total width: {SIDEBAR_FRACTION} of it

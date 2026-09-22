@@ -35,10 +35,17 @@ RSpec.describe Code::Layout do
     assert_equal Tuile::Rect.new(left_w + 1, 0, right_w, top_height), sidebar.rect
   end
 
+  # The painted column's glyphs and their foregrounds, top to bottom.
+  def separator_cells
+    buffer = Tuile::Testing.paint(layout.separator)
+    Array.new(top_height) { |y| buffer.cell(0, y) }
+  end
+
   it 'draws the separator as one :pane_frame │ per row of the upper region' do
     Tuile::Testing.place(layout, Tuile::Rect.new(0, 0, WIDE, TALL))
-    assert_equal Array.new(top_height, '│').join("\n"), layout.separator.text.to_s
-    assert(layout.separator.text.spans.all? { |span| span.style.fg == Tuile::Screen.instance.theme[:pane_frame] })
+    layout.flush_layout
+    assert_equal ['│'], separator_cells.map(&:grapheme).uniq
+    assert_equal [Tuile::Screen.instance.theme[:pane_frame]], separator_cells.map { _1.style.fg }.uniq
   end
 
   it 'tints the separator so it belongs to the sidebar side of the boundary' do
@@ -59,10 +66,9 @@ RSpec.describe Code::Layout do
 
   it 're-tones the separator on a light/dark flip' do
     Tuile::Testing.place(layout, Tuile::Rect.new(0, 0, WIDE, TALL))
-    Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
-    layout.__send__(:handle_theme_changed)
     layout.flush_layout
-    assert(layout.separator.text.spans.all? { |span| span.style.fg == Shared::AppTheme::LIGHT[:pane_frame] })
+    Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
+    assert_equal [Shared::AppTheme::LIGHT.resolve(nil)[:pane_frame]], separator_cells.map { _1.style.fg }.uniq
   end
 
   describe 'sidebar mode' do

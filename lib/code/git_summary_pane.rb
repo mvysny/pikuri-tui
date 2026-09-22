@@ -273,11 +273,9 @@ module Code
       code = Tuile::StyledString.styled(change.code.rjust(CODE_WIDTH), fg: kind_color(change.code))
       name = Tuile::StyledString.plain(File.basename(change.path))
       budget = name_width(counts_width, width)
-      name = name.ellipsize(budget) if budget
-      pad = budget ? budget - name.display_width : 0
-      gap = counts_width.positive? ? pad + 1 + (counts_width - counts.display_width) : pad
-      Tuile::StyledString.plain(' ' * INDENT) + code + Tuile::StyledString.plain(' ') +
-        name + Tuile::StyledString.plain(' ' * gap) + counts
+      name = name.ellipsize(budget).ljust(budget) if budget
+      counts = Tuile::StyledString.plain(' ') + counts.rjust(counts_width) if counts_width.positive?
+      Tuile::StyledString.plain(' ' * INDENT) + code + Tuile::StyledString.plain(' ') + name + counts
     end
 
     # @param counts_width [Integer] columns the counts column reserves.

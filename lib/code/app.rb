@@ -259,9 +259,6 @@ module Code
 
     # @return [void]
     def build_components
-      # Fold the terminal's reported background into the theme before any
-      # component below bakes a derived hairline into its text.
-      Shared::AppTheme.install(@screen)
       @status_bar = Shared::StatusBar.new
       @log_ui = Shared::Log::UI.new(screen: @screen, status_bar: @status_bar)
 

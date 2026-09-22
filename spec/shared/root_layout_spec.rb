@@ -19,28 +19,4 @@ RSpec.describe Shared::RootLayout do
     assert_same shell, root.shell
     assert_same status_bar, root.status_bar
   end
-
-  describe 'keeping the derived theme current' do
-    it 're-derives the background-dependent tokens when the theme changes' do
-      screen = Tuile::Screen.instance
-      screen.content = root
-      screen.background_color = Tuile::Color.hex('#282c34')
-
-      root.__send__(:handle_theme_changed)
-      expected = Shared::AppTheme.derived(Tuile::Color.hex('#282c34'))
-      assert_equal expected.dark[:pane_bg], screen.theme_def.dark[:pane_bg]
-      assert_equal expected.dark[:pane_frame], screen.theme_def.dark[:pane_frame]
-    end
-
-    it 'settles rather than recursing — the derivation is deterministic' do
-      screen = Tuile::Screen.instance
-      screen.content = root
-      screen.background_color = Tuile::Color.hex('#1e1e2e')
-
-      root.__send__(:handle_theme_changed)
-      before = screen.theme
-      root.__send__(:handle_theme_changed)
-      assert_equal before, screen.theme
-    end
-  end
 end

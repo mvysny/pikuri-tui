@@ -584,12 +584,14 @@ class Shared::ConversationTextView < Tuile::Component::TextView
 
   # Whether the pane is on a dark terminal background, so
   # {Shared::Markdown::Renderer} can pick a legible code-highlighting theme.
-  # The screen holds exactly the {Shared::AppTheme::DARK}/{Shared::AppTheme::LIGHT}
-  # constant its {Tuile::ThemeDef} resolved, so identity against +LIGHT+ is the
-  # live scheme.
+  # The screen holds {Shared::AppTheme::DARK} or {Shared::AppTheme::LIGHT}
+  # resolved against its background (their tints are derived tokens), so
+  # equality against +LIGHT+ resolved the same way is the live scheme — a
+  # transient +Tuile::Screen#theme=+ included, which
+  # +Tuile::Screen#color_scheme+ would miss.
   #
   # @return [Boolean]
-  def dark_scheme? = !screen.theme.equal?(Shared::AppTheme::LIGHT)
+  def dark_scheme? = screen.theme != Shared::AppTheme::LIGHT.resolve(screen.background_color)
 
   # Translates a +Pikuri::Agent+'s normalized event stream into
   # {Shared::ConversationTextView} render calls — the Tuile-targeted equivalent of
