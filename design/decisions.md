@@ -161,10 +161,12 @@ mid-flight. Why no marker where a hidden block was: a hidden block draws *nothin
 you cannot click earns nothing in a terminal, which has no cheap per-block affordance to offer,
 and the caption would cost a row per block. (pikuri-web inverts this on the same argument: a
 browser can make that row clickable, which turns filler into the affordance.) Only a block filed
-with a kind can be re-rendered, which is what keeps the `edit` / `write` diffs un-hideable. The
-accepted cost is at the other end: while reasoning is hidden the listener drops the delta stream
-rather than render into a pane nobody sees, so reasoning cancelled mid-stream gets no bookend and
-a later reveal shows only what had streamed.
+with a kind can be re-rendered, which is what keeps the `edit` / `write` diffs un-hideable. Hiding
+is a rendering switch, never a listening one: a hidden block still opens at its first delta and
+collects into a {Shared::Markdown::CollectingBuffer} rather than render into a pane nobody sees. It
+has to claim its place *then*, because the `Thinking` bookend arrives after the answer it preceded,
+so a block born on the bookend reveals itself below that answer. The accepted cost is at the other
+end: a reveal mid-stream draws the prefix collected so far and catches up on the next toggle.
 
 ## D_command_precedence — Why do built-in slash commands beat file commands beat skills?
 

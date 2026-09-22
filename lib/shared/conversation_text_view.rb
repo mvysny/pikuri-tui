@@ -80,19 +80,19 @@ require 'tuile'
 # region rewrite and re-tails a following view, so collapsing a screenful under
 # a scrolled-up reader lands where it should.
 #
-# Hiding reasoning also stops the listener streaming it, so a reveal shows the
-# +Thinking+ bookend's full text rather than the streamed prefix. The one cost:
-# reasoning cancelled mid-stream never gets a bookend, so hiding and revealing
-# it shows only what had streamed.
+# Hiding reasoning skips only its *rendering*: the block still opens where the
+# reasoning streamed and collects it, so a reveal draws it in place — above the
+# answer — instead of wherever its +Thinking+ bookend happened to land. The one
+# cost: a reveal mid-stream draws the prefix collected so far and then stops
+# growing, and the block catches up on the next toggle.
 #
 # == Markdown flag
 #
 # +markdown:+ (default +true+) gates the assistant render path: when off, the
 # assistant streaming path uses {Shared::Markdown::PassthroughBuffer} and
 # {#render_markdown} returns its input verbatim. The thinking pane's grayscale
-# repaint is independent of the flag — a +markdown: false+ thinking buffer is
-# still a {Shared::Markdown::StreamingBuffer} with a recolor-only render
-# function, so the gray tint survives.
+# repaint is independent of the flag — a +markdown: false+ reasoning block
+# renders through a recolor-only function, so the gray tint survives.
 #
 # UI-thread-confined, with exceptions (the nested {Listener} marshals the event
 # stream onto the UI thread before driving these verbs; {#render_turn_error} is
@@ -336,11 +336,16 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     [region, buffer]
   end
 
-  # Twin of {#open_assistant_block} for the reasoning pane. Always a
-  # {Shared::Markdown::StreamingBuffer}: the render is
-  # {Shared::Markdown::Renderer}→recolor when Markdown is on, recolor-only when
-  # off — so the gray tint applies in both modes. The reasoning tone is
-  # snapshot at build time, like the width.
+  # Twin of {#open_assistant_block} for the reasoning pane, tinted gray in both
+  # Markdown modes: the render is {Shared::Markdown::Renderer}→recolor when
+  # Markdown is on, recolor-only when off. The reasoning tone is snapshot at
+  # build time, like the width.
+  #
+  # Hidden reasoning still opens its region — so the block holds the place the
+  # reasoning *streamed* at, not the place its +Thinking+ bookend arrives at,
+  # which is after the answer — but takes a
+  # {Shared::Markdown::CollectingBuffer}: the deltas pile up unrendered until a
+  # reveal.
   #
   # The region registers as a +:thinking+ block whose thunk re-renders the
   # buffer's own +#source+ — which is what lets {#show_thinking=} reach
@@ -359,7 +364,11 @@ class Shared::ConversationTextView < Tuile::Component::TextView
              else
                ->(md) { Shared::Markdown::Grayscale.recolor(md, fg: thinking) }
              end
-    buffer = Shared::Markdown::StreamingBuffer.new(render: indent_render(render, indent), region: region)
+    buffer = if @show_thinking
+               Shared::Markdown::StreamingBuffer.new(render: indent_render(render, indent), region: region)
+             else
+               Shared::Markdown::CollectingBuffer.new
+             end
     @kinded_blocks << KindedBlock.new(region: region, kind: :thinking, indent: indent,
                                       render: -> { render.call(buffer.source) })
     [region, buffer]
@@ -724,16 +733,13 @@ class Shared::ConversationTextView < Tuile::Component::TextView
         @view.add_block(@view.theme.user("> #{content}"), indent: @indent)
       in Pikuri::Agent::Event::ThinkingDelta(content:)
         @assistant.wipe
-        # Dropping the delta loses nothing: the bookend below carries the full
-        # text, and lands as a hidden block for a later reveal.
-        if @view.show_thinking
-          @thinking.append(content)
-          @thinking_streamed = true
-        end
+        @thinking.append(content)
+        @thinking_streamed = true
       in Pikuri::Agent::Event::Thinking(content:)
         if @thinking.open?
           @thinking.finalize(content)
-          # finalize writes straight to its region, around the pane's gate.
+          # A block opened while shown and hidden since finalizes straight into
+          # its region, around the pane's gate.
           @view.rerender(kind: :thinking) unless @view.show_thinking
         elsif !@thinking_streamed
           @view.add_kinded_block(kind: :thinking, indent: @indent) { @view.render_thinking(content) }

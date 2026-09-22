@@ -229,7 +229,7 @@ RSpec.describe Shared::ConversationTextView do
       assert_includes rendered, 'answer'
     end
 
-    it 'drops the delta stream while hidden and lands the bookend hidden but revealable' do
+    it 'collects the delta stream unrendered while hidden, and reveals the bookend text' do
       pane.show_thinking = false
       deltas('never shown ')
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'the whole reasoning'))
@@ -237,7 +237,22 @@ RSpec.describe Shared::ConversationTextView do
 
       pane.toggle_thinking
       assert_includes rendered, 'the whole reasoning'
-      refute_includes rendered, 'never shown'
+      refute_includes rendered, 'never shown', 'the bookend replaced the collected preview'
+    end
+
+    # pikuri emits the Thinking bookend from +after_message+, i.e. after the
+    # answer has streamed, so a block first created on that bookend files itself
+    # below the answer it preceded.
+    it 'reveals hidden reasoning above the answer, not where its bookend landed' do
+      pane.show_thinking = false
+      deltas('pondering')
+      listener.on_event(Pikuri::Agent::Event::AssistantDelta.new(content: 'Hi'))
+      listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'pondering'))
+      listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'Hi there!'))
+      assert_equal 'Hi there!', rendered.strip
+
+      pane.toggle_thinking
+      assert_equal ['pondering', 'Hi there!'], rendered.lines.map(&:strip).reject(&:empty?)
     end
 
     it 'puts a bookend that finalized an open stream back under the gate' do
