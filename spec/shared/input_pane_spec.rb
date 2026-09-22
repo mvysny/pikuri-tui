@@ -53,7 +53,7 @@ RSpec.describe Shared::InputPane do
     tint = screen.theme[:pane_bg]
     # The buffer's own column, read off the painted cells rather than off
     # bg_color: Tuile's AbstractStringField resolves a well of its own
-    # (input_bg_color, active_bg_color once focused) unless BG_INHERIT sends it
+    # (input_bg_color, active_bg_color once focused) unless INHERIT sends it
     # to the parent, and a shade flip on focus is exactly what we removed.
     buffer_cell = lambda do
       screen.needs_full_repaint

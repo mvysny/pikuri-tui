@@ -15,7 +15,7 @@ require 'tuile'
 # {Tuile::Component::AbstractStringField} would paint a well of its own
 # (+active_bg_color+ focused, +input_bg_color+ otherwise) — a second shade
 # inside the pane, flipping as focus moves — so the {Area} is built with
-# +bg_color = BG_INHERIT+ and takes this pane's tint instead.
+# +bg_color = ComponentBackground::INHERIT+ and takes this pane's tint instead.
 #
 # The well is a permanent spatial anchor, not a focus cue — the *caret* is the
 # focus cue, and it does the whole job. Focus leaves the prompt only for the
@@ -102,7 +102,7 @@ class Shared::InputPane < Tuile::Component::Layout
     # follows a light/dark flip with no hook of our own; the marker's tone is
     # baked into its text and does need {#handle_theme_changed}.
     self.bg_color = Tuile::Theme.ref(:pane_bg)
-    @area.bg_color = Tuile::Component::BG_INHERIT
+    @area.bg_color = Tuile::ComponentBackground::INHERIT
     slash_menu.anchor = self if slash_menu
     @capture_marker = nil
     rebuild_marker

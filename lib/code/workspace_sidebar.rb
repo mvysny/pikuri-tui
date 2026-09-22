@@ -77,7 +77,7 @@ module Code
       add(@task_pane)
       add(@git_summary_pane)
       # Tint the whole column; a Theme::Ref re-resolves on every theme swap by
-      # itself, and both panes inherit it via Component#effective_bg_color.
+      # itself, and both panes inherit it via ComponentBackground#effective.
       self.bg_color = Tuile::Theme.ref(:pane_bg)
     end
 
