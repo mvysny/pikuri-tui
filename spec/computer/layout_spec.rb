@@ -10,8 +10,7 @@ RSpec.describe Computer::Layout do
   after  { Tuile::Screen.close }
 
   it 'stacks the conversation over a one-row status rule over the prompt, with no sidebar' do
-    place(layout, Tuile::Rect.new(0, 0, 80, 24))
-    settle(layout)
+    Tuile::Testing.place(layout, Tuile::Rect.new(0, 0, 80, 24))
     inset = described_class::CONTENT_INSET
     top_h = 24 - described_class::INPUT_HEIGHT - 1
 
@@ -21,8 +20,7 @@ RSpec.describe Computer::Layout do
   end
 
   it 'starves the prompt first, then the rule, on a terminal too short for all three' do
-    place(layout, Tuile::Rect.new(0, 0, 80, 3))
-    settle(layout)
+    Tuile::Testing.place(layout, Tuile::Rect.new(0, 0, 80, 3))
     assert_equal 3, input.rect.height
     assert_equal 0, status_rule.rect.height
     assert_equal 0, conversation.rect.height

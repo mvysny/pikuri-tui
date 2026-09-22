@@ -10,8 +10,7 @@ RSpec.describe Shared::RootLayout do
   after  { Tuile::Screen.close }
 
   it 'gives the status bar the last row and the shell every row above it' do
-    place(root, Tuile::Rect.new(0, 0, 40, 10))
-    settle(root)
+    Tuile::Testing.place(root, Tuile::Rect.new(0, 0, 40, 10))
     assert_equal Tuile::Rect.new(0, 0, 40, 9), shell.rect
     assert_equal Tuile::Rect.new(0, 9, 40, 1), status_bar.rect
   end

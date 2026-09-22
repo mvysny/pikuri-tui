@@ -48,13 +48,6 @@ require_relative 'support/marshalling_fake_screen'
 # tool composes, which most fixtures don't want to spell out).
 require_relative 'support/tool_events'
 
-# +settle+ — the hand-run of the deferred layout pass a spec has no event to
-# trigger.
-require_relative 'support/deferred_layout'
-
-# +place+ — a rect put through what places it; only a parent may write one.
-require_relative 'support/placing'
-
 # +paint+ / +painted_region+ — one component painted through its own
 # Tuile::Canvas, for the specs that read rows back off the buffer.
 require_relative 'support/paint_one'
@@ -89,8 +82,6 @@ RSpec.configure do |config|
   config.include Minitest::Assertions
   config.include ThreadedUi
   config.include ToolEvents
-  config.include DeferredLayout
-  config.include Placing
   config.include PaintOne
   config.include(Module.new do
     attr_writer :assertions

@@ -16,7 +16,7 @@ RSpec.describe Code::TaskListPane do
   def painted = painted_region(window.view).map(&:strip).reject(&:empty?)
 
   # Gives the pane a real width, so the width-dependent ellipsizing runs.
-  def size!(width = 24) = place(window, Tuile::Rect.new(0, 0, width, 8))
+  def size!(width = 24) = Tuile::Testing.place(window, Tuile::Rect.new(0, 0, width, 8))
 
   it 'displays and nothing more: Tab never parks focus on the sidebar' do
     assert_kind_of Shared::PassiveList, window.view

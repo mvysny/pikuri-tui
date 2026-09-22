@@ -26,8 +26,7 @@ RSpec.describe Shared::InputPane do
   end
 
   it 'hangs the marker off the left edge, with the area starting past it' do
-    place(window, Tuile::Rect.new(0, 0, 40, described_class::HEIGHT))
-    settle(window)
+    Tuile::Testing.place(window, Tuile::Rect.new(0, 0, 40, described_class::HEIGHT))
     width = described_class::MARKER_WIDTH
     # The marker owns one row at column 0; every row is editable.
     assert_equal Tuile::Rect.new(0, 0, width, 1), window.instance_variable_get(:@marker).rect
@@ -36,22 +35,21 @@ RSpec.describe Shared::InputPane do
   end
 
   it 'leaves only the trailing pad unclaimed, so the buffer gets the rest' do
-    place(window, Tuile::Rect.new(0, 0, 40, described_class::HEIGHT))
-    settle(window)
+    Tuile::Testing.place(window, Tuile::Rect.new(0, 0, 40, described_class::HEIGHT))
     assert_equal 40 - described_class::MARKER_WIDTH - described_class::TRAILING_PAD, window.area.rect.width
   end
 
   it 'floors the area width at 0 on a pane too narrow for the marker and pad' do
-    place(window, Tuile::Rect.new(0, 0, 2, described_class::HEIGHT))
-    settle(window)
+    Tuile::Testing.place(window, Tuile::Rect.new(0, 0, 2, described_class::HEIGHT))
     assert_equal 0, window.area.rect.width
   end
 
   it 'paints the buffer on the inherited pane tint, not on a well of its own' do
     screen = Tuile::Screen.instance
-    screen.content = window
-    place(window, Tuile::Rect.new(0, 0, 40, described_class::HEIGHT))
-    settle(window)
+    holder = Tuile::Component::Layout::Absolute.new
+    screen.content = holder
+    holder.add(window, Tuile::Rect.new(0, 0, 40, described_class::HEIGHT))
+    screen.flush_layout
     tint = screen.theme[:pane_bg]
     # The buffer's own column, read off the painted cells rather than off
     # bg_color: Tuile's AbstractStringField resolves a well of its own
@@ -448,7 +446,7 @@ RSpec.describe Shared::InputPane do
 
     before do
       screen = Tuile::Screen.instance
-      place(conversation, Tuile::Rect.new(0, 0, 40, 10))
+      Tuile::Testing.place(conversation, Tuile::Rect.new(0, 0, 40, 10))
       30.times { |i| conversation.add_block("line #{i}") }
       screen.content = window
       window.focus

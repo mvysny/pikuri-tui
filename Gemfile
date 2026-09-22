@@ -14,11 +14,11 @@ ruby '>= 3.3'
 # wants `Component#flush_layout`; and a listener slot is an append-only list
 # with no setter (`screen.on_error << …`, `field.on_change { |e| … }`), each
 # firing one event object. Since then only a parent may write `rect=` (specs
-# use `place`), an overlay opens with a placement, and a fake screen raises on
-# an unsettled rect read — so width-derived output is built where the width is
-# settled, in `repaint` or `relayout`. `Code::Layout` hiding its sidebar from
-# its own `relayout` needs tuile#50's fix. The mouse rework misses us (nothing
-# here handles a mouse event).
+# use `Tuile::Testing.place`), an overlay opens with a placement, and a fake
+# screen raises on an unsettled rect read — so width-derived output is built
+# where the width is settled, in `repaint` or `relayout`. `Code::Layout` hiding
+# its sidebar from its own `relayout` needs tuile#50's fix. The mouse rework
+# misses us (nothing here handles a mouse event).
 #
 # CI can't build against a path gem, so whichever comes first, the cut of
 # tuile 0.17 is what un-blocks CI, and that commit reverts this line to

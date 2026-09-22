@@ -8,13 +8,22 @@ RSpec.describe Code::GitSummaryPane do
   after  { Tuile::Screen.close }
 
   # The pane renders in its own relayout, so a read settles first.
-  def view_text = settle(pane).view.text
+  def view_text
+    pane.flush_layout
+    pane.view.text
+  end
+
   def rendered = view_text.to_s
   def rows = rendered.lines.map(&:chomp)
-  def caption = settle(pane).caption_label.caption.to_s
+  def caption = caption_text.to_s
+
+  def caption_text
+    pane.flush_layout
+    pane.caption_label.caption
+  end
 
   # Gives the pane a real width, so the width-dependent eliding runs.
-  def size!(width = 24) = place(pane, Tuile::Rect.new(0, 0, width, 12))
+  def size!(width = 24) = Tuile::Testing.place(pane, Tuile::Rect.new(0, 0, width, 12))
 
   it 'displays and nothing more: Tab never parks focus on the sidebar' do
     assert_kind_of Shared::PassiveTextView, pane.view
@@ -176,7 +185,7 @@ RSpec.describe Code::GitSummaryPane do
       size!
       pane.snapshot = snapshot(changes: [change(' M', 'a.rb', 100, 10),
                                          change(' M', 'b.rb', 84, 7)])
-      toned = settle(pane).caption_label.caption.spans.to_h { |span| [span.text, span.style.fg] }
+      toned = caption_text.spans.to_h { |span| [span.text, span.style.fg] }
       assert_equal theme[:added], toned['+184']
       assert_equal theme[:removed], toned['-17']
       assert_nil toned['Changes: 2; '], 'prose must stay unset so the caption accent fills it'

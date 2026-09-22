@@ -4,7 +4,7 @@ RSpec.describe Shared::StatusRuleLabel do
   let(:token_log)   { Pikuri::Agent::Listener::TokenLog.new }
   let(:event_queue) { Tuile::Screen.instance.event_queue }
   let(:label) do
-    described_class.new(token_log: token_log).tap { |l| place(l, Tuile::Rect.new(0, 0, WIDTH, 1)) }
+    described_class.new(token_log: token_log).tap { |l| Tuile::Testing.place(l, Tuile::Rect.new(0, 0, WIDTH, 1)) }
   end
 
   # Wide enough that the readout never runs into the fill.
@@ -404,7 +404,7 @@ RSpec.describe Shared::StatusRuleLabel do
 
     it 'sits between the context and the model, where the workspace facts group' do
       rule = described_class.new(token_log: token_log, context: '~/work/x')
-      place(rule, Tuile::Rect.new(0, 0, WIDTH, 1))
+      Tuile::Testing.place(rule, Tuile::Rect.new(0, 0, WIDTH, 1))
       rule.current_model = 'Qwen'
       rule.workspace_digest = digest(files: 3, added: 1, tasks_done: 1, tasks_total: 2)
       assert_match(/~\/work\/x · 3 files \+1 · 1\/2 tasks · Qwen/, rule.text.to_s)

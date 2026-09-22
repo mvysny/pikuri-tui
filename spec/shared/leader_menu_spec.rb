@@ -16,7 +16,7 @@ RSpec.describe Shared::LeaderMenu do
   # The picker's list holds Option items and renders them at paint time, so the
   # rows are read off the painted buffer.
   def painted_rows
-    place(modal_popup, Tuile::Rect.new(0, 0, 30, 4))
+    Tuile::Testing.place(modal_popup, Tuile::Rect.new(0, 0, 30, 4))
     painted_region(modal_popup.content.content).map(&:strip).reject(&:empty?)
   end
 
@@ -77,7 +77,7 @@ RSpec.describe Shared::LeaderMenu do
     assert_kind_of Tuile::Component::PickerWindow, picker
     # The picker's list holds Option items and renders them at paint time, so the
     # rows are read off the painted buffer.
-    place(modal_popup, Tuile::Rect.new(0, 0, 20, 4))
+    Tuile::Testing.place(modal_popup, Tuile::Rect.new(0, 0, 20, 4))
     rows = painted_region(picker.content).map(&:strip)
     assert_equal ['l logs', 'q quit'], rows.reject(&:empty?)
   end

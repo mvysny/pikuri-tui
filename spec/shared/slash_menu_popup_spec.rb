@@ -141,7 +141,7 @@ RSpec.describe Shared::SlashMenuPopup do
   describe 'geometry' do
     it 'spans the screen width less one column each edge, ten rows tall' do
       menu.sync('/')
-      settle(Tuile::Screen.instance)
+      Tuile::Screen.instance.flush_layout
       assert_equal 1, menu.rect.left
       assert_equal Tuile::Screen.instance.size.width - 2, menu.rect.width
       assert_equal 10, menu.rect.height
@@ -155,7 +155,7 @@ RSpec.describe Shared::SlashMenuPopup do
       Tuile::Screen.instance.content = holder
       menu.anchor = input
       menu.sync('/')
-      settle(Tuile::Screen.instance)
+      Tuile::Screen.instance.flush_layout
       assert_equal 10, menu.rect.top # 20 (input top) - 10 (height)
     end
   end

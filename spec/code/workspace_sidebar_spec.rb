@@ -12,8 +12,7 @@ RSpec.describe Code::WorkspaceSidebar do
 
   describe 'layout' do
     it 'stacks a fixed-height task pane over the git changes pane' do
-      place(sidebar, Tuile::Rect.new(0, 0, 30, 20))
-      settle(sidebar)
+      Tuile::Testing.place(sidebar, Tuile::Rect.new(0, 0, 30, 20))
       tasks = sidebar.instance_variable_get(:@task_pane)
       changes = sidebar.git_summary_pane
 
@@ -24,8 +23,7 @@ RSpec.describe Code::WorkspaceSidebar do
     end
 
     it 'leaves both panes empty when handed an empty rect (collapsed sidebar)' do
-      place(sidebar, Tuile::Rect.new(0, 0, 0, 0))
-      settle(sidebar)
+      Tuile::Testing.place(sidebar, Tuile::Rect.new(0, 0, 0, 0))
       assert sidebar.instance_variable_get(:@task_pane).rect.empty?
       assert sidebar.git_summary_pane.rect.empty?
     end
@@ -35,13 +33,11 @@ RSpec.describe Code::WorkspaceSidebar do
     # columns they used to hold. This one lays the column out first.
     it 'empties both panes when the column is emptied after having been laid out' do
       tasks = sidebar.instance_variable_get(:@task_pane)
-      place(sidebar, Tuile::Rect.new(96, 0, 24, 20))
-      settle(sidebar)
+      Tuile::Testing.place(sidebar, Tuile::Rect.new(96, 0, 24, 20))
       refute_predicate tasks.rect, :empty?
       refute_predicate sidebar.git_summary_pane.rect, :empty?
 
-      place(sidebar, Tuile::Rect.new(120, 0, 0, 20))
-      settle(sidebar)
+      Tuile::Testing.place(sidebar, Tuile::Rect.new(120, 0, 0, 20))
       assert_predicate tasks.rect, :empty?
       assert_predicate sidebar.git_summary_pane.rect, :empty?
     end
@@ -68,7 +64,10 @@ RSpec.describe Code::WorkspaceSidebar do
     # wire without starting the poll thread.
     def emit(snapshot) = sidebar.git_watcher.send(:emit, snapshot)
 
-    def summary_text = settle(sidebar).git_summary_pane.view.text.to_s
+    def summary_text
+      sidebar.flush_layout
+      sidebar.git_summary_pane.view.text.to_s
+    end
     def diff_text = sidebar.git_diff_window.view.text.to_s
 
     it 'projects an emitted snapshot onto the two git panes' do
