@@ -82,21 +82,6 @@ class Shared::PaneCaptionLabel < Tuile::Component::Label
   # @return [void]
   def refresh
     caption = @caption.is_a?(Tuile::StyledString) ? @caption : Tuile::StyledString.plain(@caption)
-    self.text = under_fg(caption, screen.theme[:hint])
-  end
-
-  # +text+ with +fg+ on the spans that carry none, the rest untouched — the
-  # foreground counterpart of +Tuile::StyledString#under_bg+, which upstream
-  # has no fg sibling for (+with_fg+ overrides every span).
-  #
-  # @param text [Tuile::StyledString]
-  # @param fg [Tuile::Color]
-  # @return [Tuile::StyledString]
-  def under_fg(text, fg)
-    Tuile::StyledString.new(text.spans.map do |span|
-      next span unless span.style.fg.nil?
-
-      Tuile::StyledString::Span.new(text: span.text, style: span.style.merge(fg: fg))
-    end)
+    self.text = caption.under_fg(screen.theme[:hint])
   end
 end

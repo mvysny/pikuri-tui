@@ -189,11 +189,12 @@ class Shared::InputPane < Tuile::Component::Layout
       @slash_menu = slash_menu
       @conversation = conversation
       @history = Shared::PromptHistory.new
-      @recalling = false
       @capture = nil
-      # No palette while capturing: a captured answer is prose, so a leading
-      # slash is a character and not the start of a command.
-      on_value_change { |e| slash_menu.sync(e.value) unless @recalling || @capture } if slash_menu
+      # The palette follows the user's edits only: a recall or a clear is this
+      # class's own write, and the paths that clear already closed it. No
+      # palette while capturing either: a captured answer is prose, so a
+      # leading slash is a character and not the start of a command.
+      on_value_change { |e| slash_menu.sync(e.value) if e.from_user? && !@capture } if slash_menu
       # ESC is history-then-clear here, never a blur: #escape owns all of it, so
       # the field's own blur is turned off rather than followed.
       self.escape_clears_focus = false
@@ -345,17 +346,14 @@ class Shared::InputPane < Tuile::Component::Layout
       true
     end
 
-    # Replace the buffer with the caret at its end, without letting the slash
-    # palette react.
+    # Replace the buffer with the caret at its end. A +value=+ write is not the
+    # user's, so the slash palette does not react.
     #
     # @param value [String]
     # @return [void]
     def set_text_quietly(value)
-      @recalling = true
       self.value = value
       self.caret = text.length
-    ensure
-      @recalling = false
     end
 
     # Record and run the slash command in the buffer, then clear the field.

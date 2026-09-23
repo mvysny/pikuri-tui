@@ -6,7 +6,13 @@ RSpec.describe Code::GitDiffWindow do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  def rendered = pane.view.text.to_s
+  # A snapshot renders at the next relayout, where the width is settled.
+  def text
+    pane.flush_layout
+    pane.view.text
+  end
+
+  def rendered = text.to_s
 
   def snapshot(diff: '', error: nil)
     Code::GitWatcher::Snapshot.new(changes: [], diff_text: diff, error: error)
@@ -41,7 +47,7 @@ RSpec.describe Code::GitDiffWindow do
   it 'colors the diff through our theme, not git' do
     pane.snapshot = snapshot(diff: MODIFIED_DIFF)
     plain = Tuile::StyledString::Style.new
-    assert pane.view.text.spans.any? { |span| span.style != plain },
+    assert text.spans.any? { |span| span.style != plain },
            'expected at least one themed span (the header tone)'
   end
 
@@ -67,7 +73,7 @@ RSpec.describe Code::GitDiffWindow do
       assert_equal 47, pane.send(:max_width)
     end
 
-    it 're-renders the retained diff when the pane width changes (handle_width_changed)' do
+    it 're-renders the retained diff when the pane width changes (relayout)' do
       pane.snapshot = snapshot(diff: MODIFIED_DIFF)
       writes = 0
       view = pane.view
@@ -77,7 +83,7 @@ RSpec.describe Code::GitDiffWindow do
         original.call(value)
       end
 
-      Tuile::Testing.place(pane, Tuile::Rect.new(0, 0, 40, 10)) # width 0 -> 40 fires handle_width_changed
+      Tuile::Testing.place(pane, Tuile::Rect.new(0, 0, 40, 10)) # width 0 -> 40 re-renders in relayout
       assert writes.positive?, 'a width change should re-render the retained diff'
       assert_includes rendered, '✎ tracked.txt' # …and not blank it
     end

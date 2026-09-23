@@ -28,9 +28,9 @@ RSpec.describe Shared::ConversationTextView do
       assert_nil pane.bg_color
     end
 
-    it 'tails the transcript and shows its own scrollbar (the frame carried neither)' do
+    it 'tails the transcript and shows its own scrollbar once it overflows (the frame carried neither)' do
       assert pane.auto_scroll
-      assert_equal :visible, pane.scrollbar_visibility
+      assert_equal :auto, pane.scrollbar_visibility
     end
 
     it 'owns the transcript listener it exposes for the agent ListenerList' do
@@ -39,10 +39,22 @@ RSpec.describe Shared::ConversationTextView do
   end
 
   describe '#buffer_width' do
-    it 'is the wrap width — the pane less the columns the scrollbar claims' do
+    it 'keeps back the columns the scrollbar claims, even while it is hidden' do
       Tuile::Testing.place(pane, Tuile::Rect.new(0, 0, 40, 3))
       # 40 columns less the bar's own and the blank Tuile reserves beside it.
       assert_equal 38, pane.buffer_width
+      assert_equal 40, pane.send(:wrap_width) # a short transcript: no bar yet
+    end
+
+    it 'does not rewrap a full-width block when the transcript overflows' do
+      Tuile::Testing.place(pane, Tuile::Rect.new(0, 0, 40, 3))
+      pane.add_block('x' * pane.buffer_width)
+      4.times { |i| pane.add_block("line #{i}") }
+      pane.flush_layout
+      assert_equal 38, pane.send(:wrap_width) # the bar is up now…
+      # …and the long block still takes one row: five rows tailed in a
+      # three-row viewport put the top at 2, where a rewrapped one would put it at 3.
+      assert_equal 2, pane.scroll_top_row
     end
 
     it 'floors at 1 before the pane is laid out, so no renderer sees width 0' do

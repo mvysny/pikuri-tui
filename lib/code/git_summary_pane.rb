@@ -120,10 +120,12 @@ module Code
       super()
       @snapshot = nil
       @counts_width = 0
-      # Display-only and scrollbar-less: nothing in the sidebar is focusable, so
-      # neither a tab stop nor a bar could ever be driven.
+      # Display-only: nothing in the sidebar is focusable, so it is no tab stop.
+      # The bar shows only while the files overflow, a cue that the wheel has
+      # more to scroll to, and hands its column back while they fit.
       @view = Tuile::Component::List.new
       @view.interactive = false
+      @view.scrollbar_visibility = :auto
       @view.renderer = method(:row)
       @caption_label = Shared::PaneCaptionLabel.new(CAPTION)
       add(@caption_label, Fixed[1])

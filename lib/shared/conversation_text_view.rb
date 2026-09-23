@@ -112,6 +112,12 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @return [Array<String>]
   LEAVE_KEYS = [Tuile::Keys::ESC, 'q'].freeze
 
+  # Columns the scrollbar claims off the right edge once shown: its glyph and
+  # the blank Tuile keeps beside it.
+  #
+  # @return [Integer]
+  BAR_COLUMNS = 2
+
   LOG = Pikuri.logger_for('markdown')
   private_constant :LOG
 
@@ -131,9 +137,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     @show_thinking = show_thinking
     @tool_formatters = tool_formatters
     self.auto_scroll = true
-    # Unlike the coding shell's sidebar panes this one is genuinely scrollable,
-    # by the prompt's PageUp/PageDown.
-    self.scrollbar_visibility = :visible
+    # Genuinely scrollable, by the prompt's PageUp/PageDown; the bar shows only
+    # once the transcript overflows, so a short one has no idle track.
+    self.scrollbar_visibility = :auto
     # The leaf listener this pane builds directly isn't a component, so it
     # takes the screen explicitly — this pane hands it its own inherited
     # +#screen+ property (the {Tuile::Screen} singleton, fake-able via
@@ -187,13 +193,15 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #   OS light/dark flip is picked up).
   def theme = screen.theme
 
-  # Render width for a fresh streaming buffer: the pane's wrap width (its own
-  # width less the columns the scrollbar claims), floored at 1 so a
-  # not-yet-laid-out pane doesn't pass a non-positive width to
+  # Render width for a fresh block: the pane's width less {BAR_COLUMNS} whether
+  # or not the +:auto+ bar is showing yet. A block is rendered once, so one
+  # rendered at the full width would rewrap — a padded diff bar into two rows —
+  # the moment the transcript overflows and the bar takes its columns. Floored
+  # at 1 so a not-yet-laid-out pane doesn't pass a non-positive width to
   # {Shared::Markdown::Renderer}.
   #
   # @return [Integer]
-  def buffer_width = [wrap_width, 1].max
+  def buffer_width = [rect.width - BAR_COLUMNS, 1].max
 
   # Append one logical block to the pane: create a fresh region and assign
   # +text+ (prefixed with +indent+ spaces on its first line). Each

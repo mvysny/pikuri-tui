@@ -84,10 +84,11 @@ module Code
       @tally = [0, 0]
       @on_tally = nil
       # Display-only, so Tab stays a two-stop cycle between the transcript and the
-      # prompt, and left on Tuile's default +:gone+ scrollbar — with nothing in
-      # the sidebar focusable, no key could drive either one.
+      # prompt. The bar shows only while the tasks overflow, a cue that the
+      # wheel has more to scroll to, and hands its column back while they fit.
       @view = Tuile::Component::List.new
       @view.interactive = false
+      @view.scrollbar_visibility = :auto
       @view.renderer = method(:row)
       @view.items = [PLACEHOLDER]
       @caption_label = Shared::PaneCaptionLabel.new(CAPTION)

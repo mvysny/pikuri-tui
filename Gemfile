@@ -19,7 +19,9 @@ ruby '>= 3.3'
 # resolves and follows, and a fake screen raises on an unsettled rect read — so
 # width-derived output is built where the width is settled, in `repaint` or
 # `relayout`. A string field's one writer and change slot are `value=` /
-# `on_value_change` (`text=` and `on_change` are gone). `Code::Layout` hiding
+# `on_value_change` (`text=` and `on_change` are gone), and its event's
+# `from_user?` tells typing from a `value=` write. `handle_width_changed` is
+# gone too: size-derived state is rebuilt in `relayout`. `Code::Layout` hiding
 # its sidebar from its own `relayout` needs tuile#50's fix. The mouse rework
 # misses us (nothing here handles a mouse event).
 #
