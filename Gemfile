@@ -33,7 +33,7 @@ ruby '>= 3.3'
 # Component#visible=, which landed there (tuile#17) and now also marks the
 # parent's `relayout` — that is what stops a hidden pane painting back at stale
 # coordinates on the next full repaint.
-gem 'tuile', path: '../tuile'
+gem 'tuile', '~> 0.17'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching
