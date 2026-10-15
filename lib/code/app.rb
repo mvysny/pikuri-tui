@@ -97,9 +97,9 @@ module Code
     #   provider keys, and the MCP registry {#default_build_agent} builds.
     attr_reader :config
 
-    # @return [Pikuri::Agent] the agent App built ({#default_build_agent}, or a
-    #   test override block's stand-in). Exposed so callers (and tests) can
-    #   inspect tools/listeners/transport after wiring.
+    # @return [Pikuri::Agent] the agent {#default_build_agent} built. Exposed
+    #   so callers (and tests) can inspect tools/listeners/transport after
+    #   wiring.
     attr_reader :agent
 
     # @return [Shared::AgentSession] the turn-lifecycle engine this shell
@@ -350,9 +350,9 @@ module Code
     end
 
     # Build the coding shell's +Pikuri::Agent+: a streaming agent on the boot
-    # connection (+@models.first+), the bin-assembled +system_prompt+, and the
-    # full coding tool surface. The production factory, called unless the
-    # constructor was handed an override block. Wires the conversation listener
+    # connection (+@boot_transport+, the config's first connection unless a
+    # test injected a fake), the bin-assembled +system_prompt+, and the full
+    # coding tool surface. Wires the conversation listener
     # (rate-limited to 15 fps), {#token_log}, the sidebar {#task_listener},
     # {#status_rule}, and {#plan_mode_listener} into the agent's
     # +ListenerList+ — all reached through App's own objects, so nothing has to

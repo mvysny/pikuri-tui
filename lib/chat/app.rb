@@ -77,9 +77,9 @@ module Chat
     #   provider keys {#default_build_agent} reads.
     attr_reader :config
 
-    # @return [Pikuri::Agent] the agent App built ({#default_build_agent},
-    #   or a test override block's stand-in). Exposed so callers (and tests)
-    #   can inspect tools/listeners/transport after wiring.
+    # @return [Pikuri::Agent] the agent {#default_build_agent} built. Exposed
+    #   so callers (and tests) can inspect tools/listeners/transport after
+    #   wiring.
     attr_reader :agent
 
     # @return [Shared::AgentSession] the turn-lifecycle engine this shell
@@ -100,8 +100,7 @@ module Chat
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
     #   log, App-owned and fed into the {Shared::StatusRuleLabel}.
     #   {#default_build_agent} registers this same instance in the agent's
-    #   +ListenerList+ so it receives +Tokens+ events; a test override block
-    #   that wants token stats must do the same.
+    #   +ListenerList+ so it receives +Tokens+ events.
     attr_reader :token_log
 
     # @return [Shared::StatusRuleLabel] the status rule between the

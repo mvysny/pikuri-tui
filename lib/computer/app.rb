@@ -32,13 +32,15 @@ module Computer
   # bin only parses CLI + config, probes the Thunderbird profile, and mounts
   # the screen.
   #
-  # The optional block is a **test/override seam**, not production ceremony: a
-  # spec passes one returning a lightweight stand-in so a unit test skips the
-  # network / sandbox-probe cost of a real agent. Given a block, App calls it
-  # (with no arguments) in place of {#default_build_agent}. The block takes no
-  # arguments because the agent's collaborators (the conversation listener,
-  # the status rule, the confirmer, the plan-mode listener) are App's own objects,
-  # reached through the {Shared::ConversationTextView} and App ivars directly.
+  # The optional +transport:+ is a **test seam**, not production ceremony: a
+  # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
+  # agent — the real {#default_build_agent} listener/tool/extension wiring — on
+  # a scripted-HTTP backend instead of a live server. Production omits it and
+  # boots on the config's first connection. Only the transport is injectable
+  # because the agent's collaborators (the conversation listener, the status
+  # rule, the confirmer, the plan-mode listener) are App's own objects; the
+  # host probes the extensions make are steered through +profile_dir:+ and
+  # +config.sandbox+, which production sets anyway.
   #
   # == The bwrap probe runs here, on the production path
   #
@@ -49,7 +51,7 @@ module Computer
   # so the backtrace still reaches a normal terminal. The bin wraps
   # +App.new+/+run+ in +begin/ensure Tuile::Screen.close+ to tear the screen
   # down on any escape — which is why {#run} does NOT close the screen itself.
-  # Tests never hit the probe: the test block replaces {#default_build_agent}.
+  # Tests never hit the probe: they boot with +config.sandbox+ false.
   #
   # == Screen ownership
   #
@@ -93,9 +95,9 @@ module Computer
     #   posture, and the web-search provider keys {#default_build_agent} reads.
     attr_reader :config
 
-    # @return [Pikuri::Agent] the agent App built ({#default_build_agent}, or a
-    #   test override block's stand-in). Exposed so callers (and tests) can
-    #   inspect tools/listeners/transport after wiring.
+    # @return [Pikuri::Agent] the agent {#default_build_agent} built. Exposed
+    #   so callers (and tests) can inspect tools/listeners/transport after
+    #   wiring.
     attr_reader :agent
 
     # @return [Shared::AgentSession] the turn-lifecycle engine this shell
@@ -166,14 +168,14 @@ module Computer
     #   base is vouched for and +/trifecta+ grades them accordingly. A spec
     #   passes an empty registry to keep the palette off the host's real
     #   +~/.claude/commands+.
-    # @yield optional test/override seam, called with no arguments. When
-    #   given, App calls it in place of {#default_build_agent} — a spec
-    #   returns a lightweight stand-in to skip the network / sandbox-probe
-    #   cost of a real agent. Omitted in production.
-    # @yieldreturn [Pikuri::Agent] the agent (or a duck-type) to install.
+    # @param transport [Pikuri::Agent::ChatTransport, nil] test seam: the
+    #   backend to build the real agent on. Omit in production (boots on the
+    #   config's first connection); a spec passes a
+    #   +Pikuri::Testing.fake_transport+ to run real turns against scripted
+    #   HTTP. See the class header.
     def initialize(config:, internet_enabled: true, profile_dir: nil, project_root: Dir.pwd, markdown: true,
                    command_registry: Pikuri::Command::Registry.new(search_bases: [Dir.pwd, Dir.home]),
-                   &build_agent)
+                   transport: nil)
       @screen = Tuile::Screen.instance
       @config = config
       @internet_enabled = internet_enabled
@@ -193,11 +195,13 @@ module Computer
       @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
       Shared::RequestPermits.install(config.servers)
       @model_picker = Shared::Model::Picker.new(models: @models)
+      # Test seam: the backend the agent boots on. Production uses the config's
+      # first connection; a spec injects a fake_transport (see class header).
+      @boot_transport = transport || @models.first.transport
 
       build_components
       @log_ui.wire!
-      builder = build_agent || method(:default_build_agent)
-      @agent = builder.call
+      @agent = default_build_agent
       @session.agent = @agent
       @status_rule.interloper = @agent.interloper
       # Seed the status rule with the boot model (resolved from its transport);
@@ -300,10 +304,10 @@ module Computer
     end
 
     # Build the computer shell's +Pikuri::Agent+: a streaming agent on the boot
-    # connection (+@models.first+), the OS-assistant prompt (plus a network
+    # connection (+@boot_transport+, the config's first connection unless a
+    # test injected a fake), the OS-assistant prompt (plus a network
     # online/offline posture block keyed to +internet_enabled+), and the
-    # desktop tool surface. The production factory, called unless the
-    # constructor was handed an override block. Wires the conversation listener
+    # desktop tool surface. Wires the conversation listener
     # (rate-limited to 15 fps), {#token_log}, {#status_rule}, and
     # {#plan_mode_listener} into the agent's +ListenerList+ — all reached
     # through App's own objects, so nothing has to be passed in.
@@ -366,7 +370,7 @@ module Computer
       )
 
       Pikuri::Agent.new(
-        transport: @models.first.transport,
+        transport: @boot_transport,
         system_prompt: system_prompt,
         cancellable: Pikuri::Agent::Control::Cancellable.new,
         interloper: Pikuri::Agent::Control::Interloper.new,

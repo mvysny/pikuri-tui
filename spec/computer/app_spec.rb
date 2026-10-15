@@ -1,56 +1,55 @@
 # frozen_string_literal: true
 
 RSpec.describe Computer::App do
-  # Minimal +Pikuri::Agent+ stand-in — same shape as the chat / code specs'.
-  # App only reaches for +run_loop+ (from the worker thread), +cancellable+
-  # (from {Shared::AgentSession#interrupt}), +interloper+ (mid-turn queueing +
-  # the Shared::StatusRuleLabel handoff), +transport+ / +clear_conversation+.
-  # Anything else stays untouched, so we don't pay the network / sandbox-probe
-  # cost in a unit spec. Named +ComputerStubAgent+, not +StubAgent+: three
-  # spec files declaring +class StubAgent+ define one shared top-level constant,
-  # reopened across files — a landmine the moment their signatures diverge.
-  class ComputerStubAgent
-    attr_reader :cancellable, :interloper, :messages, :transport, :transports, :clear_count
-
-    def initialize(interloper: Pikuri::Agent::Control::Interloper.new, model: 'stub-model',
-                   api_base: 'http://x/v1')
-      @cancellable = Pikuri::Agent::Control::Cancellable.new
-      @interloper = interloper
-      @transport = Pikuri::Agent::ChatTransport.new(
-        model: model, provider: :openai, assume_model_exists: true, api_base: api_base, api_key: 'k'
-      )
-      @messages = []
-      @transports = []
-      @clear_count = 0
-      @gate = Queue.new
-      @blocking = false
-    end
-
-    def model = @transport.model
-
-    def block_turns! = @blocking = true
-
-    def finish_turn! = @gate << :done
-
-    def clear_conversation = @clear_count += 1
-
-    def run_loop(user_message:, transport: nil)
-      @messages << user_message
-      @transports << transport
-      @gate.pop if @blocking
-    end
-  end
+  # App builds its *real* Pikuri::Agent (real default_build_agent listener /
+  # tool / extension wiring — Os, Thunderbird, sub-agent research) on a
+  # fake_transport, so these specs exercise the actual wiring without a
+  # server. Computer's agent is streaming: true, so scripted turns use
+  # `llm.stream(...)` (SSE).
+  #
+  # The extensions probe the host at build, so each is steered off it: an
+  # empty Thunderbird profile dir (no Gloda ⇒ no inbound mail tools, and never
+  # the dev machine's real mail), config.sandbox false (no bwrap probe), and a
+  # stubbed Os::SystemInfo (no `inxi` spawn on every agent build).
 
   let(:config) { computer_config }
   # Empty by default: the production default scans $HOME, and a spec asserting
   # the palette must not depend on what the host has in ~/.claude/commands.
   let(:command_registry) { Pikuri::Command::Registry.new(search_bases: []) }
-  let(:app) do
-    described_class.new(config: config, command_registry: command_registry) { ComputerStubAgent.new }
+  let(:app) { build_app }
+
+  before do
+    fake_screen
+    @profile_dir = Dir.mktmpdir('pikuri-tui-computer-profile')
+    machine = Struct.new(:prompt_section).new("# This machine\n\n- OS: spec host")
+    Pikuri::Os::SystemInfo.define_singleton_method(:new) { |*| machine }
   end
 
-  before { fake_screen }
-  after  { Tuile::Screen.close }
+  after do
+    Tuile::Screen.close
+    Pikuri::Os::SystemInfo.singleton_class.remove_method(:new)
+    FileUtils.rm_rf(@profile_dir)
+  end
+
+  # Build a Computer::App on a fake_transport impersonating a config connection
+  # (default model / api_base match the default one-connection config so the
+  # footer resolves its name). A +gate+ holds turns open; the block scripts the
+  # conversation (default: a single streamed reply, enough for
+  # construction-only specs that never run a turn).
+  def build_app(config: self.config, model: 'stub-model', api_base: 'http://x/v1', gate: nil, &script)
+    script ||= ->(llm) { llm.stream('ok') }
+    transport = Pikuri::Testing.fake_transport(model: model, api_base: api_base, gate: gate, &script)
+    described_class.new(config: config, profile_dir: @profile_dir, command_registry: command_registry,
+                        transport: transport)
+  end
+
+  # Replace +agent.run_loop+ with a recorder of +[user_message, transport]+
+  # pairs, so a spec observes what a turn was handed without scripting it.
+  def spy_on_run_loop(agent)
+    seen = []
+    agent.define_singleton_method(:run_loop) { |user_message:, transport: nil| seen << [user_message, transport] }
+    seen
+  end
 
   it 'mounts a Computer::Layout as the screen content with conversation + input panes (no sidebar)' do
     layout = app.layout
@@ -91,9 +90,28 @@ RSpec.describe Computer::App do
     end
 
     it 'runs one as an expanded user turn' do
+      seen = spy_on_run_loop(app.agent)
       app.instance_variable_get(:@slash_menu).submit('/wh swingai')
-      wait_until { app.agent.messages == ['Weekly log for swingai.'] }
+      wait_until { seen.map(&:first) == ['Weekly log for swingai.'] }
     end
+  end
+
+  it 'builds a real Pikuri::Agent (not a stub) with the OS and Thunderbird tools wired' do
+    assert_kind_of Pikuri::Agent, app.agent
+    tool_names = app.agent.tools.map(&:name)
+    assert_includes tool_names, 'calculator'
+    assert_includes tool_names, 'bash'
+    assert_includes tool_names, 'thunderbird_mail_compose'
+    refute_includes tool_names, 'web_search', 'web tools belong to the quarantined researcher only'
+  end
+
+  it 'renders a real streamed turn in the conversation pane' do
+    turn_app = build_app { |llm| llm.stream('Hello ', 'from ', 'the ', 'fake') }
+    turn_app.session.submit('hi')
+    wait_until { !turn_app.session.turn_in_progress? }
+    wait_until { turn_app.conversation.text.to_s.include?('Hello from the fake') }
+
+    assert_includes turn_app.conversation.text.to_s, 'Hello from the fake'
   end
 
   it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
@@ -126,16 +144,17 @@ RSpec.describe Computer::App do
   end
 
   it 'cancels the in-flight turn when Ctrl+C arrives mid-turn' do
-    agent = app.agent
-    agent.block_turns!
-    app.session.submit('work')
-    wait_until { agent.messages.size == 1 }
+    gate = Pikuri::Testing::Gate.new
+    turn_app = build_app(gate: gate) { |llm| llm.stream('done') }
+    gate.block!
+    turn_app.session.submit('work')
+    wait_until { turn_app.session.turn_in_progress? }
 
-    press_ctrl_c
-    assert agent.cancellable.cancelled?
+    turn_app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
+    assert turn_app.agent.cancellable.cancelled?
   ensure
-    agent.finish_turn!
-    wait_until { !app.session.turn_in_progress? }
+    gate.release!
+    wait_until { !turn_app.session.turn_in_progress? }
   end
 
   it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
@@ -195,32 +214,33 @@ RSpec.describe Computer::App do
 
   describe 'model picker' do
     let(:llms) { [llm('Local', 'm1'), llm('Cloud', 'm2')] }
-    let(:picker_app) do
-      described_class.new(config: computer_config(llms: llms)) { ComputerStubAgent.new(model: 'm1') }
-    end
+    let(:picker_app) { build_app(config: computer_config(llms: llms), model: 'm1') }
 
     it 'seeds the footer with the boot model display name' do
       footer = picker_app.status_rule
       assert_equal 'Local', footer.current_model
     end
 
-    # Integration: a pick made through the app's Shared::Model::Picker reaches the next
-    # run_loop and is consumed once. The picker's own option/marker/keying
-    # behavior is unit-tested in model_picker_spec.
+    # Integration: a pick made through the app's Shared::Model::Picker reaches
+    # the next run_loop and is consumed once. run_loop is spied (not a network
+    # call) so the picked *real* transport is observed without dialing it; the
+    # picker's own option/marker/keying behavior is unit-tested in
+    # model_picker_spec.
     it 'applies the picked transport to the next run_loop, then clears it' do
       agent = picker_app.agent
+      seen = spy_on_run_loop(agent)
       cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
       picker = picker_app.instance_variable_get(:@model_picker)
       _, block = capture_picker { picker.open(current: agent.transport) }
       block.call('2') # pick 'Cloud'
 
       picker_app.session.submit('go')
-      wait_until { agent.messages.size == 1 }
-      assert_equal cloud_transport, agent.transports[0]
+      wait_until { seen.size == 1 }
+      assert_equal cloud_transport, seen[0][1]
 
       picker_app.session.submit('again')
-      wait_until { agent.messages.size == 2 }
-      assert_nil agent.transports[1], 'a switch must apply at most once'
+      wait_until { seen.size == 2 }
+      assert_nil seen[1][1], 'a switch must apply at most once'
     end
   end
 
@@ -249,18 +269,17 @@ RSpec.describe Computer::App do
     end
 
     it 'adds a switch-model action when more than one model is configured' do
-      picker_app = described_class.new(config: computer_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')])) do
-        ComputerStubAgent.new(model: 'm1')
-      end
+      picker_app = build_app(config: computer_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')]), model: 'm1')
       keys = picker_app.instance_variable_get(:@leader_menu).actions.map(&:key)
       assert_equal %w[l p u m c q], keys
     end
 
     it "picking 'c' clears the agent's conversation" do
-      agent = app.agent
+      cleared = 0
+      app.agent.define_singleton_method(:clear_conversation) { cleared += 1 }
       app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
       app.screen.send(:handle_key?, 'c')
-      assert_equal 1, agent.clear_count
+      assert_equal 1, cleared
     end
 
     it "picking 'p' toggles plan mode" do
@@ -288,19 +307,20 @@ RSpec.describe Computer::App do
   private
 
   # A Shared::Config carrying the given connections (defaults to one matching
-  # ComputerStubAgent's default transport, so the footer resolves it). App
+  # build_app's default fake transport, so the footer resolves it). App
   # derives its @models from config.llms via Shared::Model::Choice.from_llm.
+  # sandbox: false keeps the FullFsNoNet bwrap probe out of the spec.
   def computer_config(llms: [llm('Local', 'stub-model')])
     Shared::Config.new(
       llms: llms,
       search: Shared::Config::Search.new(brave_key: nil, exa_key: nil),
-      sandbox: true, confirm: true, mcp: []
+      sandbox: false, confirm: true, mcp: []
     )
   end
 
   # One [[llm]] connection. +server+ is the base URL (no /v1); from_llm
   # appends /v1, so server 'http://x' yields transport api_base 'http://x/v1'
-  # — matching ComputerStubAgent's default api_base.
+  # — matching build_app's default fake api_base.
   def llm(name, model, server: 'http://x')
     Shared::Config::Llm.new(name: name, server: server, model: model, api_key: nil, context_window: nil)
   end
