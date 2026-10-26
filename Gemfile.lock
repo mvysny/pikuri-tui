@@ -1,4 +1,49 @@
 GIT
+  remote: https://codeberg.org/mvysny/pikuri.git
+  revision: da240f72c143da062b3cf891e3862af3c78c279c
+  branch: master
+  specs:
+    pikuri-code (0.1.0)
+      pikuri-core (= 0.1.0)
+      pikuri-subagents (= 0.1.0)
+      pikuri-tasks (= 0.1.0)
+      pikuri-workspace (= 0.1.0)
+    pikuri-core (0.1.0)
+      faraday (~> 2.9)
+      nokogiri (~> 1.19)
+      rainbow (~> 3.1)
+      reverse_markdown (~> 3.0)
+      ruby-readability (~> 0.7)
+      ruby_llm (~> 2.1)
+      zeitwerk (~> 2.7)
+    pikuri-mcp (0.1.0)
+      mcp (~> 0.17)
+      pikuri-core (= 0.1.0)
+    pikuri-os (0.1.0)
+      pikuri-code (= 0.1.0)
+      pikuri-core (= 0.1.0)
+      pikuri-pdf (= 0.1.0)
+      pikuri-subagents (= 0.1.0)
+      pikuri-workspace (= 0.1.0)
+    pikuri-pdf (0.1.0)
+      pdf-reader (~> 2.15)
+      pikuri-core (= 0.1.0)
+    pikuri-skills (0.1.0)
+      pikuri-core (= 0.1.0)
+    pikuri-subagents (0.1.0)
+      pikuri-core (= 0.1.0)
+      pikuri-workspace (= 0.1.0)
+    pikuri-tasks (0.1.0)
+      pikuri-core (= 0.1.0)
+    pikuri-thunderbird (0.1.0)
+      mail (~> 2.9)
+      pikuri-core (= 0.1.0)
+      sqlite3 (~> 2.9)
+    pikuri-workspace (0.1.0)
+      pikuri-core (= 0.1.0)
+      reline (~> 0.6)
+
+GIT
   remote: https://github.com/mvysny/tuile.git
   revision: 37fefb640f86b09f6fc056e2d1d94c65b2851600
   branch: master
@@ -10,85 +55,6 @@ GIT
       tty-screen (~> 0.8)
       unicode-display_width (>= 2.6, < 4.0)
       zeitwerk (~> 2.7)
-
-PATH
-  remote: ../pikuri/pikuri-code
-  specs:
-    pikuri-code (0.1.0)
-      pikuri-core (= 0.1.0)
-      pikuri-subagents (= 0.1.0)
-      pikuri-tasks (= 0.1.0)
-      pikuri-workspace (= 0.1.0)
-
-PATH
-  remote: ../pikuri/pikuri-core
-  specs:
-    pikuri-core (0.1.0)
-      faraday (~> 2.9)
-      nokogiri (~> 1.19)
-      rainbow (~> 3.1)
-      reverse_markdown (~> 3.0)
-      ruby-readability (~> 0.7)
-      ruby_llm (~> 2.1)
-      zeitwerk (~> 2.7)
-
-PATH
-  remote: ../pikuri/pikuri-mcp
-  specs:
-    pikuri-mcp (0.1.0)
-      mcp (~> 0.17)
-      pikuri-core (= 0.1.0)
-
-PATH
-  remote: ../pikuri/pikuri-os
-  specs:
-    pikuri-os (0.1.0)
-      pikuri-code (= 0.1.0)
-      pikuri-core (= 0.1.0)
-      pikuri-pdf (= 0.1.0)
-      pikuri-subagents (= 0.1.0)
-      pikuri-workspace (= 0.1.0)
-
-PATH
-  remote: ../pikuri/pikuri-pdf
-  specs:
-    pikuri-pdf (0.1.0)
-      pdf-reader (~> 2.15)
-      pikuri-core (= 0.1.0)
-
-PATH
-  remote: ../pikuri/pikuri-skills
-  specs:
-    pikuri-skills (0.1.0)
-      pikuri-core (= 0.1.0)
-
-PATH
-  remote: ../pikuri/pikuri-subagents
-  specs:
-    pikuri-subagents (0.1.0)
-      pikuri-core (= 0.1.0)
-      pikuri-workspace (= 0.1.0)
-
-PATH
-  remote: ../pikuri/pikuri-tasks
-  specs:
-    pikuri-tasks (0.1.0)
-      pikuri-core (= 0.1.0)
-
-PATH
-  remote: ../pikuri/pikuri-thunderbird
-  specs:
-    pikuri-thunderbird (0.1.0)
-      mail (~> 2.9)
-      pikuri-core (= 0.1.0)
-      sqlite3 (~> 2.9)
-
-PATH
-  remote: ../pikuri/pikuri-workspace
-  specs:
-    pikuri-workspace (0.1.0)
-      pikuri-core (= 0.1.0)
-      reline (~> 0.6)
 
 GEM
   remote: https://rubygems.org/

@@ -71,20 +71,18 @@ gem 'tomlrb', '~> 2.0'
 # kramdown and rouge are shared by both conversation panes, so the
 # chat shell has no dependencies of its own beyond +:default+.)
 #
-# TEMPORARILY on `path: '../pikuri/<gem>'` — and so is every other pikuri-*
-# gem below — for co-development of the `[[server]]` config schema, whose
-# `max_concurrent_requests` key pairs with pikuri's +decisions.md+ →
-# +probe_when_unknown+
-# (an explicit +context_window+ no longer suppresses the +/props+ slot count
-# that seeds +ServerPermits+).
-#
-# This side has since absorbed master's post-0.1.0 API too (the step limit and
-# its FallbackNotice are gone; the two tool events carry the display strings a
-# tool composes), so the released 0.1.0 gems no longer build this repo. CI
-# can't build against a path gem either: whichever comes first, the cut of
-# pikuri 0.2.0 is what un-blocks CI, and that commit reverts every one of
-# these to `'~> 0.2'`.
-gem 'pikuri-core', path: '../pikuri/pikuri-core'
+# TEMPORARILY on pikuri's git master — and so is every other pikuri-* gem
+# below, all from the one monorepo checkout Bundler finds their gemspecs in.
+# This side has absorbed master's post-0.1.0 API (the step limit and its
+# FallbackNotice are gone; the two tool events carry the display strings a tool
+# composes; the `[[server]]` schema's `max_concurrent_requests` pairs with
+# pikuri's +decisions.md+ → +probe_when_unknown+), so the released 0.1.0 gems
+# no longer build this repo. Git rather than `path: '../pikuri/<gem>'` for
+# tuile's reason above: Gemfile.lock pins one revision for all of them, and
+# `bundle update pikuri-core` moves it. The cut of pikuri 0.2.0 reverts every
+# one of these to `'~> 0.2'`.
+pikuri = { git: 'https://codeberg.org/mvysny/pikuri.git', branch: 'master' }
+gem 'pikuri-core', **pikuri
 
 # In-process, pure-Ruby (pdf-reader) PDF text extraction with lazy
 # windowed paging. Shared by both shells in :default: zero infra
@@ -92,7 +90,7 @@ gem 'pikuri-core', path: '../pikuri/pikuri-core'
 # against a bare local llama.cpp. Richer document formats
 # (DOCX/XLSX/EPUB/…) via the sandboxed pikuri-extractors gem are
 # deliberately deferred until a concrete need — see AGENTS.md.
-gem 'pikuri-pdf', path: '../pikuri/pikuri-pdf'
+gem 'pikuri-pdf', **pikuri
 
 # The two heavier shells (coding + computer) share their runtime across three
 # Bundler groups so each shell's +Bundler.setup+ activates exactly what it
@@ -118,8 +116,8 @@ gem 'diff-lcs', '~> 2.0', groups: %i[code computer]
 # shell gets them transitively through pikuri-os and reuses the same
 # Code:: adapters (ConfirmerPopup, the edit/write diff formatters). Shared
 # via +groups:+ so each shell activates them and chat does not.
-gem 'pikuri-workspace', path: '../pikuri/pikuri-workspace', groups: %i[code computer]
-gem 'pikuri-code', path: '../pikuri/pikuri-code', groups: %i[code computer]
+gem 'pikuri-workspace', **pikuri, groups: %i[code computer]
+gem 'pikuri-code', **pikuri, groups: %i[code computer]
 
 # Shared by the coding AND computer shells. The privilege-separated sub-agent
 # personas + the `agent` tool. The coding shell spawns FILE_MINER /
@@ -127,22 +125,22 @@ gem 'pikuri-code', path: '../pikuri/pikuri-code', groups: %i[code computer]
 # persona so its otherwise network-severed agent can delegate web research to
 # an isolated sub-agent (web tools, no filesystem) — see bin/pikuri-tui-computer.
 # +groups:+ so each shell activates it and chat does not.
-gem 'pikuri-subagents', path: '../pikuri/pikuri-subagents', groups: %i[code computer]
+gem 'pikuri-subagents', **pikuri, groups: %i[code computer]
 
 # Shared by the coding AND computer shells. pikuri-skills carries two surfaces
 # on one scan of .pikuri/… / .claude/…: the skill catalog (which only the
 # coding shell wires) and Pikuri::Command::Registry, the human-invoked slash
 # commands both shells list in their palette. Its sole dependency is
 # pikuri-core, so the computer shell pays a load-path line and nothing more.
-gem 'pikuri-skills', path: '../pikuri/pikuri-skills', groups: %i[code computer]
+gem 'pikuri-skills', **pikuri, groups: %i[code computer]
 
 # Coding-shell-only runtime: git_clone + toolchain paths (pikuri-code,
 # above), the in-context task list (pikuri-tasks), and MCP wiring
 # (pikuri-mcp). The computer shell wires none of these, so they stay off its
 # load path.
 group :code do
-  gem 'pikuri-tasks', path: '../pikuri/pikuri-tasks'
-  gem 'pikuri-mcp', path: '../pikuri/pikuri-mcp'
+  gem 'pikuri-tasks', **pikuri
+  gem 'pikuri-mcp', **pikuri
 end
 
 # Computer-shell-only runtime. pikuri-os is the OS-integration layer +
@@ -153,8 +151,8 @@ end
 # + -code transitively. Grouped so +bin/pikuri-tui-computer+ opts in with
 # +Bundler.setup(:default, :computer)+ while chat and code never load them.
 group :computer do
-  gem 'pikuri-os', path: '../pikuri/pikuri-os'
-  gem 'pikuri-thunderbird', path: '../pikuri/pikuri-thunderbird'
+  gem 'pikuri-os', **pikuri
+  gem 'pikuri-thunderbird', **pikuri
 end
 
 group :test do
