@@ -7,7 +7,7 @@ RSpec.describe Shared::UIToggleMenu do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  def press(key) = Tuile::Screen.instance.send(:handle_key?, key)
+  def press(key) = Tuile::Screen.instance.key(key)
 
   def labels = menu.actions.map(&:text)
 
@@ -26,8 +26,8 @@ RSpec.describe Shared::UIToggleMenu do
   it 'flips the pane when a key is picked' do
     menu.open
     press('t')
-    # The menu defers each pick to the next event-loop tick, which the fake
-    # queue runs inline.
+    # The menu defers each pick to the next event-loop turn, which the
+    # keystroke finishes.
     refute conversation.show_thinking
   end
 

@@ -10,7 +10,7 @@ RSpec.describe Code::App do
 
   let(:app) { code_app }
 
-  before { fake_screen }
+  before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
   it 'mounts a Code::Layout as the screen content with its panes and sidebar' do
@@ -47,6 +47,7 @@ RSpec.describe Code::App do
                                         )],
                                         diff_text: '', error: nil
                                       ))
+      Tuile::Testing.loop
     end
 
     it 'carries nothing while the sidebar is showing — the panes have it' do
@@ -78,6 +79,7 @@ RSpec.describe Code::App do
                                          Pikuri::Tasks::Item.new(id: 2, content: 'b', status: 'pending')
                                        ])
       )
+      Tuile::Testing.loop
       assert_includes rule.text.to_s, '1/2 tasks'
     end
 
@@ -229,7 +231,7 @@ RSpec.describe Code::App do
       def touch(path, some_app = app)
         some_app.agent.instance_variable_get(:@listeners)
                 .emit(tool_call('read', path, arguments: { 'path' => path }))
-        pump_ui
+        Tuile::Testing.loop
       end
     end
   end
@@ -300,7 +302,7 @@ RSpec.describe Code::App do
 
   it 'hands the caret back to the prompt when ESC leaves the transcript' do
     app.conversation.focus
-    app.screen.send(:handle_key?, Tuile::Keys::ESC)
+    app.screen.key(Tuile::Keys::ESC)
     assert_same app.layout.input.area, app.screen.focused
   end
 
@@ -450,6 +452,7 @@ RSpec.describe Code::App do
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do
     app
     Pikuri.logger_for('TestSubsystem').info('pikuri-side message')
+    Tuile::Testing.loop # LogWindow#log submits
     rendered = app.log_window.content.text.to_s
     assert_includes rendered, 'pikuri-side message'
   end
@@ -526,42 +529,42 @@ RSpec.describe Code::App do
     it "picking 'c' clears the agent's conversation" do
       cleared = 0
       app.agent.define_singleton_method(:clear_conversation) { cleared += 1 }
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key?, 'c')
+      app.screen.key(Tuile::Keys::CTRL_K)
+      app.screen.key('c')
       assert_equal 1, cleared
     end
 
     it "picking 'd' opens the git diff popup" do
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key?, 'd')
+      app.screen.key(Tuile::Keys::CTRL_K)
+      app.screen.key('d')
       assert app.sidebar.diff_open?
     end
 
     it "picking 'p' toggles plan mode" do
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key?, 'p')
+      app.screen.key(Tuile::Keys::CTRL_K)
+      app.screen.key('p')
       assert app.instance_variable_get(:@plan_mode).active?
     end
 
     it "picking 's' cycles the sidebar width, letting the re-split be the feedback" do
       layout = app.instance_variable_get(:@layout)
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key?, 's')
+      app.screen.key(Tuile::Keys::CTRL_K)
+      app.screen.key('s')
       assert_equal :narrow, layout.sidebar_mode
     end
 
     it "picking 'q' stops the event loop" do
       app
       stopped = spy_on_stop
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key?, 'q')
+      app.screen.key(Tuile::Keys::CTRL_K)
+      app.screen.key('q')
       assert stopped.call, 'expected the leader menu quit action to stop the loop'
     end
 
     it 'closes the menu on Ctrl+C, like ESC' do
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.key(Tuile::Keys::CTRL_K)
       refute_nil app.screen.pane.modal_popup
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
+      app.screen.key(Tuile::Keys::CTRL_C)
       assert_nil app.screen.pane.modal_popup, 'Ctrl+C should cancel the menu'
     end
   end
@@ -629,26 +632,27 @@ RSpec.describe Code::App do
     Shared::Config::Llm.new(name: name, server: server, model: model, api_key: nil, context_window: nil)
   end
 
-  # Swap +PickerWindow.open+ for a recorder (restored after), run the
-  # block that triggers it, and return the captured +[options, callback]+
-  # so a spec can assert the option list and drive selection without
-  # exercising Tuile's popup/focus machinery.
+  # Swap +PickerWindow.new+ for a recorder whose popup never opens (restored
+  # after), run the block that triggers it, and return the captured
+  # +[options, callback]+ so a spec can assert the option list and drive
+  # selection without exercising Tuile's popup/focus machinery.
   def capture_picker
-    original = Tuile::Component::PickerWindow.method(:open)
+    original = Tuile::Component::PickerWindow.method(:new)
     captured_options = nil
     captured_block = nil
-    Tuile::Component::PickerWindow.define_singleton_method(:open) do |_caption, options, &block|
+    Tuile::Component::PickerWindow.define_singleton_method(:new) do |_caption, options, &block|
       captured_options = options
       captured_block = block
-      nil
+      Struct.new(:open_in_popup).new
     end
     yield
     [captured_options, captured_block]
   ensure
-    Tuile::Component::PickerWindow.define_singleton_method(:open, original)
+    Tuile::Component::PickerWindow.define_singleton_method(:new, original)
   end
 
   def status_bar_text(some_app = app)
+    Tuile::Testing.loop
     some_app.status_bar.text.to_s
   end
 
@@ -656,7 +660,7 @@ RSpec.describe Code::App do
   # release gem) so the test exercises the full chain: global-shortcut
   # lookup, the +over_popups: false+ gate, then {Shared::AgentSession#interrupt}.
   def press_ctrl_c(some_app = app)
-    some_app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
+    some_app.screen.key(Tuile::Keys::CTRL_C)
   end
 
   # Replaces the (no-op) FakeEventQueue#stop with a recorder and returns a

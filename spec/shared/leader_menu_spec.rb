@@ -6,10 +6,10 @@ RSpec.describe Shared::LeaderMenu do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  # Drive keys through the real dispatcher (Screen#handle_key?), exactly as
-  # Tuile's own PickerWindow spec does: opening the popup focuses the inner
-  # list and keys reach the picker / popup by capture + bubble.
-  def press(key) = Tuile::Screen.instance.send(:handle_key?, key)
+  # Drive keys as the terminal reports them (FakeScreen#key), so the action the
+  # menu defers to the event queue has run once the keystroke returns: opening
+  # the popup focuses the inner list and keys reach the picker by capture + bubble.
+  def press(key) = Tuile::Screen.instance.key(key)
 
   def modal_popup = Tuile::Screen.instance.pane.modal_popup
 

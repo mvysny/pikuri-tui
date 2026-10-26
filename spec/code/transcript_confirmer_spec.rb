@@ -12,7 +12,7 @@ RSpec.describe Code::TranscriptConfirmer do
   end
 
   before do
-    fake_screen
+    Tuile::Screen.fake
     # Mounted for real: #finish hands focus back to the prompt, and
     # Screen#focused= refuses a component that isn't on this screen's tree.
     screen.content = Chat::Layout.new(conversation: conversation, status_rule: status_rule, input: input)

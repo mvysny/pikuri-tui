@@ -193,8 +193,12 @@ class Shared::InputPane < Tuile::Component::Layout
       # The palette follows the user's edits only: a recall or a clear is this
       # class's own write, and the paths that clear already closed it. No
       # palette while capturing either: a captured answer is prose, so a
-      # leading slash is a character and not the start of a command.
-      on_value_change { |e| slash_menu.sync(e.value) if e.from_user? && !@capture } if slash_menu
+      # leading slash is a character and not the start of a command. :eager,
+      # because the palette filters per keystroke, not once the user is done.
+      if slash_menu
+        self.value_change_mode = :eager
+        on_value_change { |e| slash_menu.sync(e.value) if e.from_user? && !@capture }
+      end
       # ESC is history-then-clear here, never a blur: #escape owns all of it, so
       # the field's own blur is turned off rather than followed.
       self.escape_clears_focus = false

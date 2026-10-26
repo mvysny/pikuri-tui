@@ -112,8 +112,8 @@ class Shared::LeaderMenu
   # next event-loop tick (so the menu closes first); ESC / +Ctrl+C+ / an
   # unbound key dismisses without running anything.
   #
-  # Mirrors {Tuile::Component::PickerWindow.open}, but wraps the picker in a
-  # {CancelPopup} (ESC *and* +Ctrl+C+ close) rather than the base popup
+  # Mirrors {Tuile::Component::PickerWindow#open_in_popup}, but wraps the
+  # picker in a {CancelPopup} (ESC *and* +Ctrl+C+ close) rather than the base popup
   # (ESC / +q+ only) — note +q+ here is a quit *action*, intercepted by the
   # picker before the popup's close handler, so cancel is ESC / +Ctrl+C+.
   #

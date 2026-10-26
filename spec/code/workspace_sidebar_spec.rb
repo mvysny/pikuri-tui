@@ -59,10 +59,13 @@ RSpec.describe Code::WorkspaceSidebar do
 
   describe 'git watcher subscription' do
     # Drive the service's emit directly (on this thread); the sidebar's
-    # on_change listener marshals through the FakeEventQueue (synchronous) and
+    # on_change listener submits through the FakeEventQueue, the loop turn
     # projects the snapshot onto both git panes — so this exercises the full
     # wire without starting the poll thread.
-    def emit(snapshot) = sidebar.git_watcher.send(:emit, snapshot)
+    def emit(snapshot)
+      sidebar.git_watcher.send(:emit, snapshot)
+      Tuile::Testing.loop
+    end
 
     def summary_text
       list = sidebar.git_summary_pane.view
@@ -97,6 +100,7 @@ RSpec.describe Code::WorkspaceSidebar do
       sidebar.git_watcher.send(:emit, Code::GitWatcher::Snapshot.new(
                                        changes: changes, diff_text: '', error: nil
                                      ))
+      Tuile::Testing.loop
     end
 
     def change(path, added, deleted)

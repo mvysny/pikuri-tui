@@ -11,22 +11,23 @@ RSpec.describe Shared::Model::Picker do
     )
   end
 
-  # Swap +PickerWindow.open+ for a recorder (restored after) and return the
-  # captured +[options, callback]+ so a spec can assert the option list and
-  # drive selection without exercising Tuile's popup / focus machinery.
+  # Swap +PickerWindow.new+ for a recorder whose popup never opens (restored
+  # after) and return the captured +[options, callback]+ so a spec can assert
+  # the option list and drive selection without exercising Tuile's popup /
+  # focus machinery.
   def capture_picker
-    original = Tuile::Component::PickerWindow.method(:open)
+    original = Tuile::Component::PickerWindow.method(:new)
     captured_options = nil
     captured_block = nil
-    Tuile::Component::PickerWindow.define_singleton_method(:open) do |_caption, options, &block|
+    Tuile::Component::PickerWindow.define_singleton_method(:new) do |_caption, options, &block|
       captured_options = options
       captured_block = block
-      nil
+      Struct.new(:open_in_popup).new
     end
     yield
     [captured_options, captured_block]
   ensure
-    Tuile::Component::PickerWindow.define_singleton_method(:open, original)
+    Tuile::Component::PickerWindow.define_singleton_method(:new, original)
   end
 
   let(:choices) { [model_choice('Local', 'm1'), model_choice('Cloud', 'm2')] }

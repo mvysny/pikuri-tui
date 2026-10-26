@@ -16,7 +16,10 @@ RSpec.describe Shared::SlashMenuPopup do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  def rendered = conversation.text.to_s
+  def rendered
+    Tuile::Testing.loop
+    conversation.text.to_s
+  end
   def list     = menu.content
   # The list holds SlashCommands and renders them at paint time, so the rows are
   # read off the painted buffer (blank filler rows dropped).
@@ -105,6 +108,7 @@ RSpec.describe Shared::SlashMenuPopup do
     it 'runs the exact-named command and echoes its returned outcome below it' do
       menu.sync('/diff')
       menu.submit('/diff')
+      Tuile::Testing.loop
       assert_equal [[:diff, '']], ran
       assert_includes rendered, '/diff'
       assert_includes rendered, 'Opened the git diff.'
@@ -113,6 +117,7 @@ RSpec.describe Shared::SlashMenuPopup do
 
     it 'passes the rest of the line to the callback as its argument' do
       menu.submit('/diff run the migration')
+      Tuile::Testing.loop
       assert_equal [[:diff, 'run the migration']], ran
     end
 
@@ -120,11 +125,13 @@ RSpec.describe Shared::SlashMenuPopup do
       menu.sync('/')
       menu.handle_nav_key(Tuile::Keys::DOWN_ARROW) # /diff -> /exit
       menu.submit('/')
+      Tuile::Testing.loop
       assert_equal [[:exit, '']], ran
     end
 
     it 'echoes a red "Command not found" and runs nothing on an unknown command' do
       menu.submit('/nope')
+      Tuile::Testing.loop
       assert_empty ran
       assert_includes rendered, '/nope'
       assert_includes rendered, 'Command not found'
@@ -133,6 +140,7 @@ RSpec.describe Shared::SlashMenuPopup do
     it 'echoes nothing when the callback returns nil (the effect is its own feedback)' do
       menu.sync('/quit')
       menu.submit('/quit')
+      Tuile::Testing.loop
       assert_equal [[:quit, '']], ran
       refute_includes rendered, '/quit'
     end

@@ -29,6 +29,7 @@ RSpec.describe Shared::Log::BufferingIO do
     io = described_class.new(passthrough: passthrough)
     Logger.new(io).error('boot boom')
     io.replay_into(counting)
+    Tuile::Testing.loop # LogWindow#log submits
 
     rendered = log_window.content.text.to_s
     assert_includes rendered, 'boot boom'

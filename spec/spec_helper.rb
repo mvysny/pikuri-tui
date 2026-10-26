@@ -40,9 +40,9 @@ require 'pikuri-thunderbird'
 
 require 'pikuri_tui'
 
-# Fake screen + wait_until for the specs that let production code run on a
+# wait_until, for the specs that let production code run on a
 # worker thread (App turns, the confirmer's blocking #ask).
-require_relative 'support/marshalling_fake_screen'
+require_relative 'support/wait_until'
 
 # ToolCall / ToolResult fixture builders (both events carry display strings a
 # tool composes, which most fixtures don't want to spell out).

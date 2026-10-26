@@ -74,10 +74,10 @@ class Shared::Model::Picker
       marker = choice.key == current_key ? '● ' : '  '
       [(i + 1).to_s, "#{marker}#{choice.name}"]
     end
-    Tuile::Component::PickerWindow.open(CAPTION, options) do |key|
+    Tuile::Component::PickerWindow.new(CAPTION, options) do |key|
       choice = @models[key.to_i - 1]
       @pending = choice.transport if choice
-    end
+    end.open_in_popup
   end
 
   # Return the pending switched-to transport and clear it, so a pick is

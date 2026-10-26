@@ -24,6 +24,7 @@ RSpec.describe Shared::StatusRuleLabel do
   # readout, so strip the hairline off both ends. What is left still carries
   # the one-space padding, which one example asserts on directly.
   def footer_text
+    Tuile::Testing.loop # a push or a ModelSwitched lands through submit
     Tuile::StyledString.new(readout_spans)
   end
 

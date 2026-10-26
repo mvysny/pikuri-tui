@@ -10,6 +10,7 @@ RSpec.describe Shared::Log::CountingIO do
     io = described_class.new(log_window: log_window)
     logger = Logger.new(io)
     logger.info('hello')
+    Tuile::Testing.loop # LogWindow#log submits
     rendered = log_window.content.text.to_s
     assert_includes rendered, 'INFO'
     assert_includes rendered, 'hello'

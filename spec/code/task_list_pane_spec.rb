@@ -7,8 +7,12 @@ RSpec.describe Code::TaskListPane do
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  # Each row as the renderer builds it, before the list fits it to a width.
-  def rendered = window.view.items.map { |entry| window.view.renderer.call(entry, 0).to_s }.join("\n")
+  # Each row as the renderer builds it, before the list fits it to a width,
+  # once the loop turn has run the snapshot the listener submitted.
+  def rendered
+    Tuile::Testing.loop
+    window.view.items.map { |entry| window.view.renderer.call(entry, 0).to_s }.join("\n")
+  end
   def caption = window.caption_label.caption
 
   # The rows as painted, where the list ellipsizes them — its one-column gutter

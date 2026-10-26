@@ -314,17 +314,4 @@ RSpec.describe Shared::AgentSession do
       api_base: 'http://x/v1', api_key: 'k'
     )
   end
-
-  # Spin until the block yields truthy. The turn lifecycle crosses a real
-  # worker thread (AgentSession's per-turn Thread.new) even under FakeScreen
-  # — the fake event queue runs submits inline on whichever thread calls
-  # them — so specs that observe post-turn state must wait for the worker.
-  def wait_until(timeout: 2)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
-    until yield
-      raise 'timed out waiting for condition' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
-
-      sleep 0.005
-    end
-  end
 end

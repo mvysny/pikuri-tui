@@ -61,7 +61,7 @@ Every fact lives in exactly one of these; the others link to it.
 - `lib/computer/` — `Computer::App` + `Computer::Layout`: chat's layout, the coding shell's safety machinery.
 - `lib/pikuri_tui.rb` — the Zeitwerk loader (root `lib/`) + eager-load; skips `Code` / `Computer` when their gems are absent.
 - `bin/` — one boot script per shell (CLI, config, pre-screen prompts, then the `App`), plus `setup` / `install` / `uninstall`.
-- `spec/support/` — `marshalling_fake_screen.rb` (`fake_screen`, `wait_until`), the tool-event builders and `paint` / `painted_region` (one component through its own canvas).
+- `spec/support/` — `wait_until` (a real worker thread's UI hand-off), the tool-event builders and `paint` / `painted_region` (one component through its own canvas).
 
 ## Conventions
 
@@ -78,7 +78,7 @@ Every fact lives in exactly one of these; the others link to it.
 - **Readable, not obfuscated.** This is a thin shell, and an abstraction added "in case" loses every argument against concrete code.
 - **Bundler.** `bin/*` self-bootstrap via `require 'bundler/setup'` with `BUNDLE_GEMFILE` pinned through `__dir__`, so the scripts work symlinked into `~/.local/bin/`. Each bin sets up only its own group. See `D_bundler_groups`.
 - **Tests: rspec-core with minitest-style asserts.** `describe` / `it`, but `assert_equal` / `refute` — the same convention as pikuri, so the two codebases read side by side.
-- **A spec that crosses a thread mounts `fake_screen`, not `Tuile::Screen.fake`.** Tuile's fake queue runs an off-thread `submit` inline on the caller, where it raises and the worker dies silently; `spec/support/marshalling_fake_screen.rb` queues instead, and `wait_until` drains on the example thread.
+- **A spec asserting after a direct call runs `Tuile::Testing.loop` first.** Tuile's fake queue holds every `submit`, the UI thread's own included, until a loop turn plays it; `FakeScreen#key` plays one around the keystroke, and `wait_until` keeps playing them while a real worker thread finishes.
 - **Never plain `rspec`.** `spec_helper` pulls the whole `:code` group, and only the Bundler environment resolves it to the versions `Gemfile.lock` pins — doubly so while a pikuri gem is switched to a local `path:`.
 
 ## Commands

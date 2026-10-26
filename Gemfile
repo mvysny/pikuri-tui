@@ -7,33 +7,25 @@ ruby '>= 3.3'
 # Component-oriented terminal UI framework.
 #
 # TEMPORARILY on `path: '../tuile'`: this side is ported onto master's
-# post-0.16.0 API, which the released 0.16.0 gem no longer builds. Three
-# breaking changes reach us — every container divides its rect in a protected
-# `relayout` instead of a `rect=` override, in coordinates measured *inside*
-# the parent; that pass is deferred, so a rect read in the turn that dirtied it
-# wants `Component#flush_layout`; and a listener slot is an append-only list
-# with no setter (`screen.on_error << …`, `field.on_change { |e| … }`), each
-# firing one event object. Since then only a parent may write `rect=` (specs
-# use `Tuile::Testing.place`), an overlay opens with an `Overlay::Placement`,
-# a module the placement includes whose declared `anchor` the pane itself
-# resolves and follows, and a fake screen raises on an unsettled rect read — so
-# width-derived output is built where the width is settled, in `repaint` or
-# `relayout`. A string field's one writer and change slot are `value=` /
-# `on_value_change` (`text=` and `on_change` are gone), and its event's
-# `from_user?` tells typing from a `value=` write. `handle_width_changed` is
-# gone too: size-derived state is rebuilt in `relayout`. `Code::Layout` hiding
-# its sidebar from its own `relayout` needs tuile#50's fix. The mouse rework
-# misses us (nothing here handles a mouse event).
+# post-0.17.0 API, which the released 0.17.0 gem no longer builds. Four
+# breaking changes reach us — `PickerWindow.open` is gone for an instance
+# `#open_in_popup`; a string field announces typing only on commit, so the
+# input's slash palette asks for `value_change_mode = :eager`; the fake event
+# queue queues every `submit` until `Tuile::Testing.loop` (or a
+# `FakeScreen#key`) plays the turn, which retired our marshalling fake screen;
+# and every framework ivar is now `@_foo`, which is what silently disabled that
+# fake screen's swapped-in queue. `capture_mouse` defaulting to `:drag` makes
+# the pane scrollbars draggable for free.
 #
 # CI can't build against a path gem, so whichever comes first, the cut of
-# tuile 0.17 is what un-blocks CI, and that commit reverts this line to
-# `'~> 0.17'`.
+# tuile 0.18 is what un-blocks CI, and that commit reverts this line to
+# `'~> 0.18'`.
 #
 # 0.15 still matters underneath it: Code::Layout hides the sidebar column with
 # Component#visible=, which landed there (tuile#17) and now also marks the
 # parent's `relayout` — that is what stops a hidden pane painting back at stale
 # coordinates on the next full repaint.
-gem 'tuile', '~> 0.17'
+gem 'tuile', path: '../tuile'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching

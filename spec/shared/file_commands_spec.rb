@@ -13,7 +13,7 @@ RSpec.describe Shared::FileCommands do
     end
   end
 
-  before { fake_screen }
+  before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
   let(:expanded) { [] }

@@ -9,7 +9,10 @@ RSpec.describe Shared::Log::UI do
   after  { Tuile::Screen.close }
 
   # Shared::Log::UI owns only the bar's :menu segment; nothing else writes here.
-  def status_bar_text = status_bar.text.to_s
+  def status_bar_text
+    Tuile::Testing.loop
+    status_bar.text.to_s
+  end
 
   # Install the Ctrl+K shortcut (App's register_shortcuts seam) and wire the
   # counting sink so Tuile.logger routes through the Shared::Log::UI's Shared::Log::CountingIO.
@@ -58,7 +61,7 @@ RSpec.describe Shared::Log::UI do
   it 'Ctrl+K fires the supplied open-menu action' do
     opened = false
     boot { opened = true }
-    screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+    screen.key(Tuile::Keys::CTRL_K)
     assert opened, 'expected the Ctrl+K action to run the supplied block'
   end
 
@@ -76,6 +79,7 @@ RSpec.describe Shared::Log::UI do
     Pikuri.log_io = prior
 
     log_ui.wire!
+    Tuile::Testing.loop
     assert_includes log_ui.log_window.content.text.to_s, 'pre-screen line'
   end
 end

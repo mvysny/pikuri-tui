@@ -19,7 +19,7 @@ RSpec.describe Computer::App do
   let(:app) { build_app }
 
   before do
-    fake_screen
+    Tuile::Screen.fake
     @profile_dir = Dir.mktmpdir('pikuri-tui-computer-profile')
     machine = Struct.new(:prompt_section).new("# This machine\n\n- OS: spec host")
     Pikuri::Os::SystemInfo.define_singleton_method(:new) { |*| machine }
@@ -150,7 +150,7 @@ RSpec.describe Computer::App do
     turn_app.session.submit('work')
     wait_until { turn_app.session.turn_in_progress? }
 
-    turn_app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
+    turn_app.screen.key(Tuile::Keys::CTRL_C)
     assert turn_app.agent.cancellable.cancelled?
   ensure
     gate.release!
@@ -200,6 +200,7 @@ RSpec.describe Computer::App do
   it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do
     app
     Pikuri.logger_for('TestSubsystem').info('pikuri-side message')
+    Tuile::Testing.loop # LogWindow#log submits
     rendered = app.log_window.content.text.to_s
     assert_includes rendered, 'pikuri-side message'
   end
@@ -277,29 +278,29 @@ RSpec.describe Computer::App do
     it "picking 'c' clears the agent's conversation" do
       cleared = 0
       app.agent.define_singleton_method(:clear_conversation) { cleared += 1 }
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key?, 'c')
+      app.screen.key(Tuile::Keys::CTRL_K)
+      app.screen.key('c')
       assert_equal 1, cleared
     end
 
     it "picking 'p' toggles plan mode" do
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key?, 'p')
+      app.screen.key(Tuile::Keys::CTRL_K)
+      app.screen.key('p')
       assert app.instance_variable_get(:@plan_mode).active?
     end
 
     it "picking 'q' stops the event loop" do
       app
       stopped = spy_on_stop
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
-      app.screen.send(:handle_key?, 'q')
+      app.screen.key(Tuile::Keys::CTRL_K)
+      app.screen.key('q')
       assert stopped.call, 'expected the leader menu quit action to stop the loop'
     end
 
     it 'closes the menu on Ctrl+C, like ESC' do
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_K)
+      app.screen.key(Tuile::Keys::CTRL_K)
       refute_nil app.screen.pane.modal_popup
-      app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
+      app.screen.key(Tuile::Keys::CTRL_C)
       assert_nil app.screen.pane.modal_popup, 'Ctrl+C should cancel the menu'
     end
   end
@@ -325,26 +326,27 @@ RSpec.describe Computer::App do
     Shared::Config::Llm.new(name: name, server: server, model: model, api_key: nil, context_window: nil)
   end
 
-  # Swap +PickerWindow.open+ for a recorder (restored after), run the
-  # block that triggers it, and return the captured +[options, callback]+
-  # so a spec can assert the option list and drive selection without
-  # exercising Tuile's popup/focus machinery.
+  # Swap +PickerWindow.new+ for a recorder whose popup never opens (restored
+  # after), run the block that triggers it, and return the captured
+  # +[options, callback]+ so a spec can assert the option list and drive
+  # selection without exercising Tuile's popup/focus machinery.
   def capture_picker
-    original = Tuile::Component::PickerWindow.method(:open)
+    original = Tuile::Component::PickerWindow.method(:new)
     captured_options = nil
     captured_block = nil
-    Tuile::Component::PickerWindow.define_singleton_method(:open) do |_caption, options, &block|
+    Tuile::Component::PickerWindow.define_singleton_method(:new) do |_caption, options, &block|
       captured_options = options
       captured_block = block
-      nil
+      Struct.new(:open_in_popup).new
     end
     yield
     [captured_options, captured_block]
   ensure
-    Tuile::Component::PickerWindow.define_singleton_method(:open, original)
+    Tuile::Component::PickerWindow.define_singleton_method(:new, original)
   end
 
   def status_bar_text
+    Tuile::Testing.loop
     app.status_bar.text.to_s
   end
 
@@ -352,7 +354,7 @@ RSpec.describe Computer::App do
   # release gem) so the test exercises the full chain: global-shortcut
   # lookup, the +over_popups: false+ gate, then {Shared::AgentSession#interrupt}.
   def press_ctrl_c
-    app.screen.send(:handle_key?, Tuile::Keys::CTRL_C)
+    app.screen.key(Tuile::Keys::CTRL_C)
   end
 
   # Replaces the (no-op) FakeEventQueue#stop with a recorder and returns a

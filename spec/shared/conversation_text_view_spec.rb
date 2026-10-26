@@ -20,7 +20,14 @@ RSpec.describe Shared::ConversationTextView do
     Tuile::Screen.close
   end
 
-  def rendered = pane.text.to_s
+  # The listener submits each event, as it would from the worker thread; play
+  # the loop turn that runs them before reading the transcript.
+  def text_of(view)
+    Tuile::Testing.loop
+    view.text.to_s
+  end
+
+  def rendered = text_of(pane)
 
   describe 'pane scaffolding' do
     it 'is an unframed TextView — the primary pane keeps the terminal background' do
@@ -436,6 +443,7 @@ RSpec.describe Shared::ConversationTextView do
     Shared::Markdown::Renderer.define_singleton_method(:render) { |*| raise StandardError, 'boom' }
     log = capture_log do
       listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'plain content'))
+      Tuile::Testing.loop
     end
     assert_includes rendered, 'plain content'
     assert_includes log, 'Shared::Markdown::Renderer.render failed'
@@ -571,6 +579,7 @@ RSpec.describe Shared::ConversationTextView do
     it 'recolors streamed thinking to a single gray tone, stripping any color the renderer produced' do
       Shared::Markdown::Renderer.define_singleton_method(:render) { |_text, **_kwargs| "\e[31mred-from-renderer\e[0m" }
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
+      Tuile::Testing.loop
       fg_colors = pane.text.spans.map { |s| s.style.fg }
       refute_includes fg_colors, Tuile::Color.new(:red)
       assert_includes fg_colors, gray
@@ -581,6 +590,7 @@ RSpec.describe Shared::ConversationTextView do
         "\e[1;3;4;31mbold italic underlined red\e[0m"
       end
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: 'anything'))
+      Tuile::Testing.loop
       span = pane.text.spans.find { |s| s.text.include?('bold italic underlined red') }
       refute_nil span, 'expected a span carrying the rendered text'
       assert_equal gray, span.style.fg
@@ -592,6 +602,7 @@ RSpec.describe Shared::ConversationTextView do
     it 'renders the non-streaming Thinking bookend in the same gray tone' do
       Shared::Markdown::Renderer.define_singleton_method(:render) { |_text, **_kwargs| "\e[31mred\e[0m" }
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: 'bookend'))
+      Tuile::Testing.loop
       fg_colors = pane.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
       refute_includes fg_colors, Tuile::Color.new(:red)
@@ -618,6 +629,7 @@ RSpec.describe Shared::ConversationTextView do
       listener.on_event(Pikuri::Agent::Event::Thinking.new(content: '**raw thinking**'))
       assert_includes rendered, '**raw thinking**'
       refute_includes rendered, 'MARKDOWN_RAN'
+      Tuile::Testing.loop
       fg_colors = pane.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
     end
@@ -632,6 +644,7 @@ RSpec.describe Shared::ConversationTextView do
       listener.on_event(Pikuri::Agent::Event::ThinkingDelta.new(content: '**still literal**'))
       assert_includes rendered, '**still literal**'
       refute_includes rendered, 'MARKDOWN_RAN'
+      Tuile::Testing.loop
       fg_colors = pane.text.spans.map { |s| s.style.fg }
       assert_includes fg_colors, gray
     end
@@ -651,12 +664,14 @@ RSpec.describe Shared::ConversationTextView do
 
     it 'forwards dark: true on a dark screen (Screen.fake pins :dark)' do
       listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'hi'))
+      Tuile::Testing.loop
       assert_equal [true], @captured_dark
     end
 
     it 'forwards dark: false once the screen holds the light theme' do
       Tuile::Screen.instance.theme = Shared::AppTheme::LIGHT
       listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'hi'))
+      Tuile::Testing.loop
       assert_equal [false], @captured_dark
     end
   end
@@ -695,14 +710,15 @@ RSpec.describe Shared::ConversationTextView do
       fmt = formatter.new(call_block: 'DIFF BLOCK', result_block: nil)
       w = pane_with(fmt)
       w.listener.on_event(tool_call('edit', 'a.rb', arguments: { 'path' => 'a.rb' }))
-      assert_includes w.text.to_s, 'DIFF BLOCK'
-      refute_includes w.text.to_s, 'Edit('
+      assert_includes text_of(w), 'DIFF BLOCK'
+      refute_includes text_of(w), 'Edit('
     end
 
     it 'passes the pane width and theme to the formatter' do
       fmt = formatter.new(call_block: 'X', result_block: nil)
       w = pane_with(fmt)
       w.listener.on_event(tool_call('edit', 'a.rb', arguments: { 'path' => 'a.rb' }))
+      Tuile::Testing.loop
       assert_equal({ 'path' => 'a.rb' }, fmt.call_args[:arguments])
       assert fmt.call_args[:width].positive?
       assert_same Tuile::Screen.instance.theme, fmt.call_args[:theme]
@@ -713,8 +729,8 @@ RSpec.describe Shared::ConversationTextView do
       w = pane_with(fmt)
       w.listener.on_event(tool_call('edit'))
       w.listener.on_event(tool_result('Replaced 1 occurrence in a.rb'))
-      refute_includes w.text.to_s, 'Edited a.rb'
-      refute_includes w.text.to_s, 'OK'
+      refute_includes text_of(w), 'Edited a.rb'
+      refute_includes text_of(w), 'OK'
     end
 
     it 'renders the formatter result block when it returns one (error path)' do
@@ -722,14 +738,14 @@ RSpec.describe Shared::ConversationTextView do
       w = pane_with(fmt)
       w.listener.on_event(tool_call('edit'))
       w.listener.on_event(tool_result('Error: old_string not found in a.rb.'))
-      assert_includes w.text.to_s, '✗ Error: old_string not found'
+      assert_includes text_of(w), '✗ Error: old_string not found'
     end
 
     it 'falls back to the default tool-call line when render_call returns nil' do
       fmt = formatter.new(call_block: nil, result_block: nil)
       w = pane_with(fmt)
       w.listener.on_event(tool_call('edit', 'a.rb', arguments: { 'path' => 'a.rb' }))
-      assert_includes w.text.to_s, 'Edit(a.rb)'
+      assert_includes text_of(w), 'Edit(a.rb)'
     end
 
     it 'routes the result to the default summary line when render_call declined' do
@@ -737,8 +753,8 @@ RSpec.describe Shared::ConversationTextView do
       w = pane_with(fmt)
       w.listener.on_event(tool_call('edit'))
       w.listener.on_event(tool_result('Returned 8 bytes', content: 'whatever'))
-      assert_includes w.text.to_s, 'Returned 8 bytes'
-      refute_includes w.text.to_s, 'SHOULD NOT SHOW'
+      assert_includes text_of(w), 'Returned 8 bytes'
+      refute_includes text_of(w), 'SHOULD NOT SHOW'
     end
 
     # D_density_thunks: a diff is the one tool output the user reviews rather
@@ -749,8 +765,8 @@ RSpec.describe Shared::ConversationTextView do
       w = pane_with(fmt)
       w.listener.on_event(tool_call('edit', 'a.rb', arguments: { 'path' => 'a.rb' }))
       w.toggle_tool_detail
-      assert_includes w.text.to_s, 'DIFF BLOCK'
-      refute_includes w.text.to_s, '→ edit'
+      assert_includes text_of(w), 'DIFF BLOCK'
+      refute_includes text_of(w), '→ edit'
     end
 
     it 'leaves unregistered tools on the default rendering' do
@@ -758,9 +774,9 @@ RSpec.describe Shared::ConversationTextView do
       w = pane_with(fmt)
       w.listener.on_event(tool_call('grep', 'x'))
       w.listener.on_event(tool_result('Returned 1 match', content: 'match'))
-      assert_includes w.text.to_s, 'Grep(x)'
-      assert_includes w.text.to_s, 'Returned 1 match'
-      refute_includes w.text.to_s, 'DIFF'
+      assert_includes text_of(w), 'Grep(x)'
+      assert_includes text_of(w), 'Returned 1 match'
+      refute_includes text_of(w), 'DIFF'
     end
   end
 
