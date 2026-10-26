@@ -6,7 +6,7 @@ ruby '>= 3.3'
 
 # Component-oriented terminal UI framework.
 #
-# TEMPORARILY on `path: '../tuile'`: this side is ported onto master's
+# TEMPORARILY on tuile's git master: this side is ported onto master's
 # post-0.17.0 API, which the released 0.17.0 gem no longer builds. Four
 # breaking changes reach us — `PickerWindow.open` is gone for an instance
 # `#open_in_popup`; a string field announces typing only on commit, so the
@@ -17,15 +17,17 @@ ruby '>= 3.3'
 # fake screen's swapped-in queue. `capture_mouse` defaulting to `:drag` makes
 # the pane scrollbars draggable for free.
 #
-# CI can't build against a path gem, so whichever comes first, the cut of
-# tuile 0.18 is what un-blocks CI, and that commit reverts this line to
-# `'~> 0.18'`.
+# Git rather than `path: '../tuile'`, so the build gets the revision
+# Gemfile.lock pins, not whatever a sibling checkout happens to hold: a stale
+# `../tuile` loads an old Theme that rejects AppTheme's derived tokens at boot.
+# `bundle update tuile` moves the pin to master's head. The cut of tuile 0.18
+# reverts this line to `'~> 0.18'`.
 #
 # 0.15 still matters underneath it: Code::Layout hides the sidebar column with
 # Component#visible=, which landed there (tuile#17) and now also marks the
 # parent's `relayout` — that is what stops a hidden pane painting back at stale
 # coordinates on the next full repaint.
-gem 'tuile', path: '../tuile'
+gem 'tuile', git: 'https://github.com/mvysny/tuile.git', branch: 'master'
 
 # Convention-based autoloader for lib/. Wired up in lib/pikuri_tui.rb so
 # every file under lib/ declares exactly the top-level constant matching

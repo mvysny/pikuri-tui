@@ -1,3 +1,16 @@
+GIT
+  remote: https://github.com/mvysny/tuile.git
+  revision: 37fefb640f86b09f6fc056e2d1d94c65b2851600
+  branch: master
+  specs:
+    tuile (0.17.0)
+      concurrent-ruby (~> 1.3)
+      logger (~> 1.7)
+      tty-cursor (~> 0.7)
+      tty-screen (~> 0.8)
+      unicode-display_width (>= 2.6, < 4.0)
+      zeitwerk (~> 2.7)
+
 PATH
   remote: ../pikuri/pikuri-code
   specs:
@@ -76,17 +89,6 @@ PATH
     pikuri-workspace (0.1.0)
       pikuri-core (= 0.1.0)
       reline (~> 0.6)
-
-PATH
-  remote: ../tuile
-  specs:
-    tuile (0.17.0)
-      concurrent-ruby (~> 1.3)
-      logger (~> 1.7)
-      tty-cursor (~> 0.7)
-      tty-screen (~> 0.8)
-      unicode-display_width (>= 2.6, < 4.0)
-      zeitwerk (~> 2.7)
 
 GEM
   remote: https://rubygems.org/
