@@ -37,6 +37,14 @@ RSpec.describe Shared::Log::Dialog do
     assert dismissed
   end
 
+  it 'fires on_dismiss when the user presses ESC' do
+    dismissed = false
+    dialog = described_class.new(on_dismiss: -> { dismissed = true })
+    dialog.open
+    Tuile::Screen.instance.key(Tuile::Keys::ESC)
+    assert dismissed
+  end
+
   it 'does not fire on_dismiss when the screen tears down under it' do
     dismissed = false
     dialog = described_class.new(on_dismiss: -> { dismissed = true })
