@@ -43,11 +43,17 @@ RSpec.describe Code::WorkspaceSidebar do
     end
   end
 
-  describe 'git diff popup' do
-    it 'opens the diff popup and reports it open' do
+  describe 'git diff dialog' do
+    it 'opens the diff dialog and reports it open' do
       refute sidebar.diff_open?
       sidebar.open_diff
       assert sidebar.diff_open?
+    end
+
+    it 'opens fullscreen, so the diff has room' do
+      sidebar.open_diff
+      Tuile::Testing.loop
+      assert_equal Tuile::Screen.instance.size, Tuile::Screen.instance.pane.modal_popup.rect.size
     end
 
     it 'open_diff is a no-op when already open' do
@@ -72,8 +78,8 @@ RSpec.describe Code::WorkspaceSidebar do
       list.items.map { |entry| list.renderer.call(entry, 0).to_s }.join("\n")
     end
     def diff_text
-      sidebar.git_diff_dialog.flush_layout # a snapshot renders at the next relayout
-      sidebar.git_diff_dialog.view.text.to_s
+      sidebar.git_diff_view.flush_layout # a snapshot renders at the next relayout
+      sidebar.git_diff_view.text.to_s
     end
 
     it 'projects an emitted snapshot onto the two git panes' do

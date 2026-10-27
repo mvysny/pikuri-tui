@@ -124,7 +124,7 @@ module Code
     def task_listener = @sidebar.task_listener
 
     # @return [WorkspaceSidebar] the tasks + git sidebar; owns the
-    #   {GitWatcher} (started/stopped in {#run}) and the {GitDiffDialog} the
+    #   {GitWatcher} (started/stopped in {#run}) and the diff dialog the
     #   leader menu's +d+ entry opens. Exposed for tests.
     attr_reader :sidebar
 

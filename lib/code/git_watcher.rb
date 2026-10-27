@@ -84,7 +84,7 @@ module Code
 
     # The tracked-change diff for the popup: +diff HEAD+ is the full staged
     # + unstaged diff since the last commit. Plain (uncolored) — a consumer
-    # paints it (the {GitDiffDialog} via {GitDiffRenderer}).
+    # paints it (the {GitDiffTextView} via {GitDiffRenderer}).
     #
     # @return [Array<String>]
     TRACKED_COMMAND = %w[git diff HEAD].freeze

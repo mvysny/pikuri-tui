@@ -6,7 +6,7 @@ module Code
   # The coding shell's workspace sidebar as one Tuile container: a fixed
   # {TASK_HEIGHT} task pane stacked over the git change-summary pane, plus the
   # off-layout diff dialog. Composes {TaskListPane}, {GitSummaryPane},
-  # {GitDiffDialog}, and the {GitWatcher} service that feeds the last two:
+  # {GitDiffTextView}, and the {GitWatcher} service that feeds the last two:
   #
   #   Tasks ───────    <- fixed TASK_HEIGHT rows, caption included
   #   ○ port the tint
@@ -39,7 +39,7 @@ module Code
     # @return [Integer]
     TASK_HEIGHT = 6
 
-    # Builds the panes, the {GitDiffDialog} and the {GitWatcher}, then subscribes
+    # Builds the panes, the diff dialog and the {GitWatcher}, then subscribes
     # the git views to it. Adds the task and change-summary panes as layout
     # children; the diff dialog is *not* a child — it opens only on {#open_diff}.
     def initialize
@@ -51,7 +51,11 @@ module Code
       # fullscreen dialog opened from the leader menu's 'd' entry. Built
       # eagerly (like the diagnostic log dialog) so the watcher can feed the
       # latest diff into it every poll whether or not the dialog is shown.
-      @git_diff_dialog = GitDiffDialog.new
+      @git_diff_view = GitDiffTextView.new
+      @git_diff_dialog = Tuile::Component::Dialog.new(
+        'Git diff', content: @git_diff_view, declared_size: Tuile::Fraction::FULL
+      )
+      @git_diff_dialog.scrollbar = true
 
       # GitWatcher is a UI-independent service: it emits Snapshots on its poll
       # thread and knows nothing of these panes. We subscribe, marshal onto the
@@ -66,7 +70,7 @@ module Code
         screen.event_queue.submit do
           @git_snapshot = snapshot
           @git_summary_pane.snapshot = snapshot
-          @git_diff_dialog.snapshot = snapshot
+          @git_diff_view.snapshot = snapshot
           emit_digest
         end
       end
@@ -86,8 +90,9 @@ module Code
     #   production drives it through the {GitWatcher} subscription.
     attr_reader :git_summary_pane
 
-    # @return [GitDiffDialog] the full-diff dialog; exposed for tests.
-    attr_reader :git_diff_dialog
+    # @return [GitDiffTextView] the full diff, shown in a dialog by
+    #   {#open_diff}; exposed for tests.
+    attr_reader :git_diff_view
 
     # @return [TaskListPane::Listener] the task-stream listener (owned by
     #   the task pane's view); fold it into the agent's +ListenerList+.
@@ -105,7 +110,7 @@ module Code
     # @return [void]
     def stop_git_watching = @git_watcher.stop
 
-    # Opens the {GitDiffDialog} with the latest full diff (kept current by the
+    # Opens the fullscreen diff dialog with the latest full diff (kept current by the
     # {GitWatcher} subscription). A no-op if it is already open. The leader
     # menu's +d+ action.
     #
@@ -116,7 +121,7 @@ module Code
       @git_diff_dialog.open
     end
 
-    # @return [Boolean] whether the {GitDiffDialog} is currently open.
+    # @return [Boolean] whether the diff dialog is currently open.
     def diff_open? = @git_diff_dialog.open?
 
     # @return [Shared::StatusRuleLabel::WorkspaceDigest] what the two panes are

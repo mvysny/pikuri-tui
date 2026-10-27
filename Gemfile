@@ -10,9 +10,9 @@ ruby '>= 3.3'
 # post-0.17.0 API, which the released 0.17.0 gem no longer builds. The
 # breaking changes that reach us — `Popup` became `Dialog`, which draws its own
 # border, and the `*Window` modals became `*Dialog` subclasses opened by plain
-# `#open`, so the log, git-diff and leader-menu dialogs subclass them instead
-# of wrapping a window in a popup; a `Dialog` can't be `Testing.place`d, so
-# its specs size it by opening it at a `declared_size`; a string field
+# `#open`, so the log and leader-menu dialogs subclass them and the git diff
+# is a `TextView` in a plain `Dialog`, none wrapping a window in a popup; a
+# string field
 # announces typing only on commit, so the input's slash palette asks for
 # `value_change_mode = :eager`; the fake event queue queues every `submit`
 # until `Tuile::Testing.loop` (or a `FakeScreen#key`) plays the turn; and

@@ -141,7 +141,7 @@ module Code
     attr_reader :caption_label
 
     # Rewrite the pane from a git snapshot. Ignores the snapshot's diff (that's
-    # the {GitDiffDialog}'s half). Must run on the UI thread. The caption is
+    # the {GitDiffTextView}'s half). Must run on the UI thread. The caption is
     # only marked, and settles with the layout.
     #
     # @param snapshot [GitWatcher::Snapshot]
