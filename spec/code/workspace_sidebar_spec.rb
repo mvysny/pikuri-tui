@@ -72,8 +72,8 @@ RSpec.describe Code::WorkspaceSidebar do
       list.items.map { |entry| list.renderer.call(entry, 0).to_s }.join("\n")
     end
     def diff_text
-      sidebar.git_diff_window.flush_layout # a snapshot renders at the next relayout
-      sidebar.git_diff_window.view.text.to_s
+      sidebar.git_diff_dialog.flush_layout # a snapshot renders at the next relayout
+      sidebar.git_diff_dialog.view.text.to_s
     end
 
     it 'projects an emitted snapshot onto the two git panes' do

@@ -7,15 +7,17 @@ ruby '>= 3.3'
 # Component-oriented terminal UI framework.
 #
 # TEMPORARILY on tuile's git master: this side is ported onto master's
-# post-0.17.0 API, which the released 0.17.0 gem no longer builds. Four
-# breaking changes reach us — `PickerWindow.open` is gone for an instance
-# `#open_in_popup`; a string field announces typing only on commit, so the
-# input's slash palette asks for `value_change_mode = :eager`; the fake event
-# queue queues every `submit` until `Tuile::Testing.loop` (or a
-# `FakeScreen#key`) plays the turn, which retired our marshalling fake screen;
-# and every framework ivar is now `@_foo`, which is what silently disabled that
-# fake screen's swapped-in queue. `capture_mouse` defaulting to `:drag` makes
-# the pane scrollbars draggable for free.
+# post-0.17.0 API, which the released 0.17.0 gem no longer builds. The
+# breaking changes that reach us — `Popup` became `Dialog`, which draws its own
+# border, and the `*Window` modals became `*Dialog` subclasses opened by plain
+# `#open`, so the log, git-diff and leader-menu dialogs subclass them instead
+# of wrapping a window in a popup; a `Dialog` can't be `Testing.place`d, so
+# its specs size it by opening it at a `declared_size`; a string field
+# announces typing only on commit, so the input's slash palette asks for
+# `value_change_mode = :eager`; the fake event queue queues every `submit`
+# until `Tuile::Testing.loop` (or a `FakeScreen#key`) plays the turn; and
+# every framework ivar is now `@_foo`. `capture_mouse` defaulting to `:drag`
+# makes the pane scrollbars draggable for free.
 #
 # Git rather than `path: '../tuile'`, so the build gets the revision
 # Gemfile.lock pins, not whatever a sibling checkout happens to hold: a stale

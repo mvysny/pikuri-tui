@@ -54,7 +54,7 @@ module Code
   # **Elision direction differs by row, deliberately.** A header keeps its tail
   # (+…/shared/markdown/+ — ancestors are context); a filename keeps its head,
   # because within one directory this repo's names share suffixes and differ at
-  # the front (+git_diff_wind…+ / +git_diff_popu…+ / +git_diff_rend…+), and
+  # the front (+git_diff_dial…+ / +git_diff_rend…+), and
   # left-elision would spend three of its columns on +.rb+.
   #
   # The rows are width-dependent — names cut to a budget so the counts align,
@@ -141,7 +141,7 @@ module Code
     attr_reader :caption_label
 
     # Rewrite the pane from a git snapshot. Ignores the snapshot's diff (that's
-    # the {GitDiffWindow}'s half). Must run on the UI thread. The caption is
+    # the {GitDiffDialog}'s half). Must run on the UI thread. The caption is
     # only marked, and settles with the layout.
     #
     # @param snapshot [GitWatcher::Snapshot]

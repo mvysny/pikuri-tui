@@ -3,8 +3,8 @@
 require 'tuile'
 
 # +IO+-shaped sink for stdlib +Logger+ that forwards every line to a
-# {Tuile::Component::LogWindow} (same contract as
-# +Tuile::Component::LogWindow::IO+) *and* counts severity-+ERROR+ and
+# {Tuile::Component::LogDialog} (same contract as
+# +Tuile::Component::LogDialog::IO+) *and* counts severity-+ERROR+ and
 # +FATAL+ writes so the +Ctrl+K+ menu status-bar hint can advertise
 # "open the menu, something broke."
 #
@@ -23,7 +23,7 @@ require 'tuile'
 #
 # Thread-safe. +#write+ / +#puts+ are called from arbitrary threads (a
 # stdlib +Logger+ writes synchronously on whichever thread invoked
-# +#error+) and forward to {Tuile::Component::LogWindow}, which marshals
+# +#error+) and forward to {Tuile::Component::LogDialog}, which marshals
 # onto the event-loop thread itself. The +on_error+ callback runs
 # synchronously on the caller's thread and marshals its own UI work back.
 class Shared::Log::CountingIO
@@ -40,24 +40,24 @@ class Shared::Log::CountingIO
   LOG = Pikuri.logger_for('log')
   private_constant :LOG
 
-  # @param log_window [Tuile::Component::LogWindow] the diagnostic window
+  # @param log_dialog [Tuile::Component::LogDialog] the diagnostic log
   #   that receives every line, regardless of severity. Same role as the
-  #   +window+ argument to +Tuile::Component::LogWindow::IO.new+.
+  #   +sink+ argument to +Tuile::Component::LogDialog::IO.new+.
   # @param on_error [Proc, Method, nil] one-arg callable invoked on each
   #   error-class write. Receives the (un-chomped) line so the callback
   #   can inspect it if it wants; pikuri-tui's wiring ignores the
   #   argument and just bumps a counter. +nil+ disables counting.
-  def initialize(log_window:, on_error: nil)
-    @log_window = log_window
+  def initialize(log_dialog:, on_error: nil)
+    @log_dialog = log_dialog
     @on_error = on_error
     @log_file = File.open(Pikuri::Paths.state.join('pikuri.log'), 'w')
   end
 
-  # @return [Tuile::Component::LogWindow] the destination window.
-  attr_reader :log_window
+  # @return [Tuile::Component::LogDialog] the destination log.
+  attr_reader :log_dialog
 
   # +Logger+'s +write+ path: receives a fully formatted line. We strip
-  # the trailing newline for the +LogWindow+'s row-oriented model (one
+  # the trailing newline for the +LogDialog+'s row-oriented model (one
   # entry == one row) and forward.
   #
   # @param string [String] formatted log line, typically terminated by
@@ -67,21 +67,21 @@ class Shared::Log::CountingIO
     @log_file.write(string)
     @log_file.flush
     bump_error_count(string) if ERROR_PREFIXES.any? { |p| string.start_with?(p) }
-    @log_window.log(string.chomp)
+    @log_dialog.log(string.chomp)
   end
 
   # +TTY::Logger+'s +puts+ path; included for parity with
-  # +Tuile::Component::LogWindow::IO+ even though pikuri-tui doesn't
+  # +Tuile::Component::LogDialog::IO+ even though pikuri-tui doesn't
   # currently wire any +puts+-shaped logger. No severity sniffing here —
   # +puts+-mode loggers don't follow the stdlib +Logger+ format.
   #
-  # @param string [String] log line; the +LogWindow+ adds no extra
+  # @param string [String] log line; the +LogDialog+ adds no extra
   #   newline so callers should not include one
   # @return [void]
   def puts(string)
     @log_file.puts(string)
     @log_file.flush
-    @log_window.log(string)
+    @log_dialog.log(string)
   end
 
   # Stdlib +Logger+ treats an object as an IO target only when it

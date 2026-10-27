@@ -2,12 +2,12 @@
 
 # +IO+-shaped sink that tees boot-time log lines to a passthrough stream
 # (+$stderr+) *and* remembers them, so they can be replayed into the
-# diagnostic {Tuile::Component::LogWindow} once it exists.
+# diagnostic {Tuile::Component::LogDialog} once it exists.
 #
 # == Why this exists
 #
 # +Pikuri.log_io+ defaults to +$stderr+, and each bin's +App+ later swaps
-# it to a {Shared::Log::CountingIO} feeding the +LogWindow+. +Pikuri.log_io=+ rewires
+# it to a {Shared::Log::CountingIO} feeding the +LogDialog+. +Pikuri.log_io=+ rewires
 # already-handed-out loggers in place, so *future* lines follow to the
 # pane — but lines emitted *before* the swap (config-file reads,
 # +chmod 600+ advisories, model wiring) only ever hit +$stderr+, which is
@@ -35,7 +35,7 @@
 # worker starts — but the lock makes the guarantee unconditional).
 # {#replay_into} delegates marshaling to the {Shared::Log::CountingIO} sink
 # (which submits each line to the UI thread) rather than touching the
-# +LogWindow+ directly.
+# +LogDialog+ directly.
 class Shared::Log::BufferingIO
   # Default cap on retained lines. Boot volume is a handful of lines; the
   # cap is a backstop against an unexpected pre-screen log loop, not a tuning

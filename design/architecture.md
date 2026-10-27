@@ -14,7 +14,7 @@ has crept in.
 - Each bin does only what must happen *before* a screen exists — CLI parsing, `Shared::Config`, project-root discovery, the interactive trust / privacy prompts, the sandbox probe — then mounts the `Tuile::Screen` and hands the results to its `App`, which builds the agent. `App.new` / `#run` are wrapped in the bin's `begin/ensure Tuile::Screen.close`.
 - An `App` constructs, never inherits: it composes the shared blocks (`Shared::AgentSession`, `Shared::Log::UI`, `Shared::ConversationTextView`, `Shared::InputPane`, `Shared::StatusRuleLabel`, `Shared::LeaderMenu`) into its own `Layout`, and registers its own action and slash-command sets.
 - A component that renders the agent's stream owns its own pikuri wiring — it exposes `#listener` and the host drops that into the agent's `ListenerList`. `Shared::ConversationTextView`, `Code::TaskListPane` and `Shared::StatusRuleLabel` each do this; `Code::GitWatcher` is the opposite case, a UI-independent service the sidebar subscribes to.
-- Logging is one pipeline: each class's private `LOG = Pikuri.logger_for('<tag>')` → `Pikuri.log_io` → a `Shared::Log::BufferingIO` before the screen, a `Shared::Log::CountingIO` into the `LogWindow` after `Shared::Log::UI#wire!` replays the boot lines (`D_log_through_pikuri`). `Tuile.logger` carries Tuile's own noise into the same window and nothing else.
+- Logging is one pipeline: each class's private `LOG = Pikuri.logger_for('<tag>')` → `Pikuri.log_io` → a `Shared::Log::BufferingIO` before the screen, a `Shared::Log::CountingIO` into the `Shared::Log::Dialog` after `Shared::Log::UI#wire!` replays the boot lines (`D_log_through_pikuri`). `Tuile.logger` carries Tuile's own noise into the same dialog and nothing else.
 
 ## Flows
 

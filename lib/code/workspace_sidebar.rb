@@ -5,14 +5,13 @@ require 'tuile'
 module Code
   # The coding shell's workspace sidebar as one Tuile container: a fixed
   # {TASK_HEIGHT} task pane stacked over the git change-summary pane, plus the
-  # off-layout diff popup they share. Composes {TaskListPane},
-  # {GitSummaryPane} / {GitDiffWindow}, {GitDiffPopup}, and the
-  # {GitWatcher} service that feeds the two git panes:
+  # off-layout diff dialog. Composes {TaskListPane}, {GitSummaryPane},
+  # {GitDiffDialog}, and the {GitWatcher} service that feeds the last two:
   #
   #   Tasks ───────    <- fixed TASK_HEIGHT rows, caption included
   #   ○ port the tint
   #   Changes ─────    <- the remaining rows; the full diff is a
-  #   M lib/x.rb +2       leader-menu popup (#open_diff), not part of this box
+  #   M lib/x.rb +2       leader-menu dialog (#open_diff), not part of this box
   #
   # This is a *secondary* surface, so the whole column paints +:pane_bg+ — set
   # once here, inherited by both panes — which is what tells it apart from the
@@ -40,21 +39,19 @@ module Code
     # @return [Integer]
     TASK_HEIGHT = 6
 
-    # Builds the two git panes ({GitSummaryPane} / {GitDiffWindow}), the shared
-    # {GitDiffPopup}, and the {GitWatcher}, then subscribes the panes to it. Adds
-    # the task and change-summary windows as layout children; the diff window is
-    # *not* a child — it lives in the popup, shown only on {#open_diff}.
+    # Builds the panes, the {GitDiffDialog} and the {GitWatcher}, then subscribes
+    # the git views to it. Adds the task and change-summary panes as layout
+    # children; the diff dialog is *not* a child — it opens only on {#open_diff}.
     def initialize
       super()
       @task_pane = TaskListPane.new
       @git_summary_pane = GitSummaryPane.new
 
       # The full colored diff is too wide for the sidebar, so it lives in a
-      # near-fullscreen popup opened from the leader menu's 'd' entry. Built
-      # eagerly (like the diagnostic LogWindow) so the watcher can feed the
-      # latest diff into it every poll whether or not the popup is shown.
-      @git_diff_window = GitDiffWindow.new
-      @git_diff_popup = GitDiffPopup.new(diff_window: @git_diff_window)
+      # fullscreen dialog opened from the leader menu's 'd' entry. Built
+      # eagerly (like the diagnostic log dialog) so the watcher can feed the
+      # latest diff into it every poll whether or not the dialog is shown.
+      @git_diff_dialog = GitDiffDialog.new
 
       # GitWatcher is a UI-independent service: it emits Snapshots on its poll
       # thread and knows nothing of these panes. We subscribe, marshal onto the
@@ -69,7 +66,7 @@ module Code
         screen.event_queue.submit do
           @git_snapshot = snapshot
           @git_summary_pane.snapshot = snapshot
-          @git_diff_window.snapshot = snapshot
+          @git_diff_dialog.snapshot = snapshot
           emit_digest
         end
       end
@@ -89,9 +86,8 @@ module Code
     #   production drives it through the {GitWatcher} subscription.
     attr_reader :git_summary_pane
 
-    # @return [GitDiffWindow] the diff pane wrapped by {GitDiffPopup}; exposed
-    #   for tests.
-    attr_reader :git_diff_window
+    # @return [GitDiffDialog] the full-diff dialog; exposed for tests.
+    attr_reader :git_diff_dialog
 
     # @return [TaskListPane::Listener] the task-stream listener (owned by
     #   the task pane's view); fold it into the agent's +ListenerList+.
@@ -109,19 +105,19 @@ module Code
     # @return [void]
     def stop_git_watching = @git_watcher.stop
 
-    # Opens the {GitDiffPopup} with the latest full diff (kept current by the
+    # Opens the {GitDiffDialog} with the latest full diff (kept current by the
     # {GitWatcher} subscription). A no-op if it is already open. The leader
     # menu's +d+ action.
     #
     # @return [void]
     def open_diff
-      return if @git_diff_popup.open?
+      return if @git_diff_dialog.open?
 
-      @git_diff_popup.open
+      @git_diff_dialog.open
     end
 
-    # @return [Boolean] whether the {GitDiffPopup} is currently open.
-    def diff_open? = @git_diff_popup.open?
+    # @return [Boolean] whether the {GitDiffDialog} is currently open.
+    def diff_open? = @git_diff_dialog.open?
 
     # @return [Shared::StatusRuleLabel::WorkspaceDigest] what the two panes are
     #   showing, reduced to counts — for a host to stand up elsewhere while this

@@ -6,12 +6,12 @@ require 'tuile'
 
 module Computer
   # The Tuile shell behind +bin/pikuri-tui-computer+: the borderless
-  # conversation pane, the status rule, the tinted prompt, the eager diagnostic +LogWindow+
+  # conversation pane, the status rule, the tinted prompt, the eager diagnostic {Shared::Log::Dialog}
   # (popup-visible via the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+
   # menu / +Ctrl+C+ cancel status-bar hints, and the agent loop on a worker
   # thread.
   #
-  # Laid out like {Chat::App} — one conversation Window over an input strip,
+  # Laid out like {Chat::App} — one conversation pane over an input strip,
   # NO sidebar — but it carries the coding shell's safety machinery because
   # the agent's file/bash tools mutate the real host: a
   # {Code::TranscriptConfirmer} gates +write+ / +bash+, plan mode surfaces as a status-rule badge
@@ -116,9 +116,9 @@ module Computer
     #   as "Working from …" rather than re-deriving +Dir.pwd+.
     def project_root = @filesystem.project_root
 
-    # @return [Tuile::Component::LogWindow] the eager-constructed
-    #   diagnostic window (owned by the {Shared::Log::UI}).
-    def log_window = @log_ui.log_window
+    # @return [Shared::Log::Dialog] the eager-constructed
+    #   diagnostic log (owned by the {Shared::Log::UI}).
+    def log_dialog = @log_ui.log_dialog
 
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
     #   log, App-owned and fed into the {Shared::StatusRuleLabel}. {#default_build_agent} registers this
@@ -211,8 +211,6 @@ module Computer
       @leader_menu = build_leader_menu
       @screen.on_error << method(:on_screen_error)
       @screen.content = Shared::RootLayout.new(@layout, @status_bar)
-      # Focus the window, not the inner area: Tuile's Window→content focus
-      # cascade re-points onto the input area so the caret lands there.
       @input.focus
       register_shortcuts
     end

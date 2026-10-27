@@ -27,8 +27,8 @@ loader.ignore(__FILE__)
 
 # Zeitwerk's inflector matches the *whole* basename rather than per-segment,
 # so acronym mappings spell the full word. +ui+ → +UI+ (the diagnostic-log
-# window), and the two IO sinks read naturally next to Tuile's own
-# +LogWindow::IO+.
+# dialog), and the two IO sinks read naturally next to Tuile's own
+# +LogDialog::IO+.
 loader.inflector.inflect(
   'ui'             => 'UI',
   'ui_toggle_menu' => 'UIToggleMenu',

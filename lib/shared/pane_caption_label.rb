@@ -8,7 +8,7 @@ require 'tuile'
 #
 #   Tasks ──────────────────────
 #
-# This is what replaced the caption a {Tuile::Component::Window} used to paint
+# The borderless stand-in for the caption a {Tuile::Component::Panel} paints
 # into its top border. The rule half is what keeps the row reading as a
 # *boundary* — without it a bare word floating above content reads as a list
 # item, not a section head.

@@ -6,7 +6,7 @@ require 'tuile'
 
 module Chat
   # The Tuile shell behind +bin/pikuri-tui-chat+: builds the borderless
-  # conversation pane, the status rule, the tinted prompt, the eager diagnostic +LogWindow+
+  # conversation pane, the status rule, the tinted prompt, the eager diagnostic {Shared::Log::Dialog}
   # (popup-visible via the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+ menu /
   # +Ctrl+C+ cancel global-shortcut hints
   # in the screen-wide status bar, and wires the agent's loop onto a worker
@@ -92,10 +92,10 @@ module Chat
     #   it through the {Shared::ConversationTextView::Listener}.
     attr_reader :conversation
 
-    # @return [Tuile::Component::LogWindow] the eager-constructed
-    #   diagnostic window (owned by the {Shared::Log::UI}). Exposed for tests and for
+    # @return [Shared::Log::Dialog] the eager-constructed
+    #   diagnostic log (owned by the {Shared::Log::UI}). Exposed for tests and for
     #   callers that want to install additional logger sinks.
-    def log_window = @log_ui.log_window
+    def log_dialog = @log_ui.log_dialog
 
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
     #   log, App-owned and fed into the {Shared::StatusRuleLabel}.

@@ -22,8 +22,8 @@ RSpec.describe Shared::Log::UI do
     log_ui
   end
 
-  it 'eager-constructs the diagnostic LogWindow' do
-    assert_kind_of Tuile::Component::LogWindow, log_ui.log_window
+  it 'eager-constructs the diagnostic LogDialog' do
+    assert_kind_of Shared::Log::Dialog, log_ui.log_dialog
   end
 
   it 'advertises a discoverable "^K menu" hint with no errors and no warning glyph' do
@@ -53,7 +53,7 @@ RSpec.describe Shared::Log::UI do
     assert_includes status_bar_text, '^K ⚠ menu (1)'
 
     log_ui.open
-    log_ui.log_popup.close
+    log_ui.log_dialog.close
     assert_includes status_bar_text, '^K menu'
     refute_includes status_bar_text, '⚠'
   end
@@ -68,18 +68,18 @@ RSpec.describe Shared::Log::UI do
   it '#open opens the popup and is a no-op when already open' do
     boot
     log_ui.open
-    assert log_ui.log_popup.open?
+    assert log_ui.log_dialog.open?
     log_ui.open # second call must not raise or re-open
-    assert log_ui.log_popup.open?
+    assert log_ui.log_dialog.open?
   end
 
-  it 'replays a Shared::Log::BufferingIO boot sink into the LogWindow on wire!' do
+  it 'replays a Shared::Log::BufferingIO boot sink into the LogDialog on wire!' do
     prior = Shared::Log::BufferingIO.new(passthrough: StringIO.new)
     Logger.new(prior).info('pre-screen line')
     Pikuri.log_io = prior
 
     log_ui.wire!
     Tuile::Testing.loop
-    assert_includes log_ui.log_window.content.text.to_s, 'pre-screen line'
+    assert_includes log_ui.log_dialog.content.text.to_s, 'pre-screen line'
   end
 end

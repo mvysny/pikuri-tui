@@ -17,7 +17,7 @@ RSpec.describe Shared::LeaderMenu do
   # rows are read off the painted buffer.
   def painted_rows
     Tuile::Testing.place(modal_popup, Tuile::Rect.new(0, 0, 30, 4))
-    painted_region(modal_popup.content.content).map(&:strip).reject(&:empty?)
+    painted_region(modal_popup.content).map(&:strip).reject(&:empty?)
   end
 
   it 'is empty until an action is added' do
@@ -55,12 +55,12 @@ RSpec.describe Shared::LeaderMenu do
   it 'captions the popup Menu by default, and whatever a submenu asks for' do
     menu.add('l', 'logs') {}
     menu.open
-    assert_includes modal_popup.content.caption.to_s, described_class::CAPTION
+    assert_includes modal_popup.caption.to_s, described_class::CAPTION
 
     submenu = described_class.new(screen: Tuile::Screen.instance, caption: 'UI')
     submenu.add('t', 'thinking') {}
     submenu.open
-    assert_includes modal_popup.content.caption.to_s, 'UI'
+    assert_includes modal_popup.caption.to_s, 'UI'
   end
 
   it 'does not open a popup when no actions are registered' do
@@ -73,8 +73,8 @@ RSpec.describe Shared::LeaderMenu do
     menu.add('q', 'quit') {}
     menu.open
 
-    picker = modal_popup.content
-    assert_kind_of Tuile::Component::PickerWindow, picker
+    picker = modal_popup
+    assert_kind_of Tuile::Component::PickerDialog, picker
     # The picker's list holds Option items and renders them at paint time, so the
     # rows are read off the painted buffer.
     Tuile::Testing.place(modal_popup, Tuile::Rect.new(0, 0, 20, 4))

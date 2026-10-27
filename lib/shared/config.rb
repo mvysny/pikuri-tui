@@ -156,7 +156,7 @@ require 'tomlrb'
 # surface immediately at boot — before any screen exists. The bins install a
 # {Shared::Log::BufferingIO} as that boot sink, which tees to +$stderr+ and retains
 # every line, so each bin's +App+ replays the pre-screen lines into the
-# diagnostic LogWindow when it rewires +Pikuri.log_io+. {Config} just logs;
+# diagnostic log dialog when it rewires +Pikuri.log_io+. {Config} just logs;
 # it never collects advisories for the caller to surface.
 #
 # == Errors
@@ -164,7 +164,7 @@ require 'tomlrb'
 # Every load failure — unreadable file, malformed TOML, schema
 # violation — raises {Error}. Loading runs at boot before the screen is
 # up, so the bins rescue {Error} into a plain +warn+ + +exit+ rather
-# than the usual route-to-LogWindow path (there is no LogWindow yet).
+# than the usual route-to-log-dialog path (there is no log dialog yet).
 #
 # Immutable.
 class Shared::Config

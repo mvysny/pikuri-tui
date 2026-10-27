@@ -5,8 +5,8 @@ require 'pikuri-core'
 require 'tuile'
 
 # The diagnostic-log subsystem shared by all three shells: the eager
-# +LogWindow+, its {Shared::Log::Popup}, the {Shared::Log::CountingIO} that
-# routes every pikuri / Tuile log line into that window, the unread-error
+# {Shared::Log::Dialog}, the {Shared::Log::CountingIO} that routes every
+# pikuri / Tuile log line into it, the unread-error
 # tally, and the +Ctrl+K+ leader-menu global shortcut whose status-bar hint
 # carries that tally. Wired in two phases:
 #
@@ -29,13 +29,10 @@ require 'tuile'
 #
 # UI-thread-confined, with exceptions.
 class Shared::Log::UI
-  # @return [Tuile::Component::LogWindow] the eager-constructed diagnostic
-  #   window. Exposed so the App can re-expose it (tests, extra logger sinks).
-  attr_reader :log_window
-
-  # @return [Shared::Log::Popup] the popup wrapping {#log_window}, opened by the
-  #   leader menu's +l+ entry (via {#open}).
-  attr_reader :log_popup
+  # @return [Shared::Log::Dialog] the eager-constructed diagnostic log, opened
+  #   by the leader menu's +l+ entry (via {#open}). Exposed so the App can
+  #   re-expose it (tests, extra logger sinks).
+  attr_reader :log_dialog
 
   # @param screen [Tuile::Screen] the (already-installed) screen this app
   #   runs on. Used for the theme (hint colors), the event queue (marshaling),
@@ -46,14 +43,13 @@ class Shared::Log::UI
     @screen = screen
     @status_bar = status_bar
     @error_count = 0
-    @log_window = Tuile::Component::LogWindow.new('Log')
-    @log_popup = Shared::Log::Popup.new(log_window: @log_window, on_dismiss: method(:reset_error_count))
+    @log_dialog = Shared::Log::Dialog.new(on_dismiss: method(:reset_error_count))
     @status_bar.menu_hint(&method(:menu_hint))
   end
 
   # Routes every pikuri / Tuile log line — and any exception trapped
   # by {Tuile::Screen#on_error} — through a single {Shared::Log::CountingIO}
-  # that both renders into {#log_window} and bumps the error counter
+  # that both renders into {#log_dialog} and bumps the error counter
   # backing the +Ctrl+K+ menu status-bar hint. Must run after
   # construction and before the agent is built (the agent's
   # construction can already log).
@@ -67,7 +63,7 @@ class Shared::Log::UI
   #
   # @return [void]
   def wire!
-    io = Shared::Log::CountingIO.new(log_window: @log_window, on_error: method(:on_error_logged))
+    io = Shared::Log::CountingIO.new(log_dialog: @log_dialog, on_error: method(:on_error_logged))
     prior = Pikuri.log_io
     Tuile.logger = Logger.new(io)
     Pikuri.log_io = io
@@ -84,14 +80,14 @@ class Shared::Log::UI
     @screen.register_global_shortcut(Tuile::Keys::CTRL_K, &@open_menu)
   end
 
-  # Opens the log popup (the leader menu's +l+ action). A no-op if it is
+  # Opens the log dialog (the leader menu's +l+ action). A no-op if it is
   # already open.
   #
   # @return [void]
   def open
-    return if @log_popup.open?
+    return if @log_dialog.open?
 
-    @log_popup.open
+    @log_dialog.open
   end
 
   private
@@ -110,7 +106,7 @@ class Shared::Log::UI
     end
   end
 
-  # Fires when the log popup is dismissed (ESC / q from inside the popup):
+  # Fires when the log dialog is dismissed (ESC / q from inside it):
   # the user has now read the diagnostics. Runs on the event-loop thread, so
   # direct mutation is safe.
   #

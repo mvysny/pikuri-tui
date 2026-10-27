@@ -26,7 +26,7 @@ require 'tuile'
 #
 # The host builds one, drops it into the layout, and focuses it — {#focus}
 # forwards to the private {Area}, since a {Tuile::Component::Layout} has no
-# Window→content focus cascade to do it:
+# Panel→content focus cascade to do it:
 #
 #   menu = Shared::SlashMenuPopup.new(screen:, commands:, conversation:)
 #   pane = Shared::InputPane.new(on_submit: session.method(:submit),
@@ -116,7 +116,7 @@ class Shared::InputPane < Tuile::Component::Layout
 
   # Focuses the editable area. The pane itself is passive layout; the {Area} is
   # what owns the caret and the keyboard, and unlike a
-  # {Tuile::Component::Window} a {Tuile::Component::Layout} cascades nothing.
+  # {Tuile::Component::Panel} a {Tuile::Component::Layout} cascades nothing.
   #
   # @return [void]
   def focus = @area.focus

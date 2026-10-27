@@ -23,14 +23,14 @@ require 'tuile'
 #
 # == Implementation details
 #
-# Built on {Tuile::Component::PickerWindow} (single-key options, a
-# picked-key callback, the ESC/+q+ dismissal idiom, a self-closing popup
-# wrapper). Follow-up keys are *printable* (+l+ / +d+ / +p+ / +m+ / +q+) —
+# Built on {Tuile::Component::PickerDialog} (single-key options, a
+# picked-key callback, the ESC/+q+ dismissal idiom, closing itself on a
+# pick). Follow-up keys are *printable* (+l+ / +d+ / +p+ / +m+ / +q+) —
 # legal because the popup consumes them directly, unlike
 # {Tuile::Screen#register_global_shortcut}, which rejects printable keys so
 # they can't hijack typing in the input. ESC and any unbound key dismiss;
-# +Ctrl+C+ dismisses too, via {CancelPopup} (it would otherwise be
-# suppressed while a modal popup is open).
+# +Ctrl+C+ dismisses too, via {CancelPickerDialog} (it would otherwise be
+# suppressed while a modal dialog is open).
 #
 # UI-thread-confined.
 class Shared::LeaderMenu
@@ -38,11 +38,10 @@ class Shared::LeaderMenu
   # @return [String]
   CAPTION = 'Menu'
 
-  # The menu's {Tuile::Component::Popup}, adding one thing over the base:
-  # +Ctrl+C+ dismisses it, exactly like ESC. The key bubbles up from the
-  # focused list (not an option key, so {PickerWindow} declines it first) —
-  # the same path ESC / +q+-close take.
-  class CancelPopup < Tuile::Component::Popup
+  # The menu's {Tuile::Component::PickerDialog}, adding one thing over the
+  # base: +Ctrl+C+ dismisses it, exactly like ESC. The key bubbles up from the
+  # focused list and is not an option key — the same path ESC / +q+-close take.
+  class CancelPickerDialog < Tuile::Component::PickerDialog
     # @param key [String]
     # @return [Boolean] true if the key was handled.
     def handle_key?(key)
@@ -52,7 +51,7 @@ class Shared::LeaderMenu
       true
     end
   end
-  private_constant :CancelPopup
+  private_constant :CancelPickerDialog
 
   # One menu entry: a follow-up key, its human label, and the zero-arg
   # callback run when the key is picked.
@@ -112,10 +111,10 @@ class Shared::LeaderMenu
   # next event-loop tick (so the menu closes first); ESC / +Ctrl+C+ / an
   # unbound key dismisses without running anything.
   #
-  # Mirrors {Tuile::Component::PickerWindow#open_in_popup}, but wraps the
-  # picker in a {CancelPopup} (ESC *and* +Ctrl+C+ close) rather than the base popup
-  # (ESC / +q+ only) — note +q+ here is a quit *action*, intercepted by the
-  # picker before the popup's close handler, so cancel is ESC / +Ctrl+C+.
+  # A {CancelPickerDialog} (ESC *and* +Ctrl+C+ close) rather than the base
+  # picker (ESC / +q+ only) — note +q+ here is a quit *action*, intercepted as
+  # an option key before the dialog's close handler, so cancel is ESC /
+  # +Ctrl+C+.
   #
   # @return [void]
   def open
@@ -123,12 +122,9 @@ class Shared::LeaderMenu
 
     by_key = @actions.to_h { |a| [a.key, a] }
     options = @actions.map { |a| [a.key, a.text] }
-    picker = Tuile::Component::PickerWindow.new(@caption, options) do |key|
+    CancelPickerDialog.new(@caption, options) do |key|
       action = by_key[key]
       @screen.event_queue.submit { action.callback.call } if action
-    end
-    popup = CancelPopup.new(content: picker)
-    picker.on_pick { popup.close }
-    popup.open
+    end.open
   end
 end

@@ -22,16 +22,16 @@ RSpec.describe Shared::Log::BufferingIO do
 
   it 'replays into a Shared::Log::CountingIO so a buffered error still renders and counts' do
     Tuile::Screen.fake
-    log_window = Tuile::Component::LogWindow.new('Log')
+    log_dialog = Tuile::Component::LogDialog.new
     errors = []
-    counting = Shared::Log::CountingIO.new(log_window: log_window, on_error: ->(line) { errors << line })
+    counting = Shared::Log::CountingIO.new(log_dialog: log_dialog, on_error: ->(line) { errors << line })
 
     io = described_class.new(passthrough: passthrough)
     Logger.new(io).error('boot boom')
     io.replay_into(counting)
-    Tuile::Testing.loop # LogWindow#log submits
+    Tuile::Testing.loop # LogDialog#log submits
 
-    rendered = log_window.content.text.to_s
+    rendered = log_dialog.content.text.to_s
     assert_includes rendered, 'boot boom'
     assert_equal 1, errors.size
     assert_includes errors.first, 'boot boom'

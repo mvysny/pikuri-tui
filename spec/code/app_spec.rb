@@ -285,8 +285,8 @@ RSpec.describe Code::App do
     end
   end
 
-  it 'eager-constructs the LogWindow (Pikuri.log_io routes through it from boot)' do
-    assert_kind_of Tuile::Component::LogWindow, app.log_window
+  it 'eager-constructs the LogDialog (Pikuri.log_io routes through it from boot)' do
+    assert_kind_of Shared::Log::Dialog, app.log_dialog
   end
 
   it 'exposes #project_root (the filesystem root the bin logs)' do
@@ -402,12 +402,12 @@ RSpec.describe Code::App do
 
   it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
     app
-    app.instance_variable_get(:@log_ui).log_popup.open
+    app.instance_variable_get(:@log_ui).log_dialog.open
     stopped = spy_on_stop
 
     press_ctrl_c
 
-    assert app.instance_variable_get(:@log_ui).log_popup.open?, 'popup should stay open'
+    assert app.instance_variable_get(:@log_ui).log_dialog.open?, 'popup should stay open'
     refute stopped.call, 'the event loop must not stop while a popup is open'
   end
 
@@ -431,9 +431,9 @@ RSpec.describe Code::App do
     Tuile.logger.error('boom')
     assert_includes status_bar_text, '^K ⚠ menu (1)'
 
-    log_popup = app.instance_variable_get(:@log_ui).log_popup
-    log_popup.open
-    log_popup.close
+    log_dialog = app.instance_variable_get(:@log_ui).log_dialog
+    log_dialog.open
+    log_dialog.close
     assert_includes status_bar_text, '^K menu'
     refute_includes status_bar_text, '⚠'
   end
@@ -449,11 +449,11 @@ RSpec.describe Code::App do
     assert_same app.agent.interloper, app.status_rule.interloper
   end
 
-  it 'routes pikuri-side log lines through the LogWindow (Pikuri.log_io rewired at boot)' do
+  it 'routes pikuri-side log lines through the LogDialog (Pikuri.log_io rewired at boot)' do
     app
     Pikuri.logger_for('TestSubsystem').info('pikuri-side message')
-    Tuile::Testing.loop # LogWindow#log submits
-    rendered = app.log_window.content.text.to_s
+    Tuile::Testing.loop # LogDialog#log submits
+    rendered = app.log_dialog.content.text.to_s
     assert_includes rendered, 'pikuri-side message'
   end
 
@@ -632,23 +632,23 @@ RSpec.describe Code::App do
     Shared::Config::Llm.new(name: name, server: server, model: model, api_key: nil, context_window: nil)
   end
 
-  # Swap +PickerWindow.new+ for a recorder whose popup never opens (restored
+  # Swap +PickerDialog.new+ for a recorder whose popup never opens (restored
   # after), run the block that triggers it, and return the captured
   # +[options, callback]+ so a spec can assert the option list and drive
   # selection without exercising Tuile's popup/focus machinery.
   def capture_picker
-    original = Tuile::Component::PickerWindow.method(:new)
+    original = Tuile::Component::PickerDialog.method(:new)
     captured_options = nil
     captured_block = nil
-    Tuile::Component::PickerWindow.define_singleton_method(:new) do |_caption, options, &block|
+    Tuile::Component::PickerDialog.define_singleton_method(:new) do |_caption, options, &block|
       captured_options = options
       captured_block = block
-      Struct.new(:open_in_popup).new
+      Struct.new(:open).new
     end
     yield
     [captured_options, captured_block]
   ensure
-    Tuile::Component::PickerWindow.define_singleton_method(:new, original)
+    Tuile::Component::PickerDialog.define_singleton_method(:new, original)
   end
 
   def status_bar_text(some_app = app)

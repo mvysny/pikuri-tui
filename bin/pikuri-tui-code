@@ -49,13 +49,13 @@ require 'pikuri_tui'
 # tees every pre-screen log line to stderr (so a crash before the screen still
 # prints) AND retains it, so Shared::Log::UI#wire! can replay those lines — config
 # file reads, chmod 600 advisories, model wiring — into the diagnostic
-# LogWindow once it rewires Pikuri.log_io there. pikuri's loggers
+# log dialog once it rewires Pikuri.log_io there. pikuri's loggers
 # (Pikuri.logger_for) default to $stderr; we override that with the buffer.
 Pikuri.log_io = Shared::Log::BufferingIO.new
 
 # This bin's own logger. Like every pikuri-tui logger it goes through
 # Pikuri.logger_for (NOT Tuile.logger — see AGENTS.md), so it writes to
-# stderr now and to the LogWindow once App rewires Pikuri.log_io.
+# stderr now and to the log dialog once App rewires Pikuri.log_io.
 main_log = Pikuri.logger_for('main')
 
 # CLI overrides start nil ("flag not given") so Shared::Config can tell
@@ -187,7 +187,7 @@ if private_answer.nil? && $stdin.tty?
 end
 private_repo = private_answer || false
 # Logged (not echoed into the conversation pane) once App has rewired
-# Pikuri.log_io to the LogWindow, alongside the trust notice below.
+# Pikuri.log_io to the log dialog, alongside the trust notice below.
 privacy_notice =
   case private_answer
   when true then 'Project declared private: /trifecta counts the private leg.'
@@ -277,7 +277,7 @@ trusted_repo =
       trust_store.trust!(filesystem.project_root) if granted
       granted
     end))
-# Logged after App.new rewires Pikuri.log_io to the LogWindow (with the safety
+# Logged after App.new rewires Pikuri.log_io to the log dialog (with the safety
 # block below), never echoed into the conversation pane.
 trust_notice =
   if trusted_repo
@@ -324,7 +324,7 @@ Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 # probe — still reaches a normal terminal; the begin/ensure tears the screen
 # down on any escape, construction OR loop, which is why Code::App#run no
 # longer closes it itself. The boot diagnostics sit inside the begin so they
-# land in the LogWindow (App.new has rewired Pikuri.log_io to it by then),
+# land in the log dialog (App.new has rewired Pikuri.log_io to it by then),
 # never in the conversation pane (AGENTS.md).
 begin
   app = Code::App.new(

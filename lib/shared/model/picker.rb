@@ -4,7 +4,7 @@ require 'tuile'
 
 # The leader-menu model picker, shared by all three shells: the
 # configured-connection catalog, the pending-switch slot, and the
-# +Tuile::Component::PickerWindow+ popup that switches model mid-session.
+# +Tuile::Component::PickerDialog+ that switches model mid-session.
 #
 #   picker = Shared::Model::Picker.new(models: choices)
 #   picker.multiple?                       # gate the leader-menu "m" entry
@@ -61,7 +61,7 @@ class Shared::Model::Picker
   # {#take_pending}); the status rule moves only once the switch lands. ESC /
   # +q+ dismiss without changing anything.
   #
-  # Hotkeys cover the first nine entries (+PickerWindow+ keys are single
+  # Hotkeys cover the first nine entries (+PickerDialog+ keys are single
   # characters); arrow-keys + Enter select any entry.
   #
   # @param current [Pikuri::Agent::ChatTransport] the agent's live
@@ -74,10 +74,10 @@ class Shared::Model::Picker
       marker = choice.key == current_key ? '● ' : '  '
       [(i + 1).to_s, "#{marker}#{choice.name}"]
     end
-    Tuile::Component::PickerWindow.new(CAPTION, options) do |key|
+    Tuile::Component::PickerDialog.new(CAPTION, options) do |key|
       choice = @models[key.to_i - 1]
       @pending = choice.transport if choice
-    end.open_in_popup
+    end.open
   end
 
   # Return the pending switched-to transport and clear it, so a pick is

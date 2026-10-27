@@ -28,7 +28,7 @@ module Code
   #
   # {DiffRenderer} pads its line bars to a target width. Because
   # {Tuile::Component::TextView} word-wraps lines wider than its viewport
-  # (and the {GitDiffPopup} caps at 4/5 of the screen), padding past the pane
+  # (and the {GitDiffDialog} is only as wide as the screen), padding past the pane
   # would wrap the padding onto extra tinted rows. So the render width is
   # +min(longest content line, max_width)+: short diffs get content-width
   # bars, wide ones cap at the caller's +max_width+ (the pane estimate) and

@@ -7,7 +7,7 @@ require 'tuile'
 module Code
   # The Tuile shell behind +bin/pikuri-tui-code+: the borderless conversation
   # pane, the status rule, the tinted full-width prompt, the tasks + git sidebar
-  # ({WorkspaceSidebar}), the eager diagnostic +LogWindow+ (popup-visible via
+  # ({WorkspaceSidebar}), the eager diagnostic {Shared::Log::Dialog} (popup-visible via
   # the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+ menu / +Ctrl+C+ cancel
   # status-bar hints, and the agent loop on a worker thread.
   #
@@ -124,13 +124,13 @@ module Code
     def task_listener = @sidebar.task_listener
 
     # @return [WorkspaceSidebar] the tasks + git sidebar; owns the
-    #   {GitWatcher} (started/stopped in {#run}) and the {GitDiffPopup} the
+    #   {GitWatcher} (started/stopped in {#run}) and the {GitDiffDialog} the
     #   leader menu's +d+ entry opens. Exposed for tests.
     attr_reader :sidebar
 
-    # @return [Tuile::Component::LogWindow] the eager-constructed
-    #   diagnostic window (owned by the {Shared::Log::UI}).
-    def log_window = @log_ui.log_window
+    # @return [Shared::Log::Dialog] the eager-constructed
+    #   diagnostic log (owned by the {Shared::Log::UI}).
+    def log_dialog = @log_ui.log_dialog
 
     # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
     #   log, App-owned and fed into the {Shared::StatusRuleLabel}. {#default_build_agent} registers this
@@ -233,8 +233,6 @@ module Code
       @leader_menu = build_leader_menu
       @screen.on_error << method(:on_screen_error)
       @screen.content = Shared::RootLayout.new(@layout, @status_bar)
-      # Focus the window, not the inner area: Tuile's Window→content focus
-      # cascade re-points onto the input area so the caret lands there.
       @input.focus
       register_shortcuts
     end

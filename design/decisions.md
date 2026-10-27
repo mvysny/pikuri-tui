@@ -79,9 +79,9 @@ exists to surface.
 Two logging facilities are in reach, and lines are emitted from the first moment of boot — before
 any screen exists — as well as from inside the event loop. Each logging class keeps one private
 `LOG = Pikuri.logger_for('<tag>')` constant, and `Pikuri.log_io=` rewires every logger already
-handed out in one shot, so pointing it at the `LogWindow` once the screen is up moves the whole
+handed out in one shot, so pointing it at the `Shared::Log::Dialog` once the screen is up moves the whole
 stream, pikuri's and ours, with no per-logger rewiring. `Tuile.logger` is reserved for one job:
-capturing Tuile's own internal noise into the same window. Why not `Tuile.logger` for our lines:
+capturing Tuile's own internal noise into the same dialog. Why not `Tuile.logger` for our lines:
 it defaults to `IO::NULL`, so everything logged before it is wired is dropped outright, and it is
 a single untagged logger — the diagnostic pane would lose the per-subsystem tag that makes it
 readable. The boot window this leaves open is {Shared::Log::BufferingIO}'s problem, and its rdoc

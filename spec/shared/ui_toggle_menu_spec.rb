@@ -33,6 +33,6 @@ RSpec.describe Shared::UIToggleMenu do
 
   it 'captions the popup UI, so it reads apart from the leader menu' do
     menu.open
-    assert_includes Tuile::Screen.instance.pane.modal_popup.content.caption.to_s, described_class::CAPTION
+    assert_includes Tuile::Screen.instance.pane.modal_popup.caption.to_s, described_class::CAPTION
   end
 end

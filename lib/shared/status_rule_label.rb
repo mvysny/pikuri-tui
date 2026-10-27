@@ -41,7 +41,7 @@ require 'pikuri-core'
 # ground — the transcript above it is the one untinted pane.
 #
 # This is a component rather than the presenter it grew out of: with the pane
-# frames gone there is no +Window#footer_text+ chrome to drive, the rule is an
+# frames gone there is no border footer chrome to drive, the rule is an
 # addressable row of its own, and owning the widget is what buys the
 # width-aware +─+ fill (painted in {#repaint}) and the light/dark re-render
 # (+handle_theme_changed+) for free.

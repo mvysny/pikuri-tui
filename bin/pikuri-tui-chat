@@ -33,7 +33,7 @@ require 'pikuri_tui'
 # tees every pre-screen log line to stderr (so a crash before the screen still
 # prints) AND retains it, so App#wire_logging can replay those lines — config
 # file reads, chmod 600 advisories, model wiring — into the diagnostic
-# LogWindow once it rewires Pikuri.log_io there. pikuri's loggers
+# log dialog once it rewires Pikuri.log_io there. pikuri's loggers
 # (Pikuri.logger_for) default to $stderr; we override that with the buffer.
 Pikuri.log_io = Shared::Log::BufferingIO.new
 

@@ -1,24 +1,24 @@
 # frozen_string_literal: true
 
 RSpec.describe Shared::Log::CountingIO do
-  let(:log_window) { Tuile::Component::LogWindow.new('Log') }
+  let(:log_dialog) { Tuile::Component::LogDialog.new }
 
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  it 'forwards each Logger-style write to the LogWindow (with the trailing newline stripped)' do
-    io = described_class.new(log_window: log_window)
+  it 'forwards each Logger-style write to the LogDialog (with the trailing newline stripped)' do
+    io = described_class.new(log_dialog: log_dialog)
     logger = Logger.new(io)
     logger.info('hello')
-    Tuile::Testing.loop # LogWindow#log submits
-    rendered = log_window.content.text.to_s
+    Tuile::Testing.loop # LogDialog#log submits
+    rendered = log_dialog.content.text.to_s
     assert_includes rendered, 'INFO'
     assert_includes rendered, 'hello'
   end
 
   it 'invokes on_error for ERROR-class writes' do
     errors = []
-    io = described_class.new(log_window: log_window, on_error: ->(line) { errors << line })
+    io = described_class.new(log_dialog: log_dialog, on_error: ->(line) { errors << line })
     logger = Logger.new(io)
     logger.error('boom')
     assert_equal 1, errors.size
@@ -27,7 +27,7 @@ RSpec.describe Shared::Log::CountingIO do
 
   it 'invokes on_error for FATAL-class writes (same severity bracket as ERROR)' do
     errors = []
-    io = described_class.new(log_window: log_window, on_error: ->(_line) { errors << :tick })
+    io = described_class.new(log_dialog: log_dialog, on_error: ->(_line) { errors << :tick })
     logger = Logger.new(io)
     logger.fatal('worse')
     assert_equal [:tick], errors
@@ -35,7 +35,7 @@ RSpec.describe Shared::Log::CountingIO do
 
   it 'does not invoke on_error for INFO/DEBUG/WARN writes (UI badge only spikes on real errors)' do
     errors = []
-    io = described_class.new(log_window: log_window, on_error: ->(_line) { errors << :tick })
+    io = described_class.new(log_dialog: log_dialog, on_error: ->(_line) { errors << :tick })
     logger = Logger.new(io)
     logger.info('ok')
     logger.debug('detail')
@@ -44,14 +44,14 @@ RSpec.describe Shared::Log::CountingIO do
   end
 
   it 'tolerates a raising on_error callback (logging must never crash the worker that called it)' do
-    io = described_class.new(log_window: log_window, on_error: ->(_line) { raise 'callback bug' })
+    io = described_class.new(log_dialog: log_dialog, on_error: ->(_line) { raise 'callback bug' })
     logger = Logger.new(io)
     log = capture_log { logger.error('boom') }
     assert_includes log, 'Shared::Log::CountingIO on_error callback raised'
   end
 
   it 'leaves on_error unset by default (no counting wired = silent)' do
-    io = described_class.new(log_window: log_window)
+    io = described_class.new(log_dialog: log_dialog)
     logger = Logger.new(io)
     logger.error('boom')
     # No assertion to make on the on_error path — proves no NoMethodError on nil.
@@ -59,7 +59,7 @@ RSpec.describe Shared::Log::CountingIO do
   end
 
   it 'provides a no-op #close so stdlib Logger treats it as a real IO target' do
-    io = described_class.new(log_window: log_window)
+    io = described_class.new(log_dialog: log_dialog)
     assert_respond_to io, :close
     io.close
   end
