@@ -123,7 +123,7 @@ module Shared
     #    unwinds the +App+'s +run+ into +Screen#close+ (what an unhandled ESC
     #    does).
     #
-    # The host registers this +over_popups: false+, so it never runs while a
+    # The host registers this +over_modal: false+, so it never runs while a
     # popup is open — no need to guard the unfocus/quit steps against orphaning
     # a modal popup's focus. Runs on the UI thread (global-shortcut dispatch),
     # so touching +focused=+ / +event_queue.stop+ and reading the flag are safe.

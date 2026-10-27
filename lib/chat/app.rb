@@ -291,14 +291,14 @@ module Chat
     # binding lives behind the {Shared::LeaderMenu}:
     #
     # - +Ctrl+K+ opens the {Shared::LeaderMenu} command popup (logs / switch model
-    #   / quit). +over_popups: false+ (the default), so it can't stack over
+    #   / quit). +over_modal: false+ (the default), so it can't stack over
     #   an open popup. The {Shared::Log::UI} owns this binding because its hint also
     #   carries the unread-error tally — the only always-visible status-bar
     #   surface.
     # - +Ctrl+C+ runs the {Shared::AgentSession#interrupt} escalation (cancel turn →
     #   unfocus → quit). The one direct accelerator kept: it is the urgent
     #   mid-turn interrupt, not a command we want behind a chord. Also
-    #   +over_popups: false+: a popup means the user isn't interacting with
+    #   +over_modal: false+: a popup means the user isn't interacting with
     #   the LLM, so Ctrl+C is the popup's business, not ours. The trade-off
     #   is that you can't cancel a running turn while a popup happens to be
     #   open — close it (ESC/q) first.

@@ -435,13 +435,13 @@ module Computer
     # All app actions are reached through one of two keys; every other binding
     # (logs / plan mode / switch model) lives behind the {Shared::LeaderMenu}:
     #
-    # - +Ctrl+K+ opens the {Shared::LeaderMenu} command popup. +over_popups: false+
+    # - +Ctrl+K+ opens the {Shared::LeaderMenu} command popup. +over_modal: false+
     #   (the default), so it can't stack over an open popup. The {Shared::Log::UI} owns
     #   this binding because its hint also carries the unread-error tally —
     #   the only always-visible status-bar surface.
     # - +Ctrl+C+ runs {#interrupt}. The one direct accelerator kept: it is the
     #   urgent mid-turn interrupt, not a command we want behind a chord. Also
-    #   +over_popups: false+: a popup means the user isn't interacting with
+    #   +over_modal: false+: a popup means the user isn't interacting with
     #   the LLM, so Ctrl+C is the popup's business, not ours. The trade-off
     #   is that you can't cancel a running turn while a popup happens to be
     #   open — close it (ESC/q) first.

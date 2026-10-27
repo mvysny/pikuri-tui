@@ -173,7 +173,7 @@ RSpec.describe Code::TranscriptConfirmer do
     it 'asks in the conversation pane, not in a popup' do
       run(request(detail: 'ls -la')) do
         wait_until { conversation.pending_decision }
-        assert_empty screen.popups
+        assert_empty screen.overlays
         assert_includes transcript_lines, '⏵ OK to run this?'
         assert_includes transcript_lines, 'ls -la'
         decide('y')

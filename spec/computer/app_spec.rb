@@ -157,7 +157,7 @@ RSpec.describe Computer::App do
     wait_until { !turn_app.session.turn_in_progress? }
   end
 
-  it 'leaves Ctrl+C to an open popup (over_popups: false) instead of cancelling/quitting' do
+  it 'leaves Ctrl+C to an open popup (over_modal: false) instead of cancelling/quitting' do
     app
     app.instance_variable_get(:@log_ui).log_dialog.open
     stopped = spy_on_stop
@@ -299,9 +299,9 @@ RSpec.describe Computer::App do
 
     it 'closes the menu on Ctrl+C, like ESC' do
       app.screen.key(Tuile::Keys::CTRL_K)
-      refute_nil app.screen.pane.modal_popup
+      refute_nil app.screen.pane.modal_overlay
       app.screen.key(Tuile::Keys::CTRL_C)
-      assert_nil app.screen.pane.modal_popup, 'Ctrl+C should cancel the menu'
+      assert_nil app.screen.pane.modal_overlay, 'Ctrl+C should cancel the menu'
     end
   end
 
@@ -352,7 +352,7 @@ RSpec.describe Computer::App do
 
   # Dispatch Ctrl+C through the screen's real key handler (private in the
   # release gem) so the test exercises the full chain: global-shortcut
-  # lookup, the +over_popups: false+ gate, then {Shared::AgentSession#interrupt}.
+  # lookup, the +over_modal: false+ gate, then {Shared::AgentSession#interrupt}.
   def press_ctrl_c
     app.screen.key(Tuile::Keys::CTRL_C)
   end

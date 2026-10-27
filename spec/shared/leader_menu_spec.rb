@@ -11,13 +11,13 @@ RSpec.describe Shared::LeaderMenu do
   # the popup focuses the inner list and keys reach the picker by capture + bubble.
   def press(key) = Tuile::Screen.instance.key(key)
 
-  def modal_popup = Tuile::Screen.instance.pane.modal_popup
+  def modal_overlay = Tuile::Screen.instance.pane.modal_overlay
 
   # The picker's list holds Option items and renders them at paint time, so the
   # rows are read off the painted buffer.
   def painted_rows
-    Tuile::Testing.place(modal_popup, Tuile::Rect.new(0, 0, 30, 4))
-    painted_region(modal_popup.content).map(&:strip).reject(&:empty?)
+    Tuile::Testing.place(modal_overlay, Tuile::Rect.new(0, 0, 30, 4))
+    painted_region(modal_overlay.content).map(&:strip).reject(&:empty?)
   end
 
   it 'is empty until an action is added' do
@@ -55,17 +55,17 @@ RSpec.describe Shared::LeaderMenu do
   it 'captions the popup Menu by default, and whatever a submenu asks for' do
     menu.add('l', 'logs') {}
     menu.open
-    assert_includes modal_popup.caption.to_s, described_class::CAPTION
+    assert_includes modal_overlay.caption.to_s, described_class::CAPTION
 
     submenu = described_class.new(screen: Tuile::Screen.instance, caption: 'UI')
     submenu.add('t', 'thinking') {}
     submenu.open
-    assert_includes modal_popup.caption.to_s, 'UI'
+    assert_includes modal_overlay.caption.to_s, 'UI'
   end
 
   it 'does not open a popup when no actions are registered' do
     menu.open
-    assert_nil modal_popup, 'an empty menu must not open a popup'
+    assert_nil modal_overlay, 'an empty menu must not open a popup'
   end
 
   it 'opens a modal popup whose list shows each action as "key label"' do
@@ -73,11 +73,11 @@ RSpec.describe Shared::LeaderMenu do
     menu.add('q', 'quit') {}
     menu.open
 
-    picker = modal_popup
+    picker = modal_overlay
     assert_kind_of Tuile::Component::PickerDialog, picker
     # The picker's list holds Option items and renders them at paint time, so the
     # rows are read off the painted buffer.
-    Tuile::Testing.place(modal_popup, Tuile::Rect.new(0, 0, 20, 4))
+    Tuile::Testing.place(modal_overlay, Tuile::Rect.new(0, 0, 20, 4))
     rows = painted_region(picker.content).map(&:strip)
     assert_equal ['l logs', 'q quit'], rows.reject(&:empty?)
   end
@@ -90,7 +90,7 @@ RSpec.describe Shared::LeaderMenu do
 
     press('q')
     assert_equal [:quit], ran
-    assert_nil modal_popup, 'picking an action closes the menu'
+    assert_nil modal_overlay, 'picking an action closes the menu'
   end
 
   it 'keeps the menu open and runs nothing on an unbound key' do
@@ -100,7 +100,7 @@ RSpec.describe Shared::LeaderMenu do
 
     press('x')
     assert_empty ran
-    refute_nil modal_popup, 'an unbound key leaves the menu open'
+    refute_nil modal_overlay, 'an unbound key leaves the menu open'
   end
 
   it 'dismisses the menu on ESC without running anything' do
@@ -110,7 +110,7 @@ RSpec.describe Shared::LeaderMenu do
 
     press(Tuile::Keys::ESC)
     assert_empty ran
-    assert_nil modal_popup, 'ESC cancels the menu'
+    assert_nil modal_overlay, 'ESC cancels the menu'
   end
 
   it 'dismisses the menu on Ctrl+C without running anything, exactly like ESC' do
@@ -120,7 +120,7 @@ RSpec.describe Shared::LeaderMenu do
 
     press(Tuile::Keys::CTRL_C)
     assert_empty ran
-    assert_nil modal_popup, 'Ctrl+C cancels the menu'
+    assert_nil modal_overlay, 'Ctrl+C cancels the menu'
   end
 
   it 'defers the action through the screen event queue (menu closes before it runs)' do

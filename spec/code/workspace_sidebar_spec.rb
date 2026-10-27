@@ -53,7 +53,7 @@ RSpec.describe Code::WorkspaceSidebar do
     it 'opens fullscreen, so the diff has room' do
       sidebar.open_diff
       Tuile::Testing.loop
-      assert_equal Tuile::Screen.instance.size, Tuile::Screen.instance.pane.modal_popup.rect.size
+      assert_equal Tuile::Screen.instance.size, Tuile::Screen.instance.pane.modal_overlay.rect.size
     end
 
     it 'open_diff is a no-op when already open' do
