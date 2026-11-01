@@ -59,7 +59,7 @@ gem 'rouge', '>= 4.0', '< 6'
 # BOTH shells read config — the chat shell needs the [[llm]] section, the
 # coding shell that plus [code] / [[code.mcp]]. We parse TOML into a Hash
 # and validate that Hash by hand (the schema is tiny); no JSON Schema gem.
-gem 'tomlrb', '~> 2.0'
+gem 'tomlrb', '~> 3.0'
 
 # The pikuri-core gem — Agent, Tool, prompts, listeners. The lean
 # foundation of pikuri's seven-gem monorepo split (the +pikuri+

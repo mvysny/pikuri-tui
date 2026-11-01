@@ -157,7 +157,7 @@ GEM
     sqlite3 (2.9.6-x86_64-linux-gnu)
     strscan (3.1.8)
     timeout (0.6.1)
-    tomlrb (2.0.4)
+    tomlrb (3.0.0)
     ttfunk (1.8.0)
       bigdecimal (~> 3.1)
     tty-cursor (0.7.1)
@@ -189,7 +189,7 @@ DEPENDENCIES
   rake (~> 13.3)
   rouge (>= 4.0, < 6)
   rspec-core (~> 3.13)
-  tomlrb (~> 2.0)
+  tomlrb (~> 3.0)
   tuile!
   zeitwerk (~> 2.7)
 
@@ -256,7 +256,7 @@ CHECKSUMS
   sqlite3 (2.9.6-x86_64-linux-gnu) sha256=613188ce02f614126ddbc38c5e217ccffd6306d0dcd9adca9764547aa890a634
   strscan (3.1.8) sha256=aae2db611a225559f21ffbb71765c9a4e60fd262534a9ea84f4f11c7f32f679e
   timeout (0.6.1) sha256=78f57368a7e7bbadec56971f78a3f5ecbcfb59b7fcbb0a3ed6ddc08a5094accb
-  tomlrb (2.0.4) sha256=262f77947ac3ac9b3366a0a5940ecd238300c553e2e14f22009e2afcd2181b99
+  tomlrb (3.0.0) sha256=e7122820cbb9b940d1758eecb6d1d4ee97c582efa37f06e0100a97cb17a566f5
   ttfunk (1.8.0) sha256=a7cbc7e489cc46e979dde04d34b5b9e4f5c8f1ee5fc6b1a7be39b829919d20ca
   tty-cursor (0.7.1) sha256=79534185e6a777888d88628b14b6a1fdf5154a603f285f80b1753e1908e0bf48
   tty-screen (0.8.2) sha256=c090652115beae764336c28802d633f204fb84da93c6a968aa5d8e319e819b50
