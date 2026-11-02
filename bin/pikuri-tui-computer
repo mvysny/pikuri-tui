@@ -88,7 +88,9 @@ parser = OptionParser.new do |opts|
   opts.separator 'Options:'
   opts.on('--no-sandbox', 'Disable the network sandbox around bash. WARNING: bash can then ' \
                           'reach the internet — the no-egress security property is OFF.') { cli_sandbox = false }
-  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n prompt for writes + bash).') { cli_confirm = false }
+  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n prompt for writes + bash).') do
+    cli_confirm = false
+  end
   opts.on('--no-internet', 'Disable web research (drop the RESEARCHER sub-agent). Mail + calendar ' \
                            'still work, and Thunderbird\'s compose/create hand-offs remain the only ' \
                            'egress leg — human-gated in Thunderbird\'s UI.') { internet_enabled = false }

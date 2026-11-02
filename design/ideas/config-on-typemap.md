@@ -15,8 +15,8 @@ sord, so each type is written once, in the doc comment.
    `sig` in `rake check`; `git diff --exit-code sig/` in `.woodpecker.yml`; simplecov at the top
    of `spec_helper`, plus `config.expect_with :minitest`. `sig:validate` probably cannot run
    here: tuile and pikuri ship no `sig/`, and `rbs collection install` downloads, so ask first.
-2. **Rubocop, as its own round.** The repo has never run it; expect a big first diff, likely
-   including the column-aligned `key:   value` style in `config.rb`.
+2. **Done: rubocop, as its own round.** The column-aligned `key:   value` tables stayed
+   (`Layout/HashAlignment` allows both styles).
 3. **Done: fix the YARD gaps sord reports across `lib/`.** Done before round 2, since the gate needed
    it; `Shared::Config`'s private helpers got typed too, so the gate wasn't left waiting on
    Typemap, even though round 5 deletes most of them.

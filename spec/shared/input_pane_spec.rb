@@ -320,8 +320,10 @@ RSpec.describe Shared::InputPane do
     let(:conversation) { Shared::ConversationTextView.new }
     let(:ran)          { [] } # [symbol, rest] pairs
     let(:commands) do
-      [Shared::SlashCommand.new('/diff', 'show the git diff', ->(rest) { ran << [:diff, rest]; 'Opened the git diff.' }),
-       Shared::SlashCommand.new('/quit', 'quits the app',     ->(rest) { ran << [:quit, rest]; nil })]
+      [Shared::SlashCommand.new('/diff', 'show the git diff', lambda { |rest|
+        ran << [:diff, rest]; 'Opened the git diff.'
+      }),
+       Shared::SlashCommand.new('/quit', 'quits the app', ->(rest) { ran << [:quit, rest]; nil })]
     end
     let(:menu) do
       Shared::SlashMenuPopup.new(screen: Tuile::Screen.instance, commands: commands, conversation: conversation)

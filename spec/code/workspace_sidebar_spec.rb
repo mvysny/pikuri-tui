@@ -77,6 +77,7 @@ RSpec.describe Code::WorkspaceSidebar do
       list = sidebar.git_summary_pane.view
       list.items.map { |entry| list.renderer.call(entry, 0).to_s }.join("\n")
     end
+
     def diff_text
       sidebar.git_diff_view.flush_layout # a snapshot renders at the next relayout
       sidebar.git_diff_view.text.to_s
@@ -104,8 +105,8 @@ RSpec.describe Code::WorkspaceSidebar do
 
     def emit(*changes)
       sidebar.git_watcher.send(:emit, Code::GitWatcher::Snapshot.new(
-                                       changes: changes, diff_text: '', error: nil
-                                     ))
+                                        changes: changes, diff_text: '', error: nil
+                                      ))
       Tuile::Testing.loop
     end
 

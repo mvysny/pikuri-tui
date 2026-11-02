@@ -42,7 +42,8 @@ RSpec.describe Chat::App do
   end
 
   it 'registers the chat slash commands mirroring the leader menu (single connection: no /model)' do
-    assert_equal ['/logs', '/trifecta', '/thinking', '/tools', '/clear', '/exit', '/quit'], app.send(:build_slash_commands).map(&:name)
+    assert_equal ['/logs', '/trifecta', '/thinking', '/tools', '/clear', '/exit', '/quit'],
+                 app.send(:build_slash_commands).map(&:name)
   end
 
   it 'adds /model to the slash commands only when more than one model is configured' do
@@ -253,7 +254,7 @@ RSpec.describe Chat::App do
     it 'applies the picked transport to the next run_loop, then clears it' do
       agent = picker_app.agent
       seen = []
-      agent.define_singleton_method(:run_loop) { |user_message:, transport: nil| seen << transport }
+      agent.define_singleton_method(:run_loop) { |transport: nil, **| seen << transport }
       cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
       picker = picker_app.instance_variable_get(:@model_picker)
       _, block = capture_picker { picker.open(current: agent.transport) }

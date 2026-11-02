@@ -392,7 +392,8 @@ module Code
       # passive_detector; Write/Edit keep the bare confirmer. allow_git tracks
       # the persisted trust grant. Under --no-confirm/--yolo there is nothing
       # to skip, so no detector is built.
-      code_passive_detector = @config.confirm ? Pikuri::Code::Bash::PassiveCommandDetector.new(allow_git: @trusted_repo) : nil
+      code_passive_detector =
+        @config.confirm ? Pikuri::Code::Bash::PassiveCommandDetector.new(allow_git: @trusted_repo) : nil
 
       # MCP servers declared in [[code.mcp]]. Empty by default (see the "MCP
       # registry" note above).
@@ -434,7 +435,8 @@ module Code
         # Lists a `paths:`-gated skill's /<name> the moment a touched file
         # brings it into play.
         c.add_listener @skill_activation
-        c.add_extension Pikuri::Workspace::Extension.new(filesystem: @filesystem, confirmer: confirmer, read_only: @plan_mode)
+        c.add_extension Pikuri::Workspace::Extension.new(filesystem: @filesystem, confirmer: confirmer,
+                                                         read_only: @plan_mode)
         c.add_tool Pikuri::Tool::CALCULATOR
         c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(**@config.search.to_h)
         c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
@@ -548,19 +550,24 @@ module Code
     def build_slash_commands
       quit_action = ->(_rest) { quit; nil }
       commands = [
-        Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
+        Shared::SlashCommand.new('/logs', 'open the diagnostic log',
+                                 ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
         Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
                                  ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
-        Shared::SlashCommand.new('/diff', 'show the git diff', ->(_rest) { @sidebar.open_diff; 'Opened the git diff.' }),
-        Shared::SlashCommand.new('/sidebar', 'sidebar full / narrow / off (blank cycles)', ->(rest) { set_sidebar(rest) }),
-        Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' }),
+        Shared::SlashCommand.new('/diff', 'show the git diff',
+                                 ->(_rest) { @sidebar.open_diff; 'Opened the git diff.' }),
+        Shared::SlashCommand.new('/sidebar', 'sidebar full / narrow / off (blank cycles)',
+                                 ->(rest) { select_sidebar(rest) }),
+        Shared::SlashCommand.new('/plan', 'toggle plan mode',
+                                 ->(_rest) { toggle_plan_mode; "Plan mode #{@plan_mode.active? ? 'on' : 'off'}." }),
         Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
                                  ->(rest) { @conversation.select_thinking(rest) }),
         Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
                                  ->(rest) { @conversation.select_tool_detail(rest) })
       ]
       if @model_picker.multiple?
-        commands << Shared::SlashCommand.new('/model', 'switch model', ->(_rest) { @model_picker.open(current: @agent.transport); nil })
+        commands << Shared::SlashCommand.new('/model', 'switch model',
+                                             ->(_rest) { @model_picker.open(current: @agent.transport); nil })
       end
       commands.push(
         Shared::SlashCommand.new('/clear', 'clear conversation + context', ->(_rest) { clear_conversation; nil }),
@@ -621,7 +628,7 @@ module Code
     # @param rest [String] the rest of the typed line: a {SIDEBAR_ARGUMENTS}
     #   key, or blank to cycle.
     # @return [String] the outcome to echo under the command.
-    def set_sidebar(rest)
+    def select_sidebar(rest)
       argument = rest.strip.downcase
       return "Sidebar: #{@layout.cycle_sidebar_mode}." if argument.empty?
 

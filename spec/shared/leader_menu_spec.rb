@@ -38,7 +38,7 @@ RSpec.describe Shared::LeaderMenu do
     menu.add('l', 'logs') {}
     menu.add('q', 'quit') {}
     assert_equal %w[l q], menu.actions.map(&:key)
-    assert_equal ['logs', 'quit'], menu.actions.map(&:label)
+    assert_equal %w[logs quit], menu.actions.map(&:label)
   end
 
   it 'resolves a callable label each time it opens, so a toggle can advertise its state' do

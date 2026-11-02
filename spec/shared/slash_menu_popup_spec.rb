@@ -6,8 +6,8 @@ RSpec.describe Shared::SlashMenuPopup do
   let(:ran)          { [] } # [symbol, rest] pairs, so tests assert the forwarded arg too
   let(:commands) do
     [Shared::SlashCommand.new('/diff', 'show the git diff', ->(rest) { ran << [:diff, rest]; 'Opened the git diff.' }),
-     Shared::SlashCommand.new('/exit', 'quits the app',     ->(rest) { ran << [:exit, rest]; nil }),
-     Shared::SlashCommand.new('/quit', 'quits the app',     ->(rest) { ran << [:quit, rest]; nil })]
+     Shared::SlashCommand.new('/exit', 'quits the app', ->(rest) { ran << [:exit, rest]; nil }),
+     Shared::SlashCommand.new('/quit', 'quits the app', ->(rest) { ran << [:quit, rest]; nil })]
   end
   let(:menu) do
     described_class.new(screen: Tuile::Screen.instance, commands: commands, conversation: conversation)
@@ -20,7 +20,9 @@ RSpec.describe Shared::SlashMenuPopup do
     Tuile::Testing.loop
     conversation.text.to_s
   end
-  def list     = menu.content
+
+  def list = menu.content
+
   # The list holds SlashCommands and renders them at paint time, so the rows are
   # read off the painted buffer (blank filler rows dropped).
   def rows

@@ -564,14 +564,13 @@ class Shared::Config
   def self.validate_top!(merged)
     unknown = merged.keys - %w[server llm search code ui titler web]
     raise Error, "unknown top-level key(s): #{unknown.join(', ')}" unless unknown.empty?
+
     %w[server llm].each do |k|
       next unless merged.key?(k) && !merged[k].is_a?(Array)
 
       raise Error, "`#{k}` must be an array of tables (use [[#{k}]], not [#{k}])"
     end
-    if merged.key?('search') && !merged['search'].is_a?(Hash)
-      raise Error, '`search` must be a table ([search])'
-    end
+    raise Error, '`search` must be a table ([search])' if merged.key?('search') && !merged['search'].is_a?(Hash)
     raise Error, '`code` must be a table ([code])' if merged.key?('code') && !merged['code'].is_a?(Hash)
     raise Error, '`ui` must be a table ([ui])' if merged.key?('ui') && !merged['ui'].is_a?(Hash)
     raise Error, '`web` must be a table ([web])' if merged.key?('web') && !merged['web'].is_a?(Hash)
@@ -629,6 +628,7 @@ class Shared::Config
     table ||= {}
     unknown = table.keys - %w[brave_key exa_key engines]
     raise Error, "search: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
+
     %w[brave_key exa_key].each do |k|
       raise Error, "search.#{k} must be a string" if table[k] && !table[k].is_a?(String)
     end
@@ -646,6 +646,7 @@ class Shared::Config
   def self.validate_code!(code)
     unknown = code.keys - %w[sandbox confirm mcp]
     raise Error, "code: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
+
     %w[sandbox confirm].each do |k|
       raise Error, "code.#{k} must be true or false" if code.key?(k) && ![true, false].include?(code[k])
     end
@@ -764,7 +765,7 @@ class Shared::Config
     block = +"[[server]]\nid  = \"myserver\"\nurl = #{url.inspect}\n"
     block << "api_key = #{api_key.inspect}\n" if api_key
     "`server` names a [[server]] `id` now, not a URL. Add:\n\n#{block}\n" \
-      "and on this [[llm]] set `server = \"myserver\"`" \
+      'and on this [[llm]] set `server = "myserver"`' \
       "#{api_key ? ', dropping its `api_key`.' : '.'}"
   end
 
@@ -860,6 +861,7 @@ class Shared::Config
       unless custom.is_a?(Hash) && custom.all? { |k, v| k.is_a?(String) && v.is_a?(String) }
         raise Error, "code.mcp #{id.inspect}: `headers` must be a table of string => string"
       end
+
       headers.merge!(custom)
     end
 
@@ -869,7 +871,10 @@ class Shared::Config
 
     auth =
       if bearer
-        raise Error, "code.mcp #{id.inspect}: `bearer_token` must be a non-empty string" unless non_empty_string?(bearer)
+        unless non_empty_string?(bearer)
+          raise Error,
+                "code.mcp #{id.inspect}: `bearer_token` must be a non-empty string"
+        end
 
         "Bearer #{bearer}"
       elsif basic

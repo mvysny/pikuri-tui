@@ -223,7 +223,7 @@ RSpec.describe Shared::AgentSession do
     # the user leftover is the fresh turn's message, clean (not the Item struct)...
     assert_equal 'a user correction', agent.messages.last
     # ...and the system leftover rode the queue into that turn's run_loop as :system.
-    assert_equal [[:system, '<skill>x</skill>']], agent.drained.map { |i| [i.kind, i.content] }
+    assert_equal([[:system, '<skill>x</skill>']], agent.drained.map { |i| [i.kind, i.content] })
   ensure
     agent.finish_turn!
     wait_until { !session.turn_in_progress? }

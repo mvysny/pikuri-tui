@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Hooks the doc-layer checks into rake (the layout is described in AGENTS.md, "Design docs").
 # The bash script is the single implementation; this task only runs it. It is part of `rake check`,
 # so a dangling slug or an oversized AGENTS.md trips in the agent's inner loop rather than in CI.

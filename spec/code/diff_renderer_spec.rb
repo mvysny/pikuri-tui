@@ -40,22 +40,22 @@ RSpec.describe Code::DiffRenderer do
     end
 
     it 'emits no SGR escapes' do
-      out = render("a", "b", width: 20, color: false)
+      out = render('a', 'b', width: 20, color: false)
       refute_includes out, "\e"
     end
 
     it 'treats empty old content as an all-added file' do
-      out = render("", "x\ny", width: 20, color: false)
+      out = render('', "x\ny", width: 20, color: false)
       assert_equal "+ x\n+ y", out
     end
 
     it 'treats empty new content as an all-removed file' do
-      out = render("x\ny", "", width: 20, color: false)
+      out = render("x\ny", '', width: 20, color: false)
       assert_equal "- x\n- y", out
     end
 
     it 'preserves internal blank lines but drops a single trailing newline' do
-      out = render("", "a\n\nb\n", width: 20, color: false)
+      out = render('', "a\n\nb\n", width: 20, color: false)
       assert_equal "+ a\n+ \n+ b", out
     end
   end
@@ -64,7 +64,7 @@ RSpec.describe Code::DiffRenderer do
     # "value = 10" → "value = 20": only the number differs, so the pair aligns
     # as a modification — the rest of the line carries the line tier, the
     # changed word the span tier.
-    let(:rendered) { render("value = 10", "value = 20", width: 20, color: true) }
+    let(:rendered) { render('value = 10', 'value = 20', width: 20, color: true) }
     let(:del_line) { rendered.split("\n")[0] }
     let(:add_line) { rendered.split("\n")[1] }
 
@@ -100,13 +100,13 @@ RSpec.describe Code::DiffRenderer do
 
   describe 'the palette comes from the theme (light and dark both supported)' do
     it 'paints with the dark theme tones when given the dark palette' do
-      line = render("", "added", width: 20, color: true)
+      line = render('', 'added', width: 20, color: true)
       assert_equal [Shared::AppTheme::DARK[:diff_line_add]], bgs_for(line, 'added').uniq
     end
 
     it 'paints with the light theme tones when given the light palette' do
       light = palette_for(Shared::AppTheme::LIGHT)
-      line = described_class.render("", "added", width: 20, palette: light, color: true)
+      line = described_class.render('', 'added', width: 20, palette: light, color: true)
       assert_equal [Shared::AppTheme::LIGHT[:diff_line_add]], bgs_for(line, 'added').uniq
     end
 
@@ -118,7 +118,7 @@ RSpec.describe Code::DiffRenderer do
 
   describe 'pure add / delete lines carry only the line tier' do
     it 'does not emphasize any span on a pure addition' do
-      line = render("", "brand new", width: 20, color: true)
+      line = render('', 'brand new', width: 20, color: true)
       assert_equal [palette.line_add], bgs_for(line, 'brand new').uniq
     end
   end
@@ -182,12 +182,12 @@ RSpec.describe Code::DiffRenderer do
 
   describe 'truncation' do
     it 'caps at max_lines and appends a pluralized overflow tail' do
-      out = render("", (1..5).map(&:to_s).join("\n"), width: 20, max_lines: 2, color: false)
+      out = render('', (1..5).map(&:to_s).join("\n"), width: 20, max_lines: 2, color: false)
       assert_equal "+ 1\n+ 2\n  … +3 more lines", out
     end
 
     it 'uses the singular form when one line is dropped' do
-      out = render("", "a\nb", width: 20, max_lines: 1, color: false)
+      out = render('', "a\nb", width: 20, max_lines: 1, color: false)
       assert_equal "+ a\n  … +1 more line", out
     end
   end

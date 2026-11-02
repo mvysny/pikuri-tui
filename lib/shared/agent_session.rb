@@ -45,8 +45,10 @@ module Shared
   # loop off-thread and marshals back).
   class AgentSession
     # @return [Pikuri::Agent, nil] the agent this session drives, or +nil+
-    #   until {#agent=} is called.
-    attr_reader :agent
+    #   until it's set. Set it once, after the shell's build block has
+    #   returned the agent: the agent, hence its interloper and transport,
+    #   doesn't exist at construction.
+    attr_accessor :agent
 
     # @param screen [Tuile::Screen] the screen whose +event_queue+ the worker
     #   marshals back through, and whose focus / loop {#interrupt} escalates.
@@ -68,16 +70,6 @@ module Shared
       @logger = logger
       @agent = nil
       @turn_in_progress = false
-    end
-
-    # Installs the agent this session drives; call once, after the shell's
-    # build block has returned the constructed +Pikuri::Agent+ (the agent —
-    # hence its interloper and transport — doesn't exist at construction).
-    #
-    # @param agent [Pikuri::Agent] the wired agent.
-    # @return [void]
-    def agent=(agent)
-      @agent = agent
     end
 
     # @return [Boolean] whether a turn is currently running. Read on the UI

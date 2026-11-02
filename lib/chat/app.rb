@@ -217,7 +217,8 @@ module Chat
     def build_slash_commands
       quit_action = ->(_rest) { quit; nil }
       commands = [
-        Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
+        Shared::SlashCommand.new('/logs', 'open the diagnostic log',
+                                 ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
         Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
                                  ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
         Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
@@ -226,10 +227,12 @@ module Chat
                                  ->(rest) { @conversation.select_tool_detail(rest) })
       ]
       if @model_picker.multiple?
-        commands << Shared::SlashCommand.new('/model', 'switch model', ->(_rest) { @model_picker.open(current: @agent.transport); nil })
+        commands << Shared::SlashCommand.new('/model', 'switch model',
+                                             ->(_rest) { @model_picker.open(current: @agent.transport); nil })
       end
       commands.push(
-        Shared::SlashCommand.new('/clear', 'clear conversation + context', ->(_rest) { @session.clear_conversation; nil }),
+        Shared::SlashCommand.new('/clear', 'clear conversation + context',
+                                 ->(_rest) { @session.clear_conversation; nil }),
         Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
         Shared::SlashCommand.new('/quit', 'quits the app', quit_action)
       )

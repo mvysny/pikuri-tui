@@ -216,7 +216,7 @@ class Shared::InputPane < Tuile::Component::Layout
       # flag is what suppresses the sync.
       @slash_menu&.sync('')
       @capture = on_finish
-      set_text_quietly(initial)
+      replace_text_quietly(initial)
     end
 
     # @return [Boolean] whether a {#capture} is in progress.
@@ -230,7 +230,7 @@ class Shared::InputPane < Tuile::Component::Layout
     def finish_capture(value)
       capture = @capture
       @capture = nil
-      set_text_quietly('')
+      replace_text_quietly('')
       capture.call(value)
       true
     end
@@ -346,7 +346,7 @@ class Shared::InputPane < Tuile::Component::Layout
     def recall(entry)
       return false if entry.nil?
 
-      set_text_quietly(entry)
+      replace_text_quietly(entry)
       true
     end
 
@@ -355,7 +355,7 @@ class Shared::InputPane < Tuile::Component::Layout
     #
     # @param value [String]
     # @return [void]
-    def set_text_quietly(value)
+    def replace_text_quietly(value)
       self.value = value
       self.caret = text.length
     end

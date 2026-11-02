@@ -2,7 +2,7 @@
 
 RSpec.describe Code::PlanModeListener do
   # Minimal status-rule stand-in: the listener only touches +plan_active=+.
-  let(:status_rule)   { Struct.new(:plan_active).new }
+  let(:status_rule) { Struct.new(:plan_active).new }
   let(:listener) { described_class.new(status_rule: status_rule, screen: Tuile::Screen.instance) }
 
   before { Tuile::Screen.fake }

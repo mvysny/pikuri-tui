@@ -464,7 +464,7 @@ RSpec.describe Shared::ConversationTextView do
     end
 
     it 'finalizes the streamed region with the authoritative Assistant content' do
-      deltas('hello tehre')  # preview with typo
+      deltas('hello tehre') # preview with typo
       listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'hello there'))
       assert_includes rendered, 'hello there'
       refute_includes rendered, 'tehre'

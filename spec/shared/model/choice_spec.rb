@@ -10,7 +10,7 @@ describe Shared::Model::Choice do
   def llm(name: 'Local', server: 'http://localhost:8080', model: 'qwen', api_key: nil, context_window: nil,
           params: {})
     Shared::Config::Llm.new(name: name, server: server, model: model, api_key: api_key,
-                               context_window: context_window, params: params)
+                            context_window: context_window, params: params)
   end
 
   # The [[llm]] params table as Config hands it over: string keys, straight

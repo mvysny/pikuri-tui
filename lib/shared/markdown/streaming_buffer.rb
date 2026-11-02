@@ -101,7 +101,7 @@ class Shared::Markdown::StreamingBuffer
   # the Markdown renderer treated the surrounding underscores as italics —
   # a U+E000 has no such risk). It passes through any sane Markdown
   # renderer unchanged.
-  COMMIT_PROBE_SENTINEL = ""
+  COMMIT_PROBE_SENTINEL = ''
   private_constant :COMMIT_PROBE_SENTINEL
 
   # @return [Logger]
@@ -296,7 +296,7 @@ class Shared::Markdown::StreamingBuffer
     true
   rescue StandardError => e
     LOG.warn(
-      "Shared::Markdown::StreamingBuffer: commit-render failed " \
+      'Shared::Markdown::StreamingBuffer: commit-render failed ' \
       "(#{e.class}: #{e.message}); keeping content open"
     )
     false
@@ -328,7 +328,7 @@ class Shared::Markdown::StreamingBuffer
     rendered.split("\n")
   rescue StandardError => e
     LOG.warn(
-      "Shared::Markdown::StreamingBuffer: render failed " \
+      'Shared::Markdown::StreamingBuffer: render failed ' \
       "(#{e.class}: #{e.message}); keeping previous rendered state"
     )
     nil

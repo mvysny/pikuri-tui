@@ -32,7 +32,8 @@ RSpec.describe Code::App do
   end
 
   it 'registers the coding slash commands mirroring the leader menu (single connection: no /model)' do
-    assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/clear', '/exit',
+                  '/quit'],
                  app.send(:build_slash_commands).map(&:name)
   end
 
@@ -58,20 +59,20 @@ RSpec.describe Code::App do
 
     it 'moves the counts into the rule when the sidebar is hidden' do
       emit_changes(42, 7)
-      app.send(:set_sidebar, 'off')
+      app.send(:select_sidebar, 'off')
       app.screen.flush_layout
       assert_includes rule.text.to_s, '1 file +42/-7'
     end
 
     it 'picks up data arriving after the sidebar is already hidden' do
-      app.send(:set_sidebar, 'off')
+      app.send(:select_sidebar, 'off')
       app.screen.flush_layout
       emit_changes(3, 0)
       assert_includes rule.text.to_s, '1 file +3'
     end
 
     it 'takes the tasks half from the task pane, not just the git poll' do
-      app.send(:set_sidebar, 'off')
+      app.send(:select_sidebar, 'off')
       app.screen.flush_layout
       sidebar.task_listener.on_event(
         Pikuri::Tasks::ListChanged.new(items: [
@@ -85,10 +86,10 @@ RSpec.describe Code::App do
 
     it 'hands the counts back to the panes when the sidebar returns' do
       emit_changes(9, 2)
-      app.send(:set_sidebar, 'off')
+      app.send(:select_sidebar, 'off')
       app.screen.flush_layout
       assert_includes rule.text.to_s, '1 file'
-      app.send(:set_sidebar, 'full')
+      app.send(:select_sidebar, 'full')
       app.screen.flush_layout
       assert_nil rule.workspace_digest
       refute_includes rule.text.to_s, 'file'
@@ -262,8 +263,8 @@ RSpec.describe Code::App do
     def palette = app.instance_variable_get(:@skill_activation).commands.map(&:name)
 
     it 'lists file commands after the built-ins and before the skills' do
-      assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/clear', '/exit', '/quit',
-                    '/wh', '/writing-rdoc', '/cop'],
+      assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/clear', '/exit',
+                    '/quit', '/wh', '/writing-rdoc', '/cop'],
                    palette
     end
 
@@ -480,7 +481,7 @@ RSpec.describe Code::App do
     it 'applies the picked transport to the next run_loop, then clears it' do
       agent = picker_app.agent
       seen = []
-      agent.define_singleton_method(:run_loop) { |user_message:, transport: nil| seen << transport }
+      agent.define_singleton_method(:run_loop) { |transport: nil, **| seen << transport }
       cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
       picker = picker_app.instance_variable_get(:@model_picker)
       _, block = capture_picker { picker.open(current: agent.transport) }
@@ -671,5 +672,4 @@ RSpec.describe Code::App do
     some_app.screen.event_queue.define_singleton_method(:stop) { stopped = true }
     -> { stopped }
   end
-
 end

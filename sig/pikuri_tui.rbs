@@ -259,7 +259,7 @@ module Code
     # _@param_ `rest` — the rest of the typed line: a {SIDEBAR_ARGUMENTS} key, or blank to cycle.
     # 
     # _@return_ — the outcome to echo under the command.
-    def set_sidebar: (String rest) -> String
+    def select_sidebar: (String rest) -> String
 
     # _@param_ `event` — the uncaught exception, in the event the empty-means-re-raise slot hands its listeners.
     def on_screen_error: (Tuile::EventQueue::ErrorEvent event) -> void
@@ -3027,7 +3027,9 @@ module Shared
     def deliver_pending_injections: () -> void
 
     # _@return_ — the agent this session drives, or +nil+
-    # until {#agent=} is called.
+    # until it's set. Set it once, after the shell's build block has
+    # returned the agent: the agent, hence its interloper and transport,
+    # doesn't exist at construction.
     attr_accessor agent: Pikuri::Agent?
   end
 
@@ -4891,7 +4893,7 @@ module Shared
       # user's, so the slash palette does not react.
       # 
       # _@param_ `value`
-      def set_text_quietly: (String value) -> void
+      def replace_text_quietly: (String value) -> void
 
       # Record and run the slash command in the buffer, then clear the field.
       # Order matters:

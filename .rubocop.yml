@@ -1,0 +1,40 @@
+AllCops:
+  TargetRubyVersion: 3.3
+  # We don't track upstream cops as they land; opting in is a deliberate act.
+  NewCops: disable
+  SuggestExtensions: false
+  # Merge, or this list *replaces* rubocop's own defaults, which include `vendor/**/*`, where
+  # CI's BUNDLE_PATH puts the bundle.
+  inherit_mode:
+    merge:
+      - Exclude
+  Exclude:
+    # A scratchpad deleted at graduation (AGENTS.md).
+    - "design/ideas/**/*"
+
+# Size cops are noise by policy; a class is as long as its job.
+Metrics:
+  Enabled: false
+
+# `Shared::` is a Zeitwerk implicit namespace (no shared.rb), written compact; `Code`, `Chat` and
+# `Computer` nest. Both are deliberate.
+Style/ClassAndModuleChildren:
+  Enabled: false
+
+# A column-aligned table of keyword arguments (`name:   name,`) is kept where it reads as one.
+Layout/HashAlignment:
+  EnforcedColonStyle: [key, table]
+  EnforcedHashRocketStyle: [key, table]
+
+# `->(_rest) { quit; nil }`: a one-line lambda that does a thing and then answers nil.
+Style/Semicolon:
+  AllowAsExpressionSeparator: true
+
+# rubocop's defaults, plus kramdown's `el`, a colour pair, and a few domain abbreviations.
+Naming/MethodParameterName:
+  AllowedNames: [at, by, db, id, in, io, ip, of, on, os, pp, to, el, _el, fg, bg, md, ui, x]
+
+# A spec's fixture constant inside `describe` is the suite's idiom; names are unique per file.
+Lint/ConstantDefinitionInBlock:
+  Exclude:
+    - "spec/**/*"

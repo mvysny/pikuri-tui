@@ -52,7 +52,7 @@ module Shared::Markdown::Grayscale
       Tuile::StyledString.parse(ansi).with_fg(fg).with_bg(nil).to_ansi
     rescue Tuile::StyledString::ParseError => e
       LOG.warn(
-        "Shared::Markdown::Grayscale.recolor: StyledString parse failed " \
+        'Shared::Markdown::Grayscale.recolor: StyledString parse failed ' \
         "(#{e.class}: #{e.message}); returning input unrecolored"
       )
       ansi

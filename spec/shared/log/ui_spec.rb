@@ -18,7 +18,7 @@ RSpec.describe Shared::Log::UI do
   # counting sink so Tuile.logger routes through the Shared::Log::UI's Shared::Log::CountingIO.
   def boot(&open_menu)
     log_ui.wire!
-    log_ui.install_shortcut(&(open_menu || -> {}))
+    log_ui.install_shortcut(&open_menu || -> {})
     log_ui
   end
 

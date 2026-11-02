@@ -106,7 +106,7 @@ RSpec.describe Shared::Markdown::PassthroughBuffer do
 
     it 'replaces the preview with the authoritative content' do
       buf = build
-      buf.append('hello tehre')  # typo
+      buf.append('hello tehre') # typo
       buf.finalize('hello there')
       assert_equal 'hello there', region.text.to_s
     end

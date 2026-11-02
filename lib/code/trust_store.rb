@@ -77,7 +77,6 @@ module Code
     #   stored line that no longer resolves (deleted/moved repo) is skipped,
     #   not fatal — so one stale entry never poisons the lookup.
     def trusted_paths
-      require 'set'
       lines =
         begin
           File.readlines(@path, chomp: true)

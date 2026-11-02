@@ -365,5 +365,4 @@ RSpec.describe Computer::App do
     app.screen.event_queue.define_singleton_method(:stop) { stopped = true }
     -> { stopped }
   end
-
 end

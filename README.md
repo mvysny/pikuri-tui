@@ -334,5 +334,5 @@ coding shell one `/<skill-name>` per skill currently in play.
 module map, the conventions and the commands. The reasoning behind the code
 lives under `design/`: why it is shaped this way (`decisions.md`), how the
 pieces are wired (`architecture.md`). Per-class truth is in the rdoc.
-`bundle exec rake check` runs the spec suite, regenerates the RBS signatures
-from the YARD tags, and runs the doc tripwire.
+`bundle exec rake check` runs the spec suite and rubocop, regenerates the RBS
+signatures from the YARD tags, and runs the doc tripwire.

@@ -213,7 +213,7 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
     block(inline(el, opts), style: style)
   end
 
-  def convert_codeblock(el, opts)
+  def convert_codeblock(el, _opts)
     indent = SPACE * @current_indent
     highlight(el.value.chomp, el.options[:lang]).map { |line| indent + line + NEWLINE }.join
   end
@@ -247,7 +247,7 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
     end
     inner(el, opts).join(loose ? NEWLINE : '')
   end
-  alias_method :convert_ol, :convert_ul
+  alias convert_ol convert_ul
 
   def convert_li(el, opts)
     marker = opts[:parent].type == :ol ? "#{opts[:index] + 1}." : BULLET
@@ -313,7 +313,7 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
   def convert_xml_comment(_el, _opts)
     ''
   end
-  alias_method :convert_comment, :convert_xml_comment
+  alias convert_comment convert_xml_comment
 
   # --- span elements ----------------------------------------------
 

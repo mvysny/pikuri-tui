@@ -118,8 +118,8 @@ gem 'diff-lcs', '~> 2.0', groups: %i[code computer]
 # shell gets them transitively through pikuri-os and reuses the same
 # Code:: adapters (ConfirmerPopup, the edit/write diff formatters). Shared
 # via +groups:+ so each shell activates them and chat does not.
-gem 'pikuri-workspace', **pikuri, groups: %i[code computer]
 gem 'pikuri-code', **pikuri, groups: %i[code computer]
+gem 'pikuri-workspace', **pikuri, groups: %i[code computer]
 
 # Shared by the coding AND computer shells. The privilege-separated sub-agent
 # personas + the `agent` tool. The coding shell spawns FILE_MINER /
@@ -141,8 +141,8 @@ gem 'pikuri-skills', **pikuri, groups: %i[code computer]
 # (pikuri-mcp). The computer shell wires none of these, so they stay off its
 # load path.
 group :code do
-  gem 'pikuri-tasks', **pikuri
   gem 'pikuri-mcp', **pikuri
+  gem 'pikuri-tasks', **pikuri
 end
 
 # Computer-shell-only runtime. pikuri-os is the OS-integration layer +
@@ -162,6 +162,7 @@ end
 # sord cannot type. redcarpet renders the Markdown that .yardopts selects.
 group :development do
   gem 'redcarpet', '~> 3.6'
+  gem 'rubocop', '~> 1.92', require: false
   gem 'sord', '~> 7.1', require: false
   gem 'yard', '~> 0.9.45'
 end

@@ -113,7 +113,7 @@ RSpec.describe Shared::Markdown::StreamingBuffer do
 
     it 'replaces the preview with the authoritative content' do
       buf = build
-      buf.append('hello tehre')  # typo
+      buf.append('hello tehre') # typo
       buf.finalize('hello there')
       assert_equal render.call('hello there').strip, region.text.to_s.strip
     end
@@ -156,6 +156,7 @@ RSpec.describe Shared::Markdown::StreamingBuffer do
 
       def call(md)
         raise StandardError, 'synthetic render boom' if @explode
+
         Shared::Markdown::Renderer.render(md, width: @width)
       end
     end

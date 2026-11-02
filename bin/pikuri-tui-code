@@ -84,7 +84,9 @@ parser = OptionParser.new do |opts|
   opts.on('--writable PATH', 'Additional read+write directory (repeatable).') do |v|
     extra_writable << File.expand_path(v)
   end
-  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n prompt for writes + bash).') { cli_confirm = false }
+  opts.on('--no-confirm', 'Auto-approve every confirmation (skip the y/n prompt for writes + bash).') do
+    cli_confirm = false
+  end
   opts.on('--yolo', 'Combines --no-sandbox + --no-confirm + opens the filesystem ' \
                     '(credential denylist only). Use only inside a container.') do
     cli_sandbox = false
@@ -201,27 +203,27 @@ privacy_notice =
 # only, never by any access check. --yolo swaps in AllowAll (everything but the
 # credential denylist).
 filesystem = if yolo
-              warn '--readable/--writable ignored under --yolo (filesystem is ALLOW_ALL).' \
-                unless extra_readable.empty? && extra_writable.empty?
-              Pikuri::Workspace::Filesystem::AllowAll.new(
-                project_root:      project_root,
-                temp:              true,
-                alias_tmp_to_temp: sandbox_enabled,
-                private:           private_repo
-              )
-            else
-              Pikuri::Workspace::Filesystem.new(
-                project_root:      project_root,
-                readable:          Pikuri::Code::ToolchainPaths.readable +
-                                   skill_catalog.roots +
-                                   command_registry.roots +
-                                   extra_readable,
-                writable:          extra_writable,
-                temp:              true,
-                alias_tmp_to_temp: sandbox_enabled,
-                private:           private_repo
-              )
-            end
+               warn '--readable/--writable ignored under --yolo (filesystem is ALLOW_ALL).' \
+                 unless extra_readable.empty? && extra_writable.empty?
+               Pikuri::Workspace::Filesystem::AllowAll.new(
+                 project_root:      project_root,
+                 temp:              true,
+                 alias_tmp_to_temp: sandbox_enabled,
+                 private:           private_repo
+               )
+             else
+               Pikuri::Workspace::Filesystem.new(
+                 project_root:      project_root,
+                 readable:          Pikuri::Code::ToolchainPaths.readable +
+                                    skill_catalog.roots +
+                                    command_registry.roots +
+                                    extra_readable,
+                 writable:          extra_writable,
+                 temp:              true,
+                 alias_tmp_to_temp: sandbox_enabled,
+                 private:           private_repo
+               )
+             end
 
 # Bubblewrap sandbox wraps every Bash subprocess. Probes `bwrap` at
 # construction and raises if it isn't installed / the kernel lacks
@@ -270,7 +272,7 @@ trusted_repo =
                     '(status/diff/log/show/…) will then run WITHOUT confirmation.',
           detail: "#{filesystem.project_root}\n\nSay yes ONLY if you control this repo's " \
                   '.git/config and committed .gitattributes: a hostile one can make even ' \
-                  "`git diff` execute arbitrary code on every read-only git call — and with " \
+                  '`git diff` execute arbitrary code on every read-only git call — and with ' \
                   "the sandbox's network shared, exfiltrate. Default is no."
         )
       )
@@ -295,9 +297,7 @@ md_path = ['AGENTS.md', 'CLAUDE.md'].map { |f| filesystem.project_root.join(f) }
 system_prompt += "\n\n# Project Context\n\n#{File.read(md_path)}" if md_path
 system_prompt += "\n\nToday's date is: #{Time.now.strftime('%Y-%m-%d')}"
 system_prompt += "\nProject root: #{filesystem.project_root}"
-unless yolo || extra_writable.empty?
-  system_prompt += "\nAdditional writable paths: #{extra_writable.join(', ')}"
-end
+system_prompt += "\nAdditional writable paths: #{extra_writable.join(', ')}" unless yolo || extra_writable.empty?
 system_prompt += if sandbox_enabled
                    "\nScratch space: /tmp — persistent across all bash and tool calls; " \
                      'use for downloads, clones, unpacks. Cleared on exit.'

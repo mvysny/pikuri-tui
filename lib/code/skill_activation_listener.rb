@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'set'
 require 'pikuri-core'
 require 'pikuri-skills'
 

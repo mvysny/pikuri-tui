@@ -85,8 +85,9 @@ Every fact lives in exactly one of these; the others link to it.
 
 ## Commands
 
-- `bundle exec rake check` — the spec suite, the sord signatures, then the doc-layer tripwire; also the default task, and what CI runs (`.woodpecker.yml`).
+- `bundle exec rake check` — the spec suite, rubocop, the sord signatures, then the doc-layer tripwire; also the default task, and what CI runs (`.woodpecker.yml`).
 - `bundle exec rspec spec/code/app_spec.rb:42` — one test, still through Bundler.
+- `bundle exec rubocop -a` — fix what rubocop can; `.rubocop.yml` says why each cop is tuned.
 - `bundle exec rake sig` — regenerate `sig/pikuri_tui.rbs` after a YARD change, and commit it; CI fails on a stale one.
 - `bundle exec rake design_tripwires` — the doc-layer checks alone.
 

@@ -500,20 +500,24 @@ module Computer
     def build_slash_commands
       quit_action = ->(_rest) { quit; nil }
       commands = [
-        Shared::SlashCommand.new('/logs', 'open the diagnostic log', ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
+        Shared::SlashCommand.new('/logs', 'open the diagnostic log',
+                                 ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
         Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
                                  ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
-        Shared::SlashCommand.new('/plan', 'toggle plan mode', ->(_rest) { toggle_plan_mode; @plan_mode.active? ? 'Plan mode on.' : 'Plan mode off.' }),
+        Shared::SlashCommand.new('/plan', 'toggle plan mode',
+                                 ->(_rest) { toggle_plan_mode; "Plan mode #{@plan_mode.active? ? 'on' : 'off'}." }),
         Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
                                  ->(rest) { @conversation.select_thinking(rest) }),
         Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
                                  ->(rest) { @conversation.select_tool_detail(rest) })
       ]
       if @model_picker.multiple?
-        commands << Shared::SlashCommand.new('/model', 'switch model', ->(_rest) { @model_picker.open(current: @agent.transport); nil })
+        commands << Shared::SlashCommand.new('/model', 'switch model',
+                                             ->(_rest) { @model_picker.open(current: @agent.transport); nil })
       end
       commands.push(
-        Shared::SlashCommand.new('/clear', 'clear conversation + context', ->(_rest) { @session.clear_conversation; nil }),
+        Shared::SlashCommand.new('/clear', 'clear conversation + context',
+                                 ->(_rest) { @session.clear_conversation; nil }),
         Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
         Shared::SlashCommand.new('/quit', 'quits the app', quit_action)
       )

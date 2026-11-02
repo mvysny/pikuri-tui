@@ -38,7 +38,7 @@ RSpec.describe Shared::Markdown::AnsiConverter do
 
     it 'fakes strikethrough with combining overlays, not SGR 9' do
       out = render('~~gone~~')
-      assert_includes out, "g̶o̶n̶e̶"
+      assert_includes out, 'g̶o̶n̶e̶'
       refute_includes out, "\e[9m"
     end
 

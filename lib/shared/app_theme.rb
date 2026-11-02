@@ -231,21 +231,21 @@ class Shared::AppTheme < Tuile::Theme
   # ground.
   # @return [Hash{Symbol => Tuile::Color, Proc}]
   DARK_CUSTOM = {
-    hint:     TALUS,
-    tool:     CHESTNUT,
-    notice:   Tuile::Color::YELLOW,
-    error:    Tuile::Color::RED,
-    thinking: Tuile::Color.new([85, 85, 85]),
-    detail:   Tuile::Color::GREY42,
-    user:     Tuile::Color.new([255, 255, 255]),
-    added:    Tuile::Color::GREEN,
-    removed:  Tuile::Color::RED,
+    hint:          TALUS,
+    tool:          CHESTNUT,
+    notice:        Tuile::Color::YELLOW,
+    error:         Tuile::Color::RED,
+    thinking:      Tuile::Color.new([85, 85, 85]),
+    detail:        Tuile::Color::GREY42,
+    user:          Tuile::Color.new([255, 255, 255]),
+    added:         Tuile::Color::GREEN,
+    removed:       Tuile::Color::RED,
     diff_line_add: Tuile::Color.hex('#002800'),
     diff_line_del: Tuile::Color.hex('#3f0001'),
     diff_span_add: Tuile::Color.hex('#006000'),
     diff_span_del: Tuile::Color.hex('#901011'),
-    pane_bg:    pane_bg_token(Tuile::Color.hex('#121212')),
-    pane_frame: pane_frame_token(Tuile::Color.hex('#333333'))
+    pane_bg:       pane_bg_token(Tuile::Color.hex('#121212')),
+    pane_frame:    pane_frame_token(Tuile::Color.hex('#333333'))
   }.freeze
 
   # The custom tokens tuned for light terminal backgrounds: the bright
@@ -256,21 +256,21 @@ class Shared::AppTheme < Tuile::Theme
   # reasoning reads as muted secondary text without disappearing.
   # @return [Hash{Symbol => Tuile::Color, Proc}]
   LIGHT_CUSTOM = {
-    hint:     TALUS_SHADE,
-    tool:     CHESTNUT_SHADE,
-    notice:   Tuile::Color::DARK_ORANGE3,
-    error:    Tuile::Color::RED3,
-    thinking: Tuile::Color::GREY46,
-    detail:   Tuile::Color::GREY35,
-    user:     Tuile::Color.new([0, 0, 0]),
-    added:    Tuile::Color::DARK_GREEN,
-    removed:  Tuile::Color::RED3,
+    hint:          TALUS_SHADE,
+    tool:          CHESTNUT_SHADE,
+    notice:        Tuile::Color::DARK_ORANGE3,
+    error:         Tuile::Color::RED3,
+    thinking:      Tuile::Color::GREY46,
+    detail:        Tuile::Color::GREY35,
+    user:          Tuile::Color.new([0, 0, 0]),
+    added:         Tuile::Color::DARK_GREEN,
+    removed:       Tuile::Color::RED3,
     diff_line_add: Tuile::Color.hex('#d0ffd0'),
     diff_line_del: Tuile::Color.hex('#ffe0e0'),
     diff_span_add: Tuile::Color.hex('#a0efa0'),
     diff_span_del: Tuile::Color.hex('#ffc0c0'),
-    pane_bg:    pane_bg_token(Tuile::Color.hex('#f0f0f0')),
-    pane_frame: pane_frame_token(Tuile::Color.hex('#cccccc'))
+    pane_bg:       pane_bg_token(Tuile::Color.hex('#f0f0f0')),
+    pane_frame:    pane_frame_token(Tuile::Color.hex('#cccccc'))
   }.freeze
 
   # The dark-background app theme: {Tuile::Theme::DARK}'s built-in

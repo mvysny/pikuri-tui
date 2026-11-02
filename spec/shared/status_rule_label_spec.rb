@@ -31,8 +31,8 @@ RSpec.describe Shared::StatusRuleLabel do
   # The readout's spans — everything but the two hairline runs.
   def readout_spans
     spans = label.text.spans.dup
-    spans.shift while spans.first && spans.first.text.match?(/\A─+\z/)
-    spans.pop while spans.last && spans.last.text.match?(/\A─+\z/)
+    spans.shift while spans.first&.text&.match?(/\A─+\z/)
+    spans.pop while spans.last&.text&.match?(/\A─+\z/)
     spans
   end
 
@@ -408,7 +408,7 @@ RSpec.describe Shared::StatusRuleLabel do
       Tuile::Testing.place(rule, Tuile::Rect.new(0, 0, WIDTH, 1))
       rule.current_model = 'Qwen'
       rule.workspace_digest = digest(files: 3, added: 1, tasks_done: 1, tasks_total: 2)
-      assert_match(/~\/work\/x · 3 files \+1 · 1\/2 tasks · Qwen/, rule.text.to_s)
+      assert_match(%r{~/work/x · 3 files \+1 · 1/2 tasks · Qwen}, rule.text.to_s)
     end
   end
 end

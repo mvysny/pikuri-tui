@@ -13,6 +13,7 @@ RSpec.describe Code::TaskListPane do
     Tuile::Testing.loop
     window.view.items.map { |entry| window.view.renderer.call(entry, 0).to_s }.join("\n")
   end
+
   def caption = window.caption_label.caption
 
   # The rows as painted, where the list ellipsizes them — its one-column gutter
@@ -145,7 +146,8 @@ RSpec.describe Code::TaskListPane do
     window.__send__(:handle_theme_changed)
     painted
     x = window.view.absolute_rect.left + 1
-    assert_equal Shared::AppTheme::LIGHT[:notice], Tuile::Screen.instance.buffer.cell(x, window.view.absolute_rect.top).style.fg
+    assert_equal Shared::AppTheme::LIGHT[:notice],
+                 Tuile::Screen.instance.buffer.cell(x, window.view.absolute_rect.top).style.fg
   end
 
   describe '#tally / #on_tally' do
