@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'tomlrb'
+require 'typemap'
 
 # Layered TOML configuration loaded once at boot by all three shells,
 # before the screen is up, and read from there on:
@@ -159,12 +160,28 @@ require 'tomlrb'
 # diagnostic log dialog when it rewires +Pikuri.log_io+. {Config} just logs;
 # it never collects advisories for the caller to surface.
 #
+# == The file's shape
+#
+# Typemap maps the merged TOML onto {Root} and the classes nested in it, and
+# checks every value against the type its YARD tag gives (read back from
+# +sig/pikuri_tui.rbs+, which +rake sig+ generates). A class's +validate+ adds
+# the rules a type can't state: non-blank names, "exactly one of +command+ /
+# +url+", unique ids. {.load} then resolves the file's shape into the values
+# the shells read: each {LlmTable} with its {Server} looked up becomes an {Llm},
+# each {McpTable} with its auth sugar folded into +headers+ becomes an
+# {McpServer}. {Server} and {Search} already match the file and pass through.
+#
 # == Errors
 #
-# Every load failure — unreadable file, malformed TOML, schema
-# violation — raises {Error}. Loading runs at boot before the screen is
-# up, so the bins rescue {Error} into a plain +warn+ + +exit+ rather
-# than the usual route-to-log-dialog path (there is no log dialog yet).
+# Every load failure — unreadable file, malformed TOML, schema violation —
+# raises {Error}. A schema message starts with the offending value's path:
+#
+#   llm[1].context_window: must be at least 1, got 0
+#   code.mcp[0]: set exactly one of `command` (stdio) or `url` (http)
+#
+# Loading runs at boot before the screen is up, so the bins rescue {Error}
+# into a plain +warn+ + +exit+ rather than the usual route-to-log-dialog path
+# (there is no log dialog yet).
 #
 # Immutable.
 class Shared::Config
@@ -175,6 +192,16 @@ class Shared::Config
   # Raised for any unreadable / malformed / schema-invalid config file.
   # Carries a human-readable message naming the offending key or file.
   class Error < StandardError; end
+
+  # @return [Boolean] sandbox on unless a file or +--no-sandbox+ says otherwise.
+  DEFAULT_SANDBOX = true
+  # @return [Boolean] confirm on unless a file or +--no-confirm+ says otherwise.
+  DEFAULT_CONFIRM = true
+  # @return [Boolean] reasoning blocks are shown unless +[ui]+ says otherwise.
+  DEFAULT_SHOW_THINKING = true
+  # @return [Symbol] the tool-line form to start on; one of
+  #   {Shared::ConversationTextView::TOOL_DETAIL_MODES}.
+  DEFAULT_TOOL_LINES = :short
 
   # One inference server: what is true of the box rather than of a model
   # running on it, referenced by {#id} from any number of +[[llm]]+ entries
@@ -203,7 +230,23 @@ class Shared::Config
   #     — a +llama-server --parallel+ number — or +nil+ to let pikuri's
   #     +/props+ probe size it. See +Shared::RequestPermits+ for what the key
   #     does and does not buy.
-  Server = Data.define(:id, :url, :api_key, :max_concurrent_requests)
+  Server = Data.define(:id, :url, :api_key, :max_concurrent_requests) do
+    extend Typemap::Constrain
+
+    constrain :max_concurrent_requests, in: (1..)
+
+    # @param id [String] see {#id}
+    # @param url [String] see {#url}
+    # @param api_key [String, nil] see {#api_key}
+    # @param max_concurrent_requests [Integer, nil] see {#max_concurrent_requests}
+    def initialize(id:, url:, api_key: nil, max_concurrent_requests: nil) = super
+
+    # @return [void]
+    # @raise [RuntimeError] on a blank +id+ or +url+
+    def validate
+      %i[id url].each { |key| raise "`#{key}` must not be blank" if public_send(key).strip.empty? }
+    end
+  end
 
   # One model connection: a +[[llm]]+ entry with its +[[server]]+ already
   # resolved into it, so nothing downstream has to hold the reference.
@@ -253,9 +296,9 @@ class Shared::Config
   # naming them — see the class header's "Pikuri seam" note.
   #
   # The convenience +bearer_token+ / +basic_auth+ TOML keys are not fields
-  # here: they are sugar that {.build_mcp_headers} folds into {#headers} at
-  # load time, so this value object exposes only the single +headers+ hash
-  # that +Pikuri::Mcp::Registry::HttpEntry+ consumes 1:1.
+  # here: {McpTable#resolve} folds them into {#headers}, so this value object
+  # exposes only the single +headers+ hash that
+  # +Pikuri::Mcp::Registry::HttpEntry+ consumes 1:1.
   #
   # @!attribute [r] id
   #   @return [String] unique id the LLM uses to call +mcp_connect+.
@@ -319,13 +362,203 @@ class Shared::Config
   #     from the keys. A *set*, not a preference order: pikuri shuffles per
   #     query, so +["brave", "duckduckgo"]+ splits traffic between the two
   #     rather than preferring Brave. Naming an engine whose key is absent is
-  #     an error pikuri raises; this class checks only the shape.
+  #     an error pikuri raises; which names exist is pikuri's to say too, so
+  #     the file is checked for shape only and no engine list here can rot.
   Search = Data.define(:brave_key, :exa_key, :engines) do
     # @param brave_key [String, nil] see {#brave_key}
     # @param exa_key [String, nil] see {#exa_key}
     # @param engines [Array<String>, nil] see {#engines}; frozen here
     def initialize(brave_key: nil, exa_key: nil, engines: nil)
       super(brave_key: brave_key, exa_key: exa_key, engines: engines&.freeze)
+    end
+  end
+
+  # One +[[llm]]+ table as the file writes it; {.load} resolves it into an {Llm}.
+  #
+  # @!attribute [r] name
+  #   @return [String] see {Llm#name}
+  # @!attribute [r] server
+  #   @return [String] the {Server#id} this model runs on
+  # @!attribute [r] model
+  #   @return [String] see {Llm#model}
+  # @!attribute [r] api_key
+  #   @return [String, nil] never valid here: read only so {.load} can name the
+  #     +[[server]]+ it belongs on, where an unknown-key error would not
+  # @!attribute [r] context_window
+  #   @return [Integer, nil] see {Llm#context_window}
+  # @!attribute [r] params
+  #   @return [Hash{String => Object}] see {Llm#params}; checked to be a table,
+  #     its contents the server's business
+  LlmTable = Data.define(:name, :server, :model, :api_key, :context_window, :params) do
+    extend Typemap::Constrain
+
+    constrain :context_window, in: (1..)
+
+    # @param name [String] see {#name}
+    # @param server [String] see {#server}
+    # @param model [String] see {#model}
+    # @param api_key [String, nil] see {#api_key}
+    # @param context_window [Integer, nil] see {#context_window}
+    # @param params [Hash{String => Object}] see {#params}
+    def initialize(name:, server:, model:, api_key: nil, context_window: nil, params: {}) = super
+
+    # @return [void]
+    # @raise [RuntimeError] on a blank +name+, +server+ or +model+
+    def validate
+      %i[name server model].each { |key| raise "`#{key}` must not be blank" if public_send(key).strip.empty? }
+    end
+  end
+
+  # A +[[code.mcp]]+ entry's +basic_auth+ table.
+  #
+  # @!attribute [r] username
+  #   @return [String] non-blank
+  # @!attribute [r] password
+  #   @return [String]
+  BasicAuth = Data.define(:username, :password) do
+    # @return [void]
+    # @raise [RuntimeError] on a blank +username+
+    def validate
+      raise '`username` must not be blank' if username.strip.empty?
+    end
+
+    # @return [String] the +Authorization+ value, strict (newline-free) Base64
+    #   through +Array#pack+, so no +base64+ require
+    def header = "Basic #{["#{username}:#{password}"].pack('m0')}"
+  end
+
+  # One +[[code.mcp]]+ table as the file writes it; {#resolve} turns it into
+  # the {McpServer} the coding bin hands to pikuri-mcp.
+  #
+  # +bearer_token+ and +basic_auth+ are sugar for an +Authorization+ header,
+  # so they exclude each other and an +Authorization+ entry in +headers+.
+  #
+  # @!attribute [r] id
+  #   @return [String] see {McpServer#id}
+  # @!attribute [r] command
+  #   @return [Array<String>, nil] see {McpServer#command}
+  # @!attribute [r] url
+  #   @return [String, nil] see {McpServer#url}
+  # @!attribute [r] bearer_token
+  #   @return [String, nil] becomes +Authorization: Bearer …+
+  # @!attribute [r] basic_auth
+  #   @return [BasicAuth, nil] becomes +Authorization: Basic …+
+  # @!attribute [r] headers
+  #   @return [Hash{String => String}, nil] extra HTTP headers, sent verbatim
+  # @!attribute [r] env
+  #   @return [Hash{String => String}, nil] see {McpServer#env}
+  McpTable = Data.define(:id, :command, :url, :bearer_token, :basic_auth, :headers, :env) do
+    # @param id [String] see {#id}
+    # @param command [Array<String>, nil] see {#command}
+    # @param url [String, nil] see {#url}
+    # @param bearer_token [String, nil] see {#bearer_token}
+    # @param basic_auth [BasicAuth, nil] see {#basic_auth}
+    # @param headers [Hash{String => String}, nil] see {#headers}
+    # @param env [Hash{String => String}, nil] see {#env}
+    def initialize(id:, command: nil, url: nil, bearer_token: nil, basic_auth: nil, headers: nil, env: nil) = super
+
+    # @return [void]
+    # @raise [RuntimeError] on a stdio/HTTP mix-up, a blank value, or two
+    #   sources for +Authorization+
+    def validate
+      raise '`id` must not be blank' if id.strip.empty?
+      raise 'set exactly one of `command` (stdio) or `url` (http)' unless command.nil? ^ url.nil?
+      raise '`command` must not be empty' if command && command.empty?
+      raise '`url` must not be blank' if url&.strip&.empty?
+
+      http_only = { bearer_token:, basic_auth:, headers: }.compact.keys
+      if command && !http_only.empty?
+        raise "#{http_only.map { |k| "`#{k}`" }.join(', ')} apply only to HTTP servers (set `url`, not `command`)"
+      end
+      raise '`env` applies only to stdio servers (set `command`, not `url`)' if url && env
+      raise 'set at most one of `bearer_token` or `basic_auth`' if bearer_token && basic_auth
+      raise '`bearer_token` must not be blank' if bearer_token&.strip&.empty?
+      return unless (bearer_token || basic_auth) && headers&.keys&.any? { |k| k.casecmp?('Authorization') }
+
+      raise '`bearer_token`/`basic_auth` conflicts with an `Authorization` entry in `headers` — set only one'
+    end
+
+    # @return [McpServer] this entry with its auth sugar folded into +headers+
+    def resolve
+      auth = bearer_token ? "Bearer #{bearer_token}" : basic_auth&.header
+      all_headers = headers || {}
+      all_headers = all_headers.merge('Authorization' => auth) if auth
+      McpServer.new(id:, command:, url:, headers: all_headers, env: env || {})
+    end
+  end
+
+  # The +[code]+ table.
+  #
+  # @!attribute [r] sandbox
+  #   @return [Boolean] see {Config#sandbox}; a CLI flag outranks it
+  # @!attribute [r] confirm
+  #   @return [Boolean] see {Config#confirm}; a CLI flag outranks it
+  # @!attribute [r] mcp
+  #   @return [Array<McpTable>] the +[[code.mcp]]+ entries
+  CodeTable = Data.define(:sandbox, :confirm, :mcp) do
+    # @param sandbox [Boolean] see {#sandbox}
+    # @param confirm [Boolean] see {#confirm}
+    # @param mcp [Array<McpTable>] see {#mcp}
+    def initialize(sandbox: DEFAULT_SANDBOX, confirm: DEFAULT_CONFIRM, mcp: []) = super
+  end
+
+  # The +[ui]+ table (the class header has the why).
+  #
+  # @!attribute [r] show_thinking
+  #   @return [Boolean] see {Config#show_thinking}
+  # @!attribute [r] tool_lines
+  #   @return [String] see {Config#tool_lines}; checked against the pane's own
+  #     list rather than a copy here that could rot
+  UiTable = Data.define(:show_thinking, :tool_lines) do
+    extend Typemap::Constrain
+
+    constrain :tool_lines, in: Shared::ConversationTextView::TOOL_DETAIL_MODES.map(&:to_s)
+
+    # @param show_thinking [Boolean] see {#show_thinking}
+    # @param tool_lines [String] see {#tool_lines}
+    def initialize(show_thinking: DEFAULT_SHOW_THINKING, tool_lines: DEFAULT_TOOL_LINES.to_s) = super
+  end
+
+  # The whole file, every table at its default when the file leaves it out.
+  #
+  # @!attribute [r] server
+  #   @return [Array<Server>] the +[[server]]+ entries
+  # @!attribute [r] llm
+  #   @return [Array<LlmTable>] the +[[llm]]+ entries
+  # @!attribute [r] search
+  #   @return [Search] the +[search]+ table
+  # @!attribute [r] code
+  #   @return [CodeTable] the +[code]+ table
+  # @!attribute [r] ui
+  #   @return [UiTable] the +[ui]+ table
+  # @!attribute [r] titler
+  #   @return [Hash{String => Object}, nil] pikuri-web's table, checked for
+  #     shape only (see the class header)
+  # @!attribute [r] web
+  #   @return [Hash{String => Object}, nil] pikuri-web's table, checked for
+  #     shape only
+  Root = Data.define(:server, :llm, :search, :code, :ui, :titler, :web) do
+    # @param server [Array<Server>] see {#server}
+    # @param llm [Array<LlmTable>] see {#llm}
+    # @param search [Search] see {#search}
+    # @param code [CodeTable] see {#code}
+    # @param ui [UiTable] see {#ui}
+    # @param titler [Hash{String => Object}, nil] see {#titler}
+    # @param web [Hash{String => Object}, nil] see {#web}
+    def initialize(server: [], llm: [], search: Search.new, code: CodeTable.new, ui: UiTable.new,
+                   titler: nil, web: nil)
+      super
+    end
+
+    # @return [void]
+    # @raise [RuntimeError] naming every duplicate +[[server]]+ id,
+    #   +[[llm]]+ name or +[[code.mcp]]+ id
+    def validate
+      { 'server id' => server.map(&:id), 'llm name' => llm.map(&:name), 'code.mcp id' => code.mcp.map(&:id) }
+        .each do |label, values|
+          dups = values.tally.select { |_, n| n > 1 }.keys
+          raise "duplicate #{label}(s): #{dups.join(', ')}" unless dups.empty?
+        end
     end
   end
 
@@ -345,20 +578,16 @@ class Shared::Config
     model  = "unsloth/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
   TOML
 
-  # @return [Boolean] sandbox on unless a file or +--no-sandbox+ says otherwise.
-  DEFAULT_SANDBOX = true
-  # @return [Boolean] confirm on unless a file or +--no-confirm+ says otherwise.
-  DEFAULT_CONFIRM = true
-  # @return [Boolean] reasoning blocks are shown unless +[ui]+ says otherwise.
-  DEFAULT_SHOW_THINKING = true
-  # @return [Symbol] the tool-line form to start on; one of
-  #   {Shared::ConversationTextView::TOOL_DETAIL_MODES}.
-  DEFAULT_TOOL_LINES = :short
-
   # @return [String] the config file's basename.
   FILENAME   = 'config.toml'
   # @return [String] the per-app subdirectory under each XDG config root.
   XDG_SUBDIR = 'pikuri'
+
+  # Types come from sig/ (the YARD tags, through sord), so each is written once.
+  #
+  # @return [Typemap::Mapper]
+  MAPPER = Typemap::Mapper.new(types: Typemap::Mapper::RBSTypes.new)
+  private_constant :MAPPER
 
   # Load and resolve the layered configuration.
   #
@@ -388,36 +617,21 @@ class Shared::Config
       warn_loose_perms(path, parsed)
       merged = deep_merge(merged, parsed)
     end
-    validate_top!(merged)
 
-    servers = (merged['server'] || []).each_with_index.map { |h, i| build_server(h, i) }
-    check_unique!(servers.map(&:id), 'server id')
+    root = map(merged)
+    raise Error, no_connection_message(any_loaded, env) if root.llm.empty?
 
-    llm_tables = merged['llm'] || []
-    raise Error, no_connection_message(any_loaded, env) if llm_tables.empty?
-
-    by_id = servers.to_h { |s| [s.id, s] }
-    llms = llm_tables.each_with_index.map { |h, i| build_llm(h, i, by_id) }
-    check_unique!(llms.map(&:name), 'llm name')
-
-    code = merged['code'] || {}
-    validate_code!(code)
-    mcp = (code['mcp'] || []).each_with_index.map { |h, i| build_mcp(h, i) }
-    check_unique!(mcp.map(&:id), 'code.mcp id')
-
-    ui = merged['ui'] || {}
-    validate_ui!(ui)
-    log_unread_keys(merged)
-
+    log_unread_tables(root)
+    by_id = root.server.to_h { |s| [s.id, s] }
     new(
-      llms:          llms,
-      servers:       servers,
-      search:        build_search(merged['search']),
-      sandbox:       pick(overrides[:sandbox], code['sandbox'], DEFAULT_SANDBOX),
-      confirm:       pick(overrides[:confirm], code['confirm'], DEFAULT_CONFIRM),
-      mcp:           mcp,
-      show_thinking: pick(ui['show_thinking'], DEFAULT_SHOW_THINKING),
-      tool_lines:    pick(ui['tool_lines']&.to_sym, DEFAULT_TOOL_LINES)
+      llms:          root.llm.map { |table| resolve_llm(table, by_id) },
+      servers:       root.server,
+      search:        root.search,
+      sandbox:       overrides[:sandbox].nil? ? root.code.sandbox : overrides[:sandbox],
+      confirm:       overrides[:confirm].nil? ? root.code.confirm : overrides[:confirm],
+      mcp:           root.code.mcp.map(&:resolve),
+      show_thinking: root.ui.show_thinking,
+      tool_lines:    root.ui.tool_lines.to_sym
     )
   end
 
@@ -504,19 +718,19 @@ class Shared::Config
 
     LOG.warn("#{path} holds a literal secret but is group/other-accessible " \
              "(mode #{format('%04o', mode & 0o7777)}); run `chmod 600 #{path}`.")
-  rescue SystemCallError
-    # stat failed (race, odd filesystem) — skip the advisory, never fatal.
+  rescue SystemCallError => e
+    # A race or an odd filesystem: the advisory is a courtesy, never fatal.
+    LOG.debug("skipped the permissions check of #{path}: #{e.message}")
   end
 
   # Reads +[[server]]+ for the key, not +[[llm]]+: this check runs per file
   # and pre-merge, on raw TOML, so it sees the table the key is *written* in
   # rather than the {Llm} it is later resolved into.
   #
+  # @param parsed [Hash{String => Object}] one file's raw TOML
   # @return [Boolean] true when the parsed file carries any literal secret
   #   (a +[[server]]+ +api_key+, a +[search]+ +brave_key+/+exa_key+, or an
   #   +[[code.mcp]]+ +bearer_token+/+basic_auth+/+headers+/+env+).
-  #
-  # @param parsed [Hash{String => Object}] one file's raw TOML
   def self.holds_secret?(parsed)
     servers = parsed['server']
     return true if servers.is_a?(Array) && servers.any? { |e| e.is_a?(Hash) && e['api_key'] }
@@ -555,182 +769,46 @@ class Shared::Config
     end
   end
 
-  # +titler+ and +web+ pass on shape alone — see the class header on a
-  # sibling's keys.
-  #
   # @param merged [Hash{String => Object}] the merged TOML
-  # @return [void]
-  # @raise [Error] on an unknown top-level key or a table of the wrong shape
-  def self.validate_top!(merged)
-    unknown = merged.keys - %w[server llm search code ui titler web]
-    raise Error, "unknown top-level key(s): #{unknown.join(', ')}" unless unknown.empty?
-
-    %w[server llm].each do |k|
-      next unless merged.key?(k) && !merged[k].is_a?(Array)
-
-      raise Error, "`#{k}` must be an array of tables (use [[#{k}]], not [#{k}])"
-    end
-    raise Error, '`search` must be a table ([search])' if merged.key?('search') && !merged['search'].is_a?(Hash)
-    raise Error, '`code` must be a table ([code])' if merged.key?('code') && !merged['code'].is_a?(Hash)
-    raise Error, '`ui` must be a table ([ui])' if merged.key?('ui') && !merged['ui'].is_a?(Hash)
-    raise Error, '`web` must be a table ([web])' if merged.key?('web') && !merged['web'].is_a?(Hash)
-    return unless merged.key?('titler') && !merged['titler'].is_a?(Hash)
-
-    raise Error, '`titler` must be a table ([titler])'
+  # @return [Root]
+  # @raise [Error] on any schema violation, its message starting with the
+  #   offending value's path
+  def self.map(merged)
+    MAPPER.load(Root, merged)
+  rescue Typemap::DataError => e
+    raise Error, e.message
   end
 
-  # Log one line per key this shell parses and never acts on, so an ignored
-  # key says so in the diagnostic pane instead of silently doing nothing.
-  # INFO, not WARN: the file is shared, and a key written for pikuri-web is
+  # Log one line per table this shell parses and never acts on, so an ignored
+  # table says so in the diagnostic pane instead of silently doing nothing.
+  # INFO, not WARN: the file is shared, and a table written for pikuri-web is
   # doing its job there.
   #
-  # @param merged [Hash{String => Object}] the merged TOML
+  # @param root [Root] the mapped file
   # @return [void]
-  def self.log_unread_keys(merged)
-    LOG.info('ignoring [titler]: pikuri-web names conversations, these shells hold one') if merged.key?('titler')
-    LOG.info('ignoring [web]: pikuri-web serves a port, these shells serve nobody') if merged.key?('web')
+  def self.log_unread_tables(root)
+    LOG.info('ignoring [titler]: pikuri-web names conversations, these shells hold one') if root.titler
+    LOG.info('ignoring [web]: pikuri-web serves a port, these shells serve nobody') if root.web
   end
 
-  # Unlike +[search]+, whose engine names are pikuri's to define, the
-  # +tool_lines+ vocabulary is this app's own — so it is checked against the
-  # pane's list rather than a copy that could rot.
-  #
-  # @param ui [Hash{String => Object}] the +[ui]+ table
-  # @return [void]
-  # @raise [Error] on an unknown key or a value of the wrong type
-  def self.validate_ui!(ui)
-    unknown = ui.keys - %w[show_thinking tool_lines]
-    raise Error, "ui: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
-    if ui.key?('show_thinking') && ![true, false].include?(ui['show_thinking'])
-      raise Error, 'ui.show_thinking must be true or false'
-    end
-    return unless ui.key?('tool_lines')
-
-    forms = Shared::ConversationTextView::TOOL_DETAIL_MODES
-    return if forms.any? { |form| form.to_s == ui['tool_lines'] }
-
-    raise Error, "ui.tool_lines must be one of: #{forms.join(', ')}"
-  end
-
-  # Build the {Search} value object from the +[search]+ table (or +nil+
-  # when the section is absent — every field then defaults to +nil+).
-  # Rejects unknown keys and values of the wrong type.
-  #
-  # Shape only: *which* engine names are valid, and which of them need a key,
-  # is pikuri's to say — the bins ask it at boot (see {Search#engines}), so
-  # this class stays on the Pikuri-free side of the seam and the engine list
-  # is not duplicated here to rot.
-  #
-  # @param table [Hash{String => Object}, nil] the +[search]+ table, +nil+ when absent
-  # @return [Search]
-  # @raise [Error] on an unknown key or a value of the wrong type
-  def self.build_search(table)
-    table ||= {}
-    unknown = table.keys - %w[brave_key exa_key engines]
-    raise Error, "search: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
-
-    %w[brave_key exa_key].each do |k|
-      raise Error, "search.#{k} must be a string" if table[k] && !table[k].is_a?(String)
-    end
-    engines = table['engines']
-    if engines && !(engines.is_a?(Array) && engines.all?(String))
-      raise Error, 'search.engines must be an array of strings, e.g. engines = ["brave"]'
-    end
-
-    Search.new(brave_key: table['brave_key'], exa_key: table['exa_key'], engines: engines)
-  end
-
-  # @param code [Hash{String => Object}] the +[code]+ table
-  # @return [void]
-  # @raise [Error] on an unknown key or a value of the wrong type
-  def self.validate_code!(code)
-    unknown = code.keys - %w[sandbox confirm mcp]
-    raise Error, "code: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
-
-    %w[sandbox confirm].each do |k|
-      raise Error, "code.#{k} must be true or false" if code.key?(k) && ![true, false].include?(code[k])
-    end
-    return unless code.key?('mcp') && !code['mcp'].is_a?(Array)
-
-    raise Error, 'code.mcp must be an array of tables (use [[code.mcp]])'
-  end
-
-  # @param hash [Object] one +[[server]]+ entry, not yet known to be a table
-  # @param index [Integer] its position, for messages
-  # @return [Server]
-  # @raise [Error] on any schema violation
-  def self.build_server(hash, index)
-    raise Error, "server[#{index}] must be a table" unless hash.is_a?(Hash)
-
-    unknown = hash.keys - %w[id url api_key max_concurrent_requests]
-    raise Error, "server[#{index}]: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
-
-    id = hash['id']
-    raise Error, "server[#{index}]: `id` is required and must be a non-empty string" unless non_empty_string?(id)
-
-    url = hash['url']
-    raise Error, "server #{id.inspect}: `url` is required and must be a non-empty string" unless non_empty_string?(url)
-
-    key = hash['api_key']
-    raise Error, "server #{id.inspect}: `api_key` must be a string" if key && !key.is_a?(String)
-
-    max = hash['max_concurrent_requests']
-    if max && !(max.is_a?(Integer) && max.positive?)
-      raise Error, "server #{id.inspect}: `max_concurrent_requests` must be a positive integer"
-    end
-
-    Server.new(id: id, url: url, api_key: key, max_concurrent_requests: max)
-  end
-
-  # +by_id+ is every {Server} the merged file defined, so a reference resolves
-  # against the whole layered set rather than the file it was written in.
-  #
-  # @param hash [Object] one +[[llm]]+ entry, not yet known to be a table
-  # @param index [Integer] its position, for messages
-  # @param by_id [Hash{String => Server}] every +[[server]]+, by id
+  # @param table [LlmTable] one +[[llm]]+ entry
+  # @param by_id [Hash{String => Server}] every +[[server]]+, by id — the
+  #   whole layered set, not just the file the entry was written in
   # @return [Llm]
-  # @raise [Error] on any schema violation, or a +server+ that resolves to nothing
-  def self.build_llm(hash, index, by_id)
-    raise Error, "llm[#{index}] must be a table" unless hash.is_a?(Hash)
-
-    # +api_key+ is listed so it survives to resolve_server, which fails it with
-    # a message naming its new home rather than as an anonymous unknown key.
-    unknown = hash.keys - %w[name server model api_key context_window params]
-    raise Error, "llm[#{index}]: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
-
-    name = hash['name']
-    raise Error, "llm[#{index}]: `name` is required and must be a non-empty string" unless non_empty_string?(name)
-
-    %w[server model].each do |k|
-      next if non_empty_string?(hash[k])
-
-      raise Error, "llm #{name.inspect}: `#{k}` is required and must be a non-empty string"
+  # @raise [Error] on a +server+ that resolves to nothing, or a stray +api_key+
+  def self.resolve_llm(table, by_id)
+    server = resolve_server(table.server, table.name, by_id, table.api_key)
+    if table.api_key
+      raise Error, "llm #{table.name.inspect}: `api_key` belongs on [[server]] #{server.id.inspect}, not here."
     end
-
-    cw = hash['context_window']
-    if cw && !(cw.is_a?(Integer) && cw.positive?)
-      raise Error, "llm #{name.inspect}: `context_window` must be a positive integer"
-    end
-
-    # Shape only, like +search.engines+: what a params key means is the
-    # server's to say.
-    params = hash.fetch('params', {})
-    unless params.is_a?(Hash)
-      raise Error, "llm #{name.inspect}: `params` must be a table, " \
-                   'e.g. params = { chat_template_kwargs = { enable_thinking = false } }'
-    end
-
-    key = hash['api_key']
-    server = resolve_server(hash['server'], name, by_id, key)
-    raise Error, "llm #{name.inspect}: `api_key` belongs on [[server]] #{server.id.inspect}, not here." if key
 
     Llm.new(
-      name:           name,
+      name:           table.name,
       server:         server.url,
-      model:          hash['model'],
+      model:          table.model,
       api_key:        server.api_key, # nil when omitted → "not-needed" at the bin
-      context_window: cw, # nil when omitted → pikuri auto-detects
-      params:         params
+      context_window: table.context_window, # nil when omitted → pikuri auto-detects
+      params:         table.params
     )
   end
 
@@ -782,162 +860,7 @@ class Shared::Config
       "Write #{candidate_paths(env).last}:\n\n#{EXAMPLE_CONFIG}"
   end
 
-  # @param hash [Object] one +[[code.mcp]]+ entry, not yet known to be a table
-  # @param index [Integer] its position, for messages
-  # @return [McpServer]
-  # @raise [Error] on any schema violation
-  def self.build_mcp(hash, index)
-    raise Error, "code.mcp[#{index}] must be a table" unless hash.is_a?(Hash)
-
-    unknown = hash.keys - %w[id command url bearer_token basic_auth headers env]
-    raise Error, "code.mcp[#{index}]: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
-
-    id = hash['id']
-    raise Error, "code.mcp[#{index}]: `id` is required and must be a non-empty string" unless non_empty_string?(id)
-
-    command = hash['command']
-    url     = hash['url']
-    unless command.nil? ^ url.nil?
-      raise Error, "code.mcp #{id.inspect}: set exactly one of `command` (stdio) or `url` (http)"
-    end
-    if command && !(command.is_a?(Array) && !command.empty? && command.all?(String))
-      raise Error, "code.mcp #{id.inspect}: `command` must be a non-empty array of strings"
-    end
-    raise Error, "code.mcp #{id.inspect}: `url` must be a non-empty string" if url && !non_empty_string?(url)
-
-    auth_keys = hash.keys & %w[bearer_token basic_auth headers]
-    if command && !auth_keys.empty?
-      raise Error, "code.mcp #{id.inspect}: #{auth_keys.map { |k| "`#{k}`" }.join(', ')} apply only to " \
-                   'HTTP servers (set `url`, not `command`)'
-    end
-    if url && hash.key?('env')
-      raise Error, "code.mcp #{id.inspect}: `env` applies only to stdio servers (set `command`, not `url`)"
-    end
-
-    McpServer.new(
-      id:      id,
-      command: command,
-      url:     url,
-      headers: build_mcp_headers(hash, id),
-      env:     build_mcp_env(hash, id)
-    )
-  end
-
-  # Validate and return a stdio MCP entry's +env+ table (a
-  # +Hash{String => String}+ merged over the subprocess's inherited
-  # environment), or +{}+ when absent.
-  #
-  # @param hash [Hash] the raw +[[code.mcp]]+ table.
-  # @param id [String] the entry id, for error messages.
-  # @return [Hash{String => String}] the env overrides (empty when none).
-  # @raise [Error] when +env+ is not a table of string => string.
-  def self.build_mcp_env(hash, id)
-    env = hash['env']
-    return {} if env.nil?
-    unless env.is_a?(Hash) && env.all? { |k, v| k.is_a?(String) && v.is_a?(String) }
-      raise Error, "code.mcp #{id.inspect}: `env` must be a table of string => string"
-    end
-
-    env
-  end
-
-  # Resolve an HTTP MCP entry's auth/custom keys into the single
-  # +Hash{String => String}+ +HttpEntry+ consumes. +bearer_token+ and
-  # +basic_auth+ are convenience sugar that both yield an +Authorization+
-  # header, so they are mutually exclusive and also conflict with an
-  # explicit +Authorization+ inside +headers+; the +headers+ table carries
-  # arbitrary extras verbatim.
-  #
-  # @param hash [Hash] the raw +[[code.mcp]]+ table.
-  # @param id [String] the entry id, for error messages.
-  # @return [Hash{String => String}] the merged headers (empty when none).
-  # @raise [Error] on a malformed +headers+/+bearer_token+/+basic_auth+
-  #   value or an +Authorization+ conflict.
-  def self.build_mcp_headers(hash, id)
-    headers = {}
-
-    custom = hash['headers']
-    unless custom.nil?
-      unless custom.is_a?(Hash) && custom.all? { |k, v| k.is_a?(String) && v.is_a?(String) }
-        raise Error, "code.mcp #{id.inspect}: `headers` must be a table of string => string"
-      end
-
-      headers.merge!(custom)
-    end
-
-    bearer = hash['bearer_token']
-    basic  = hash['basic_auth']
-    raise Error, "code.mcp #{id.inspect}: set at most one of `bearer_token` or `basic_auth`" if bearer && basic
-
-    auth =
-      if bearer
-        unless non_empty_string?(bearer)
-          raise Error,
-                "code.mcp #{id.inspect}: `bearer_token` must be a non-empty string"
-        end
-
-        "Bearer #{bearer}"
-      elsif basic
-        build_basic_auth(basic, id)
-      end
-    return headers unless auth
-
-    if headers.keys.any? { |k| k.casecmp?('Authorization') }
-      raise Error, "code.mcp #{id.inspect}: `bearer_token`/`basic_auth` conflicts with an `Authorization` " \
-                   'entry in `headers` — set only one'
-    end
-    headers['Authorization'] = auth
-    headers
-  end
-
-  # Build the +Authorization: Basic+ value from a +basic_auth+ table.
-  # Encodes +username:password+ with strict (newline-free) Base64 via
-  # +Array#pack+ so no +base64+ require is needed.
-  #
-  # @param basic [Object] the raw +basic_auth+ value (expected a table).
-  # @param id [String] the entry id, for error messages.
-  # @return [String] the full +"Basic <base64>"+ header value.
-  # @raise [Error] when +basic_auth+ is not a table with a non-empty
-  #   +username+ and a +password+ string.
-  def self.build_basic_auth(basic, id)
-    raise Error, "code.mcp #{id.inspect}: `basic_auth` must be a table" unless basic.is_a?(Hash)
-
-    unknown = basic.keys - %w[username password]
-    raise Error, "code.mcp #{id.inspect}: basic_auth unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
-
-    username = basic['username']
-    password = basic['password']
-    unless non_empty_string?(username) && password.is_a?(String)
-      raise Error, "code.mcp #{id.inspect}: `basic_auth` needs a non-empty `username` and a `password` string"
-    end
-
-    "Basic #{["#{username}:#{password}"].pack('m0')}"
-  end
-
-  # First non-nil value — precedence resolution that treats +false+ as a
-  # real value (so a +sandbox = false+ in a file is not skipped).
-  #
-  # @param values [Boolean, Symbol, nil] the candidates, highest precedence first
-  # @return [Boolean, Symbol, nil] the first non-nil, or +nil+
-  def self.pick(*values) = values.find { |v| !v.nil? }
-
-  # @param values [Array<String>] the ids or names to check
-  # @param label [String] what they are, for the message
-  # @return [void]
-  # @raise [Error] naming every duplicate
-  def self.check_unique!(values, label)
-    dups = values.tally.select { |_, n| n > 1 }.keys
-    raise Error, "duplicate #{label}(s): #{dups.join(', ')}" unless dups.empty?
-  end
-
-  # @param value [Object] a raw TOML value
-  # @return [Boolean] true for a String with a non-blank character
-  def self.non_empty_string?(value) = value.is_a?(String) && !value.strip.empty?
-
-  private_class_method :candidate_paths, :warn_loose_perms, :holds_secret?, :parse_file, :deep_merge,
-                       :validate_top!, :validate_code!, :validate_ui!, :log_unread_keys,
-                       :build_server, :build_llm, :resolve_server,
-                       :server_is_now_an_id, :no_connection_message, :build_mcp, :build_mcp_headers,
-                       :build_basic_auth, :build_mcp_env, :build_search,
-                       :pick, :check_unique!, :non_empty_string?
+  private_class_method :candidate_paths, :warn_loose_perms, :holds_secret?, :parse_file, :deep_merge, :map,
+                       :log_unread_tables, :resolve_llm, :resolve_server, :server_is_now_an_id,
+                       :no_connection_message
 end

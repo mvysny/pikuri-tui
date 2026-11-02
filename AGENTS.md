@@ -61,7 +61,7 @@ Every fact lives in exactly one of these; the others link to it.
 - `lib/computer/` — `Computer::App` + `Computer::Layout`: chat's layout, the coding shell's safety machinery.
 - `lib/pikuri_tui.rb` — the Zeitwerk loader (root `lib/`) + eager-load; skips `Code` / `Computer` when their gems are absent.
 - `bin/` — one boot script per shell (CLI, config, pre-screen prompts, then the `App`), plus `setup` / `install` / `uninstall`.
-- `sig/pikuri_tui.rbs` — generated from the YARD tags by `rake sig`, never edited by hand.
+- `sig/pikuri_tui.rbs` — generated from the YARD tags by `rake sig`, never edited by hand; `Shared::Config` reads its types at runtime (`D_config_through_typemap`).
 - `spec/support/` — `wait_until` (a real worker thread's UI hand-off), the tool-event builders and `paint` / `painted_region` (one component through its own canvas).
 
 ## Conventions
@@ -85,7 +85,7 @@ Every fact lives in exactly one of these; the others link to it.
 
 ## Commands
 
-- `bundle exec rake check` — the spec suite, rubocop, the sord signatures, then the doc-layer tripwire; also the default task, and what CI runs (`.woodpecker.yml`).
+- `bundle exec rake check` — the sord signatures, the spec suite, rubocop, then the doc-layer tripwire; also the default task, and what CI runs (`.woodpecker.yml`).
 - `bundle exec rspec spec/code/app_spec.rb:42` — one test, still through Bundler.
 - `bundle exec rubocop -a` — fix what rubocop can; `.rubocop.yml` says why each cop is tuned.
 - `bundle exec rake sig` — regenerate `sig/pikuri_tui.rbs` after a YARD change, and commit it; CI fails on a stale one.

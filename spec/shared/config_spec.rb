@@ -122,7 +122,7 @@ describe Shared::Config do
       with_dirs do |home, _|
         write_config(home, "[ui]\nshow_thnking = false\n")
         err = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes err.message, 'ui: unknown key(s): show_thnking'
+        assert_includes err.message, 'ui.show_thnking: unknown key, did you mean show_thinking?'
       end
     end
 
@@ -130,7 +130,7 @@ describe Shared::Config do
       with_dirs do |home, _|
         write_config(home, "[ui]\nshow_thinking = \"no\"\n")
         err = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes err.message, 'ui.show_thinking must be true or false'
+        assert_includes err.message, 'ui.show_thinking: expected bool, got "no"'
       end
     end
 
@@ -140,7 +140,7 @@ describe Shared::Config do
       with_dirs do |home, _|
         write_config(home, "[ui]\ntool_lines = \"loud\"\n")
         err = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes err.message, 'ui.tool_lines must be one of: short, verbose'
+        assert_includes err.message, 'ui.tool_lines: must be one of "short", "verbose", got "loud"'
       end
     end
 
@@ -150,7 +150,7 @@ describe Shared::Config do
       with_dirs do |home, _|
         write_config(home, "ui = 1\n\n#{MINIMAL}")
         err = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes err.message, '`ui` must be a table'
+        assert_includes err.message, 'ui: expected Shared::Config::UiTable, got 1'
       end
     end
   end
@@ -175,7 +175,7 @@ describe Shared::Config do
       with_dirs do |home, _|
         write_config(home, "params = \"no thinking\"\n")
         e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes e.message, '`params` must be a table'
+        assert_includes e.message, 'llm[0].params: expected Hash[String, Object]'
       end
     end
   end
@@ -204,7 +204,7 @@ describe Shared::Config do
       with_dirs do |home, _|
         write_config(home, "titler = 1\n\n#{MINIMAL}")
         e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes e.message, '`titler` must be a table'
+        assert_includes e.message, 'titler: expected Hash[String, Object], got 1'
       end
     end
   end
@@ -232,7 +232,7 @@ describe Shared::Config do
       with_dirs do |home, _|
         write_config(home, "web = 1\n\n#{MINIMAL}")
         e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes e.message, '`web` must be a table'
+        assert_includes e.message, 'web: expected Hash[String, Object], got 1'
       end
     end
   end
@@ -555,7 +555,7 @@ describe Shared::Config do
 
     it 'rejects a non-string env value' do
       e = expect_error("[[code.mcp]]\nid = \"x\"\ncommand = [\"a\"]\nenv = { A = 1 }")
-      assert_includes e.message, '`env` must be a table'
+      assert_includes e.message, 'code.mcp[0].env.A: expected String, got 1'
     end
 
     it 'rejects auth/headers keys on a stdio MCP server' do
@@ -601,12 +601,12 @@ describe Shared::Config do
 
     it 'rejects a non-integer context_window' do
       e = expect_llm_error("context_window = \"2000000\"\n")
-      assert_includes e.message, '`context_window` must be a positive integer'
+      assert_includes e.message, 'llm[0].context_window: expected Integer, got "2000000"'
     end
 
     it 'rejects a non-positive context_window' do
       e = expect_llm_error("context_window = 0\n")
-      assert_includes e.message, '`context_window` must be a positive integer'
+      assert_includes e.message, 'llm[0].context_window: must be at least 1, got 0'
     end
 
     it 'rejects duplicate llm names' do
@@ -626,45 +626,50 @@ describe Shared::Config do
 
     it 'rejects an unknown top-level key' do
       e = expect_error("foo = 1\n\n#{MINIMAL}")
-      assert_includes e.message, 'unknown top-level'
+      assert_includes e.message, 'foo: unknown key'
     end
 
     it 'rejects an llm entry without a name' do
       e = expect_error("[[llm]]\nserver = \"s\"")
-      assert_includes e.message, '`name` is required'
+      assert_includes e.message, 'llm[0].name: required'
+    end
+
+    it 'rejects a blank llm name, which a type alone would let through' do
+      e = expect_error("[[llm]]\nname = \"  \"\nserver = \"s\"\nmodel = \"m\"")
+      assert_includes e.message, 'llm[0]: `name` must not be blank'
     end
 
     it 'rejects an llm entry without a server reference' do
       e = expect_error("[[llm]]\nname = \"a\"\nmodel = \"m\"")
-      assert_includes e.message, '`server` is required'
+      assert_includes e.message, 'llm[0].server: required'
     end
 
     it 'rejects an llm entry without a model' do
       e = expect_error("[[llm]]\nname = \"a\"\nserver = \"local\"")
-      assert_includes e.message, '`model` is required'
+      assert_includes e.message, 'llm[0].model: required'
     end
 
     it 'rejects a server entry without a url' do
       e = expect_error("[[server]]\nid = \"a\"")
-      assert_includes e.message, '`url` is required'
+      assert_includes e.message, 'server[1].url: required'
     end
 
     it 'rejects a non-positive max_concurrent_requests' do
       e = expect_error("[[server]]\nid = \"a\"\nurl = \"http://x\"\nmax_concurrent_requests = 0")
-      assert_includes e.message, '`max_concurrent_requests` must be a positive integer'
+      assert_includes e.message, 'server[1].max_concurrent_requests: must be at least 1, got 0'
     end
 
     it 'rejects [[server]] written as a plain table' do
       with_dirs do |home, _|
         write_exact_config(home, "[server]\nid = \"a\"\n")
         e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes e.message, 'use [[server]]'
+        assert_includes e.message, 'server: expected Array[Shared::Config::Server]'
       end
     end
 
     it 'rejects a non-boolean sandbox' do
       e = expect_error("[code]\nsandbox = \"yes\"")
-      assert_includes e.message, 'true or false'
+      assert_includes e.message, 'code.sandbox: expected bool, got "yes"'
     end
 
     it 'rejects an unknown key in the [search] table' do
@@ -674,22 +679,22 @@ describe Shared::Config do
 
     it 'rejects a non-string search key' do
       e = expect_error("[search]\nbrave_key = 42")
-      assert_includes e.message, 'must be a string'
+      assert_includes e.message, 'search.brave_key: expected String, got 42'
     end
 
     it 'rejects a non-array engine selection' do
       e = expect_error("[search]\nengines = \"brave\"")
-      assert_includes e.message, 'must be an array of strings'
+      assert_includes e.message, 'search.engines: expected Array[String], got "brave"'
     end
 
     it 'rejects an engine selection holding a non-string' do
       e = expect_error("[search]\nengines = [\"brave\", 3]")
-      assert_includes e.message, 'must be an array of strings'
+      assert_includes e.message, 'search.engines[1]: expected String, got 3'
     end
 
     it 'rejects [search] declared as an array of tables' do
       e = expect_error("[[search]]\nbrave_key = \"b\"")
-      assert_includes e.message, 'must be a table'
+      assert_includes e.message, 'search: expected Shared::Config::Search'
     end
 
     it 'wraps malformed TOML in Config::Error' do

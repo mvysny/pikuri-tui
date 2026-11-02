@@ -56,6 +56,13 @@ GIT
       unicode-display_width (>= 2.6, < 4.0)
       zeitwerk (~> 2.7)
 
+GIT
+  remote: https://github.com/mvysny/typemap.git
+  revision: a846d0fcd22060fe63ddc88d0b12fba4eededd6b
+  branch: main
+  specs:
+    typemap (0.1.0)
+
 GEM
   remote: https://rubygems.org/
   specs:
@@ -233,6 +240,7 @@ DEPENDENCIES
   pikuri-thunderbird!
   pikuri-workspace!
   rake (~> 13.3)
+  rbs (~> 4.2)
   redcarpet (~> 3.6)
   rouge (>= 4.0, < 6)
   rspec-core (~> 3.13)
@@ -241,6 +249,7 @@ DEPENDENCIES
   sord (~> 7.1)
   tomlrb (~> 3.0)
   tuile!
+  typemap!
   yard (~> 0.9.45)
   zeitwerk (~> 2.7)
 
@@ -329,6 +338,7 @@ CHECKSUMS
   tty-cursor (0.7.1) sha256=79534185e6a777888d88628b14b6a1fdf5154a603f285f80b1753e1908e0bf48
   tty-screen (0.8.2) sha256=c090652115beae764336c28802d633f204fb84da93c6a968aa5d8e319e819b50
   tuile (0.17.0)
+  typemap (0.1.0)
   unicode-display_width (3.3.0) sha256=4b7aa66a4b11db50f6f7e98411215cd0dd10eaecb665d36eec5bcacb3fa0b613
   unicode-emoji (4.3.0) sha256=11c02fa73290378c066bb0562cd4c87d8e1b706fbbe0059ca12746a4244de8ce
   uri (1.1.1) sha256=379fa58d27ffb1387eaada68c749d1426738bd0f654d812fcc07e7568f5c57c6

@@ -57,9 +57,16 @@ gem 'rouge', '>= 4.0', '< 6'
 # which was last released in 2015 and ships no license. tomlrb is MIT,
 # actively maintained, and the most-downloaded TOML gem. In :default because
 # BOTH shells read config — the chat shell needs the [[llm]] section, the
-# coding shell that plus [code] / [[code.mcp]]. We parse TOML into a Hash
-# and validate that Hash by hand (the schema is tiny); no JSON Schema gem.
+# coding shell that plus [code] / [[code.mcp]]. typemap, below, checks the
+# parsed Hash; no JSON Schema gem.
 gem 'tomlrb', '~> 3.0'
+
+# Maps the parsed TOML onto Shared::Config's Data classes, checking every value
+# against the type its YARD tag gives. Typemap reads those types from
+# sig/pikuri_tui.rbs through rbs's parser, so rbs is a runtime gem here (about
+# 0.2 s of `require` at boot). On typemap's git main until its first release.
+gem 'rbs', '~> 4.2'
+gem 'typemap', git: 'https://github.com/mvysny/typemap.git', branch: 'main'
 
 # The pikuri-core gem — Agent, Tool, prompts, listeners. The lean
 # foundation of pikuri's seven-gem monorepo split (the +pikuri+

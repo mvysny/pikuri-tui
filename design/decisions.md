@@ -181,3 +181,16 @@ the collision it resolves, and collisions are rare enough that the warn is a che
 name nobody can type from memory. What the loss costs differs per loser and is accepted: a
 shadowed *skill* is still reachable by asking for it in plain language, a shadowed *file command*
 is genuinely unreachable and the warn is the whole remedy.
+
+## D_config_through_typemap — Why map the config file through Typemap rather than check it by hand?
+
+`Shared::Config` used to check its TOML with hand-written `is_a?` tests and unknown-key lists:
+about 150 lines restating what the value objects' YARD tags already said. Typemap maps the merged
+Hash onto `Data` classes and checks each value against its YARD type, read back from
+`sig/pikuri_tui.rbs`, so a type is written once, in the doc comment; a class's `validate` keeps
+only what a type can't say — non-blank, one-of, uniqueness. Why not Typemap's `constrain type:`
+lines and no `rbs` at runtime: every type would be written twice, in YARD and in `constrain`, and
+the two would drift. What we carry: `rbs` loads at boot, about 0.2 s, the lean chat shell's
+included; a stale `sig/` hands the running app stale types, so the gate regenerates it before the
+specs run; and a message names the path and the class (`server: expected
+Array[Shared::Config::Server]`) where the hand-written one named the fix (`use [[server]]`).
