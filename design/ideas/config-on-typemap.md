@@ -8,7 +8,7 @@ sord, so each type is written once, in the doc comment.
 
 ## The rounds, in order
 
-1. **The `ruby` skill's setup, minus rubocop.** Add sord, yard, redcarpet (development group) and
+1. **Done: the `ruby` skill's setup, minus rubocop.** Add sord, yard, redcarpet (development group) and
    simplecov (test group); `.yardopts` (`--markup markdown`, `lib/**/*.rb`, so YARD ≥ 0.9.45
    does not read `sig/` back in); `tasks/sig.rake` with the app variant that lets through a
    `[WARN]` only for a name Ruby resolves after eager-loading (`Tuile::*`, `Pikuri::*`);
@@ -17,8 +17,9 @@ sord, so each type is written once, in the doc comment.
    here: tuile and pikuri ship no `sig/`, and `rbs collection install` downloads, so ask first.
 2. **Rubocop, as its own round.** The repo has never run it; expect a big first diff, likely
    including the column-aligned `key:   value` style in `config.rb`.
-3. **Fix the YARD gaps sord reports across `lib/`, except `Shared::Config`'s private class
-   methods.** Typemap deletes most of them, so typing them first is wasted work.
+3. **Done: fix the YARD gaps sord reports across `lib/`.** Done before round 2, since the gate needed
+   it; `Shared::Config`'s private helpers got typed too, so the gate wasn't left waiting on
+   Typemap, even though round 5 deletes most of them.
 4. **Typemap gains `Object`** (`../typemap/design/ideas/object-values.md`). That one is a blocker.
 5. **`Shared::Config` moves onto Typemap**, then the YARD left in `config.rb` gets fixed.
 
