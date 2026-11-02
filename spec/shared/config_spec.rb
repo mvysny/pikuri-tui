@@ -175,7 +175,7 @@ describe Shared::Config do
       with_dirs do |home, _|
         write_config(home, "params = \"no thinking\"\n")
         e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes e.message, 'llm[0].params: expected Hash[String, Object]'
+        assert_includes e.message, 'llm[0] "Local".params: expected Hash[String, Object]'
       end
     end
   end
@@ -555,7 +555,7 @@ describe Shared::Config do
 
     it 'rejects a non-string env value' do
       e = expect_error("[[code.mcp]]\nid = \"x\"\ncommand = [\"a\"]\nenv = { A = 1 }")
-      assert_includes e.message, 'code.mcp[0].env.A: expected String, got 1; quote it to make it a string'
+      assert_includes e.message, 'code.mcp[0] "x".env.A: expected String, got 1; quote it to make it a string'
     end
 
     it 'rejects auth/headers keys on a stdio MCP server' do
@@ -601,12 +601,12 @@ describe Shared::Config do
 
     it 'rejects a non-integer context_window' do
       e = expect_llm_error("context_window = \"2000000\"\n")
-      assert_includes e.message, 'llm[0].context_window: expected Integer, got "2000000"; remove the quotes'
+      assert_includes e.message, 'llm[0] "Local".context_window: expected Integer, got "2000000"; remove the quotes'
     end
 
     it 'rejects a non-positive context_window' do
       e = expect_llm_error("context_window = 0\n")
-      assert_includes e.message, 'llm[0].context_window: must be at least 1, got 0'
+      assert_includes e.message, 'llm[0] "Local".context_window: must be at least 1, got 0'
     end
 
     it 'rejects duplicate llm names' do
@@ -641,22 +641,22 @@ describe Shared::Config do
 
     it 'rejects an llm entry without a server reference' do
       e = expect_error("[[llm]]\nname = \"a\"\nmodel = \"m\"")
-      assert_includes e.message, 'llm[0].server: required'
+      assert_includes e.message, 'llm[0] "a".server: required'
     end
 
     it 'rejects an llm entry without a model' do
       e = expect_error("[[llm]]\nname = \"a\"\nserver = \"local\"")
-      assert_includes e.message, 'llm[0].model: required'
+      assert_includes e.message, 'llm[0] "a".model: required'
     end
 
     it 'rejects a server entry without a url' do
       e = expect_error("[[server]]\nid = \"a\"")
-      assert_includes e.message, 'server[1].url: required'
+      assert_includes e.message, 'server[1] "a".url: required'
     end
 
     it 'rejects a non-positive max_concurrent_requests' do
       e = expect_error("[[server]]\nid = \"a\"\nurl = \"http://x\"\nmax_concurrent_requests = 0")
-      assert_includes e.message, 'server[1].max_concurrent_requests: must be at least 1, got 0'
+      assert_includes e.message, 'server[1] "a".max_concurrent_requests: must be at least 1, got 0'
     end
 
     it 'rejects [[server]] written as a plain table' do

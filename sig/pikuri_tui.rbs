@@ -5296,10 +5296,11 @@ module Shared
   # == Errors
   # 
   # Every load failure — unreadable file, malformed TOML, schema violation —
-  # raises {Error}. A schema message starts with the offending value's path:
+  # raises {Error}. A schema message starts with the offending value's path, an
+  # array entry named after its index by its +entry_name+:
   # 
-  #   llm[1].context_window: must be at least 1, got 0
-  #   code.mcp[0]: set exactly one of `command` (stdio) or `url` (http)
+  #   llm[1] "Grok 4 Fast".context_window: must be at least 1, got 0
+  #   code.mcp[0] "github": set exactly one of `command` (stdio) or `url` (http)
   # 
   # Loading runs at boot before the screen is up, so the bins rescue {Error}
   # into a plain +warn+ + +exit+ rather than the usual route-to-log-dialog path
@@ -5542,6 +5543,14 @@ module Shared
                         ?api_key: String?,
                         ?max_concurrent_requests: Integer?
                       ) -> void
+
+      # Names the entry in a schema error, +server[1] "grok".url: required+.
+      # 
+      # _@param_ `raw` — the entry as the file wrote it, unchecked
+      # 
+      # _@return_ — its +id+, stripped; blank, missing included, leaves the
+      # bare index, since +server[1] "  "+ names nothing
+      def self.entry_name: (::Hash[String, Object] raw) -> String
 
       def validate: () -> void
 
@@ -5821,6 +5830,11 @@ module Shared
                         ?params: ::Hash[String, Object]
                       ) -> void
 
+      # _@param_ `raw` — see {Server.entry_name}
+      # 
+      # _@return_ — its +name+, stripped
+      def self.entry_name: (::Hash[String, Object] raw) -> String
+
       def validate: () -> void
 
       # _@return_ — see {Llm#name}
@@ -5906,6 +5920,11 @@ module Shared
                         ?headers: ::Hash[String, String]?,
                         ?env: ::Hash[String, String]?
                       ) -> void
+
+      # _@param_ `raw` — see {Server.entry_name}
+      # 
+      # _@return_ — its +id+, stripped
+      def self.entry_name: (::Hash[String, Object] raw) -> String
 
       def validate: () -> void
 

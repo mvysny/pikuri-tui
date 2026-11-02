@@ -174,10 +174,11 @@ require 'typemap'
 # == Errors
 #
 # Every load failure — unreadable file, malformed TOML, schema violation —
-# raises {Error}. A schema message starts with the offending value's path:
+# raises {Error}. A schema message starts with the offending value's path, an
+# array entry named after its index by its +entry_name+:
 #
-#   llm[1].context_window: must be at least 1, got 0
-#   code.mcp[0]: set exactly one of `command` (stdio) or `url` (http)
+#   llm[1] "Grok 4 Fast".context_window: must be at least 1, got 0
+#   code.mcp[0] "github": set exactly one of `command` (stdio) or `url` (http)
 #
 # Loading runs at boot before the screen is up, so the bins rescue {Error}
 # into a plain +warn+ + +exit+ rather than the usual route-to-log-dialog path
@@ -240,6 +241,13 @@ class Shared::Config
     # @param api_key [String, nil] see {#api_key}
     # @param max_concurrent_requests [Integer, nil] see {#max_concurrent_requests}
     def initialize(id:, url:, api_key: nil, max_concurrent_requests: nil) = super
+
+    # Names the entry in a schema error, +server[1] "grok".url: required+.
+    #
+    # @param raw [Hash{String => Object}] the entry as the file wrote it, unchecked
+    # @return [String] its +id+, stripped; blank, missing included, leaves the
+    #   bare index, since +server[1] "  "+ names nothing
+    def self.entry_name(raw) = raw['id'].to_s.strip
 
     # @return [void]
     # @raise [RuntimeError] on a blank +id+ or +url+
@@ -402,6 +410,10 @@ class Shared::Config
     # @param params [Hash{String => Object}] see {#params}
     def initialize(name:, server:, model:, api_key: nil, context_window: nil, params: {}) = super
 
+    # @param raw [Hash{String => Object}] see {Server.entry_name}
+    # @return [String] its +name+, stripped
+    def self.entry_name(raw) = raw['name'].to_s.strip
+
     # @return [void]
     # @raise [RuntimeError] on a blank +name+, +server+ or +model+
     def validate
@@ -456,6 +468,10 @@ class Shared::Config
     # @param headers [Hash{String => String}, nil] see {#headers}
     # @param env [Hash{String => String}, nil] see {#env}
     def initialize(id:, command: nil, url: nil, bearer_token: nil, basic_auth: nil, headers: nil, env: nil) = super
+
+    # @param raw [Hash{String => Object}] see {Server.entry_name}
+    # @return [String] its +id+, stripped
+    def self.entry_name(raw) = raw['id'].to_s.strip
 
     # @return [void]
     # @raise [RuntimeError] on a stdio/HTTP mix-up, a blank value, or two
