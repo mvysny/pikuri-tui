@@ -187,8 +187,9 @@ is genuinely unreachable and the warn is the whole remedy.
 `Shared::Config` used to check its TOML with hand-written `is_a?` tests and unknown-key lists:
 about 150 lines restating what the value objects' YARD tags already said. Typemap maps the merged
 Hash onto `Data` classes and checks each value against its YARD type, read back from
-`sig/pikuri_tui.rbs`, so a type is written once, in the doc comment; a class's `validate` keeps
-only what a type can't say — non-blank, one-of, uniqueness. Why not Typemap's `constrain type:`
+`sig/pikuri_tui.rbs`, so a type is written once, in the doc comment; `constrain` adds the limits a
+type can't say — ranges, `not_blank:`, `not_empty:`, `unique_by:` — and a class's `validate` keeps
+only what no limit can, such as `[[code.mcp]]`'s stdio/HTTP exclusivity. Why not Typemap's `constrain type:`
 lines and no `rbs` at runtime: every type would be written twice, in YARD and in `constrain`, and
 the two would drift. What we carry: `rbs` loads at boot, about 0.2 s, the lean chat shell's
 included; a stale `sig/` hands the running app stale types, so the gate regenerates it before the

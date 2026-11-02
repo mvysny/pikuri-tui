@@ -611,17 +611,17 @@ describe Shared::Config do
 
     it 'rejects duplicate llm names' do
       e = expect_error("#{MINIMAL}\n[[llm]]\nname = \"Local\"\nserver = \"local\"\nmodel = \"m\"\n")
-      assert_includes e.message, 'duplicate'
+      assert_includes e.message, 'llm[1] "Local".name: duplicate of llm[0], both "Local"'
     end
 
     it 'rejects duplicate server ids' do
       e = expect_error("#{MINIMAL}\n[[server]]\nid = \"local\"\nurl = \"http://other\"\n")
-      assert_includes e.message, 'duplicate server id(s): local'
+      assert_includes e.message, 'server[1] "local".id: duplicate of server[0], both "local"'
     end
 
     it 'rejects duplicate mcp ids' do
       e = expect_error("[[code.mcp]]\nid = \"a\"\nurl = \"u\"\n[[code.mcp]]\nid = \"a\"\nurl = \"u2\"")
-      assert_includes e.message, 'duplicate'
+      assert_includes e.message, 'code.mcp[1] "a".id: duplicate of code.mcp[0], both "a"'
     end
 
     it 'rejects an unknown top-level key' do
@@ -636,7 +636,7 @@ describe Shared::Config do
 
     it 'rejects a blank llm name, which a type alone would let through' do
       e = expect_error("[[llm]]\nname = \"  \"\nserver = \"s\"\nmodel = \"m\"")
-      assert_includes e.message, 'llm[0]: `name` must not be blank'
+      assert_includes e.message, 'llm[0].name: must not be blank'
     end
 
     it 'rejects an llm entry without a server reference' do

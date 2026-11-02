@@ -5286,9 +5286,9 @@ module Shared
   # 
   # Typemap maps the merged TOML onto {Root} and the classes nested in it, and
   # checks every value against the type its YARD tag gives (read back from
-  # +sig/pikuri_tui.rbs+, which +rake sig+ generates). A class's +validate+ adds
-  # the rules a type can't state: non-blank names, "exactly one of +command+ /
-  # +url+", unique ids. {.load} then resolves the file's shape into the values
+  # +sig/pikuri_tui.rbs+, which +rake sig+ generates). Typemap's limits add
+  # non-blank names and unique ids; a class's +validate+ keeps only what no limit
+  # can say, "exactly one of +command+ / +url+" and the like. {.load} then resolves the file's shape into the values
   # the shells read: each {LlmTable} with its {Server} looked up becomes an {Llm},
   # each {McpTable} with its auth sugar folded into +headers+ becomes an
   # {McpServer}. {Server} and {Search} already match the file and pass through.
@@ -5548,11 +5548,9 @@ module Shared
       # 
       # _@param_ `raw` — the entry as the file wrote it, unchecked
       # 
-      # _@return_ — its +id+, stripped; blank, missing included, leaves the
-      # bare index, since +server[1] "  "+ names nothing
-      def self.entry_name: (::Hash[String, Object] raw) -> String
-
-      def validate: () -> void
+      # _@return_ — its +id+, which Typemap strips; a blank or missing one
+      # leaves the bare index
+      def self.entry_name: (::Hash[String, Object] raw) -> Object
 
       # _@return_ — unique reference an +[[llm]]+ names in its +server+
       # key; never shown to the user, never stored anywhere outside this
@@ -5832,10 +5830,8 @@ module Shared
 
       # _@param_ `raw` — see {Server.entry_name}
       # 
-      # _@return_ — its +name+, stripped
-      def self.entry_name: (::Hash[String, Object] raw) -> String
-
-      def validate: () -> void
+      # _@return_ — its +name+
+      def self.entry_name: (::Hash[String, Object] raw) -> Object
 
       # _@return_ — see {Llm#name}
       attr_reader name: String
@@ -5865,7 +5861,7 @@ module Shared
     # @!attribute [r] password
     #   @return [String]
     class BasicAuth < Data
-      def validate: () -> void
+      extend Typemap::Constrain
 
       # _@return_ — the +Authorization+ value, strict (newline-free) Base64
       # through +Array#pack+, so no +base64+ require
@@ -5898,6 +5894,8 @@ module Shared
     # @!attribute [r] env
     #   @return [Hash{String => String}, nil] see {McpServer#env}
     class McpTable < Data
+      extend Typemap::Constrain
+
       # _@param_ `id` — see {#id}
       # 
       # _@param_ `command` — see {#command}
@@ -5923,8 +5921,8 @@ module Shared
 
       # _@param_ `raw` — see {Server.entry_name}
       # 
-      # _@return_ — its +id+, stripped
-      def self.entry_name: (::Hash[String, Object] raw) -> String
+      # _@return_ — its +id+
+      def self.entry_name: (::Hash[String, Object] raw) -> Object
 
       def validate: () -> void
 
@@ -5960,8 +5958,10 @@ module Shared
     # @!attribute [r] confirm
     #   @return [Boolean] see {Config#confirm}; a CLI flag outranks it
     # @!attribute [r] mcp
-    #   @return [Array<McpTable>] the +[[code.mcp]]+ entries
+    #   @return [Array<McpTable>] the +[[code.mcp]]+ entries, ids unique
     class CodeTable < Data
+      extend Typemap::Constrain
+
       # _@param_ `sandbox` — see {#sandbox}
       # 
       # _@param_ `confirm` — see {#confirm}
@@ -5975,7 +5975,7 @@ module Shared
       # _@return_ — see {Config#confirm}; a CLI flag outranks it
       attr_reader confirm: bool
 
-      # _@return_ — the +[[code.mcp]]+ entries
+      # _@return_ — the +[[code.mcp]]+ entries, ids unique
       attr_reader mcp: ::Array[McpTable]
     end
 
@@ -6005,9 +6005,9 @@ module Shared
     # The whole file, every table at its default when the file leaves it out.
     # 
     # @!attribute [r] server
-    #   @return [Array<Server>] the +[[server]]+ entries
+    #   @return [Array<Server>] the +[[server]]+ entries, ids unique
     # @!attribute [r] llm
-    #   @return [Array<LlmTable>] the +[[llm]]+ entries
+    #   @return [Array<LlmTable>] the +[[llm]]+ entries, names unique
     # @!attribute [r] search
     #   @return [Search] the +[search]+ table
     # @!attribute [r] code
@@ -6021,6 +6021,8 @@ module Shared
     #   @return [Hash{String => Object}, nil] pikuri-web's table, checked for
     #     shape only
     class Root < Data
+      extend Typemap::Constrain
+
       # _@param_ `server` — see {#server}
       # 
       # _@param_ `llm` — see {#llm}
@@ -6044,12 +6046,10 @@ module Shared
                         ?web: ::Hash[String, Object]?
                       ) -> void
 
-      def validate: () -> void
-
-      # _@return_ — the +[[server]]+ entries
+      # _@return_ — the +[[server]]+ entries, ids unique
       attr_reader server: ::Array[Server]
 
-      # _@return_ — the +[[llm]]+ entries
+      # _@return_ — the +[[llm]]+ entries, names unique
       attr_reader llm: ::Array[LlmTable]
 
       # _@return_ — the +[search]+ table
