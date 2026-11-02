@@ -61,13 +61,15 @@ Every fact lives in exactly one of these; the others link to it.
 - `lib/computer/` — `Computer::App` + `Computer::Layout`: chat's layout, the coding shell's safety machinery.
 - `lib/pikuri_tui.rb` — the Zeitwerk loader (root `lib/`) + eager-load; skips `Code` / `Computer` when their gems are absent.
 - `bin/` — one boot script per shell (CLI, config, pre-screen prompts, then the `App`), plus `setup` / `install` / `uninstall`.
+- `sig/pikuri_tui.rbs` — generated from the YARD tags by `rake sig`, never edited by hand.
 - `spec/support/` — `wait_until` (a real worker thread's UI hand-off), the tool-event builders and `paint` / `painted_region` (one component through its own canvas).
 
 ## Conventions
 
 - **Ruby, no Rails.** Plain classes, `Data.define` for value objects, Tuile for the terminal, pikuri for the runtime.
 - **`# frozen_string_literal: true`** atop every Ruby file, `spec/` and `bin/*` included.
-- **YARD on every public module, class and method in `lib/`**, concrete types in `@param` / `@return` (never `Object`), `@raise` for expected exceptions; `bin/`, `spec/` and the `LOG` constants are exempt.
+- **YARD on every public module, class and method in `lib/`**, `@raise` for expected exceptions; `bin/` and `spec/` are exempt.
+- **A concrete YARD type on every method, attribute and constant in `lib/`, private ones included** — sord compiles them into `sig/pikuri_tui.rbs` and `rake sig` fails on a missing or unresolvable one. `Object` only for a value that can truly be anything (raw TOML); a `LOG` constant's whole doc is `# @return [Logger]`.
 - **`UI-thread-confined` in a class header** means exactly the thread that owns `Screen#run_event_loop`, with off-thread-safe exceptions marked on the methods themselves.
 - **No umbrella namespace.** `lib/` is the Zeitwerk root, so every file maps to a top-level constant (`lib/shared/log/ui.rb` → `Shared::Log::UI`); reusable blocks under `Shared::`, shell-specific code under `Chat` / `Code` / `Computer`.
 - **No `require_relative` inside `lib/`** — Zeitwerk resolves internal references and the boot file eager-loads, so a filename ↔ constant mismatch fails at boot. An acronym needs an `inflector.inflect` entry in `lib/pikuri_tui.rb`.
@@ -83,8 +85,9 @@ Every fact lives in exactly one of these; the others link to it.
 
 ## Commands
 
-- `bundle exec rake check` — the spec suite, then the doc-layer tripwire; also the default task, and what CI runs (`.woodpecker.yml`).
+- `bundle exec rake check` — the spec suite, the sord signatures, then the doc-layer tripwire; also the default task, and what CI runs (`.woodpecker.yml`).
 - `bundle exec rspec spec/code/app_spec.rb:42` — one test, still through Bundler.
+- `bundle exec rake sig` — regenerate `sig/pikuri_tui.rbs` after a YARD change, and commit it; CI fails on a stale one.
 - `bundle exec rake design_tripwires` — the doc-layer checks alone.
 
 ## Skills this project follows

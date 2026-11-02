@@ -27,6 +27,7 @@ module Code
     # @return [String]
     PLACEHOLDER = '(no changes)'
 
+    # @return [Logger]
     LOG = Pikuri.logger_for('git')
     private_constant :LOG
 

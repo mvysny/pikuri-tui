@@ -74,6 +74,7 @@ module Computer
   #
   # UI-thread-confined.
   class App
+    # @return [Logger]
     LOG = Pikuri.logger_for('computer')
     private_constant :LOG
 

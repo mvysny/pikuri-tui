@@ -53,6 +53,7 @@ module Code
   #
   # UI-thread-confined, with exceptions.
   class SkillActivationListener < Pikuri::Agent::Listener::Base
+    # @return [Logger]
     LOG = Pikuri.logger_for('code')
     private_constant :LOG
 
@@ -107,7 +108,7 @@ module Code
     # palette mutation is marshaled onto the UI thread and the notice marshals
     # itself.
     #
-    # @param event [Pikuri::Agent::Event::Base] any agent event; only
+    # @param event [Data] any agent event; only
     #   {Pikuri::Skill::Promoted} is acted on.
     # @return [void]
     def on_event(event)

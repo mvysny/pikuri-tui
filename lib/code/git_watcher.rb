@@ -101,6 +101,7 @@ module Code
     # @return [String]
     UNTRACKED_CODE = '??'
 
+    # @return [Logger]
     LOG = Pikuri.logger_for('git')
     private_constant :LOG
 

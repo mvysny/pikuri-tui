@@ -27,6 +27,7 @@
 # other consumer, pikuri-web, which does serve concurrent conversations — and
 # for the day this one does.
 module Shared::RequestPermits
+  # @return [Logger]
   LOG = Pikuri.logger_for('permits')
   private_constant :LOG
 

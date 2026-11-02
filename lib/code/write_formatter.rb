@@ -17,6 +17,7 @@ module Code
   # dispatch there) — acceptable for the file sizes the model writes;
   # revisit if a large file ever stutters the paint.
   class WriteFormatter
+    # @return [Logger]
     LOG = Pikuri.logger_for('formatter')
     private_constant :LOG
 

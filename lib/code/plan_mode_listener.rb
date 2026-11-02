@@ -50,7 +50,7 @@ module Code
     # other event. Called from the flipping thread — the status-rule mutation
     # is marshaled onto the event-loop thread.
     #
-    # @param event [Pikuri::Agent::Event::Base] any agent event; only
+    # @param event [Data] any agent event; only
     #   {Pikuri::Code::PlanModeChanged} is acted on.
     # @return [void]
     def on_event(event)

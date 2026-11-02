@@ -32,6 +32,7 @@ module Code
   #   because {#trusted?} dedupes on read. Append-only (never rewrite) avoids
   #   the worse race of clobbering a concurrent writer.
   class TrustStore
+    # @return [Logger]
     LOG = Pikuri.logger_for('trust')
     private_constant :LOG
 

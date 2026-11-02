@@ -168,6 +168,7 @@ require 'tomlrb'
 #
 # Immutable.
 class Shared::Config
+  # @return [Logger]
   LOG = Pikuri.logger_for('config')
   private_constant :LOG
 
@@ -235,8 +236,14 @@ class Shared::Config
   #     +{"chat_template_kwargs" => {"enable_thinking" => false}}+ to turn
   #     Qwen 3.6's reasoning off. Frozen, and +{}+ when the entry omits it.
   Llm = Data.define(:name, :server, :model, :api_key, :context_window, :params) do
-    def initialize(params: {}, **rest)
-      super(params: params.freeze, **rest)
+    # @param name [String] see {#name}
+    # @param server [String] see {#server}
+    # @param model [String] see {#model}
+    # @param api_key [String, nil] see {#api_key}
+    # @param context_window [Integer, nil] see {#context_window}
+    # @param params [Hash{String => Object}] see {#params}; frozen here
+    def initialize(name:, server:, model:, api_key:, context_window:, params: {})
+      super(name:, server:, model:, api_key:, context_window:, params: params.freeze)
     end
   end
 
@@ -267,6 +274,11 @@ class Shared::Config
   #     stdio server's subprocess (merged over the inherited environment),
   #     frozen. Always empty for an HTTP server.
   McpServer = Data.define(:id, :command, :url, :headers, :env) do
+    # @param id [String] see {#id}
+    # @param command [Array<String>, nil] see {#command}
+    # @param url [String, nil] see {#url}
+    # @param headers [Hash{String => String}] see {#headers}; frozen here
+    # @param env [Hash{String => String}] see {#env}; frozen here
     def initialize(id:, command: nil, url: nil, headers: {}, env: {})
       super(id: id, command: command, url: url, headers: headers.freeze, env: env.freeze)
     end
@@ -309,6 +321,9 @@ class Shared::Config
   #     rather than preferring Brave. Naming an engine whose key is absent is
   #     an error pikuri raises; this class checks only the shape.
   Search = Data.define(:brave_key, :exa_key, :engines) do
+    # @param brave_key [String, nil] see {#brave_key}
+    # @param exa_key [String, nil] see {#exa_key}
+    # @param engines [Array<String>, nil] see {#engines}; frozen here
     def initialize(brave_key: nil, exa_key: nil, engines: nil)
       super(brave_key: brave_key, exa_key: exa_key, engines: engines&.freeze)
     end
@@ -340,9 +355,9 @@ class Shared::Config
   #   {Shared::ConversationTextView::TOOL_DETAIL_MODES}.
   DEFAULT_TOOL_LINES = :short
 
-  # Config file basename and the per-app subdirectory under each XDG
-  # config root.
+  # @return [String] the config file's basename.
   FILENAME   = 'config.toml'
+  # @return [String] the per-app subdirectory under each XDG config root.
   XDG_SUBDIR = 'pikuri'
 
   # Load and resolve the layered configuration.
@@ -457,6 +472,9 @@ class Shared::Config
   # +/etc/xdg+) is +:+-separated with earlier entries ranking higher, so
   # we append them reversed; +$XDG_CONFIG_HOME+ (default +~/.config+)
   # outranks all of them. No project-local layer — see the class header.
+  #
+  # @param env [#[]] see {.load}
+  # @return [Array<String>] the file paths, lowest priority first
   def self.candidate_paths(env)
     paths = []
     dirs = env['XDG_CONFIG_DIRS'].to_s.empty? ? '/etc/xdg' : env['XDG_CONFIG_DIRS']
@@ -474,6 +492,10 @@ class Shared::Config
   # at boot rather than collected: pikuri's default +$stderr+ sink (or the
   # bins' {Shared::Log::BufferingIO}) carries it to the diagnostic pane once a screen
   # exists, with no caller-side replay.
+  #
+  # @param path [String] the file just read
+  # @param parsed [Hash{String => Object}] its raw TOML
+  # @return [void]
   def self.warn_loose_perms(path, parsed)
     return unless holds_secret?(parsed)
 
@@ -493,6 +515,8 @@ class Shared::Config
   # @return [Boolean] true when the parsed file carries any literal secret
   #   (a +[[server]]+ +api_key+, a +[search]+ +brave_key+/+exa_key+, or an
   #   +[[code.mcp]]+ +bearer_token+/+basic_auth+/+headers+/+env+).
+  #
+  # @param parsed [Hash{String => Object}] one file's raw TOML
   def self.holds_secret?(parsed)
     servers = parsed['server']
     return true if servers.is_a?(Array) && servers.any? { |e| e.is_a?(Hash) && e['api_key'] }
@@ -509,6 +533,10 @@ class Shared::Config
   # Parse one file, wrapping any failure (read error, TOML syntax) in
   # {Error} with the path attached — a library exception we surface at
   # boot rather than let escape as a bare backtrace.
+  #
+  # @param path [String] the file to read
+  # @return [Hash{String => Object}] its raw TOML
+  # @raise [Error] when the file can't be read or isn't valid TOML
   def self.parse_file(path)
     Tomlrb.parse(File.read(path))
   rescue StandardError => e
@@ -517,6 +545,10 @@ class Shared::Config
 
   # Recursive merge: tables merge key-by-key; scalars and arrays take the
   # right-hand (higher-priority) value wholesale.
+  #
+  # @param lower [Hash{String => Object}] the farther file's tables
+  # @param higher [Hash{String => Object}] the nearer file's, winning every conflict
+  # @return [Hash{String => Object}] a new Hash; neither argument is modified
   def self.deep_merge(lower, higher)
     lower.merge(higher) do |_key, lo, hi|
       lo.is_a?(Hash) && hi.is_a?(Hash) ? deep_merge(lo, hi) : hi
@@ -525,6 +557,10 @@ class Shared::Config
 
   # +titler+ and +web+ pass on shape alone — see the class header on a
   # sibling's keys.
+  #
+  # @param merged [Hash{String => Object}] the merged TOML
+  # @return [void]
+  # @raise [Error] on an unknown top-level key or a table of the wrong shape
   def self.validate_top!(merged)
     unknown = merged.keys - %w[server llm search code ui titler web]
     raise Error, "unknown top-level key(s): #{unknown.join(', ')}" unless unknown.empty?
@@ -548,6 +584,9 @@ class Shared::Config
   # key says so in the diagnostic pane instead of silently doing nothing.
   # INFO, not WARN: the file is shared, and a key written for pikuri-web is
   # doing its job there.
+  #
+  # @param merged [Hash{String => Object}] the merged TOML
+  # @return [void]
   def self.log_unread_keys(merged)
     LOG.info('ignoring [titler]: pikuri-web names conversations, these shells hold one') if merged.key?('titler')
     LOG.info('ignoring [web]: pikuri-web serves a port, these shells serve nobody') if merged.key?('web')
@@ -556,6 +595,10 @@ class Shared::Config
   # Unlike +[search]+, whose engine names are pikuri's to define, the
   # +tool_lines+ vocabulary is this app's own — so it is checked against the
   # pane's list rather than a copy that could rot.
+  #
+  # @param ui [Hash{String => Object}] the +[ui]+ table
+  # @return [void]
+  # @raise [Error] on an unknown key or a value of the wrong type
   def self.validate_ui!(ui)
     unknown = ui.keys - %w[show_thinking tool_lines]
     raise Error, "ui: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
@@ -578,6 +621,10 @@ class Shared::Config
   # is pikuri's to say — the bins ask it at boot (see {Search#engines}), so
   # this class stays on the Pikuri-free side of the seam and the engine list
   # is not duplicated here to rot.
+  #
+  # @param table [Hash{String => Object}, nil] the +[search]+ table, +nil+ when absent
+  # @return [Search]
+  # @raise [Error] on an unknown key or a value of the wrong type
   def self.build_search(table)
     table ||= {}
     unknown = table.keys - %w[brave_key exa_key engines]
@@ -593,6 +640,9 @@ class Shared::Config
     Search.new(brave_key: table['brave_key'], exa_key: table['exa_key'], engines: engines)
   end
 
+  # @param code [Hash{String => Object}] the +[code]+ table
+  # @return [void]
+  # @raise [Error] on an unknown key or a value of the wrong type
   def self.validate_code!(code)
     unknown = code.keys - %w[sandbox confirm mcp]
     raise Error, "code: unknown key(s): #{unknown.join(', ')}" unless unknown.empty?
@@ -604,6 +654,10 @@ class Shared::Config
     raise Error, 'code.mcp must be an array of tables (use [[code.mcp]])'
   end
 
+  # @param hash [Object] one +[[server]]+ entry, not yet known to be a table
+  # @param index [Integer] its position, for messages
+  # @return [Server]
+  # @raise [Error] on any schema violation
   def self.build_server(hash, index)
     raise Error, "server[#{index}] must be a table" unless hash.is_a?(Hash)
 
@@ -629,6 +683,12 @@ class Shared::Config
 
   # +by_id+ is every {Server} the merged file defined, so a reference resolves
   # against the whole layered set rather than the file it was written in.
+  #
+  # @param hash [Object] one +[[llm]]+ entry, not yet known to be a table
+  # @param index [Integer] its position, for messages
+  # @param by_id [Hash{String => Server}] every +[[server]]+, by id
+  # @return [Llm]
+  # @raise [Error] on any schema violation, or a +server+ that resolves to nothing
   def self.build_llm(hash, index, by_id)
     raise Error, "llm[#{index}] must be a table" unless hash.is_a?(Hash)
 
@@ -679,6 +739,13 @@ class Shared::Config
   # user's mistake rather than a key whose meaning changed. The entry's stray
   # +api_key+ rides along into the suggested block, so one edit fixes both
   # halves of an old file instead of two round trips.
+  #
+  # @param ref [String] the entry's +server+ value
+  # @param name [String] the entry's +name+, for messages
+  # @param by_id [Hash{String => Server}] every +[[server]]+, by id
+  # @param api_key [String, nil] the entry's stray +api_key+, quoted in the migration hint
+  # @return [Server] the referenced server
+  # @raise [Error] when +ref+ names no server
   def self.resolve_server(ref, name, by_id, api_key)
     found = by_id[ref]
     return found if found
@@ -690,6 +757,9 @@ class Shared::Config
                  "known: #{by_id.keys.map(&:inspect).join(', ')}"
   end
 
+  # @param url [String] the URL the old-format entry wrote in +server+
+  # @param api_key [String, nil] the entry's stray +api_key+
+  # @return [String] the error message, a paste-ready +[[server]]+ block included
   def self.server_is_now_an_id(url, api_key)
     block = +"[[server]]\nid  = \"myserver\"\nurl = #{url.inspect}\n"
     block << "api_key = #{api_key.inspect}\n" if api_key
@@ -701,12 +771,20 @@ class Shared::Config
   # Covers both "no config file at all" and "a file that defines no
   # connection" — the same hole with the same fix, so one message with the
   # path to write it to.
+  #
+  # @param any_loaded [Boolean] whether any config file was found
+  # @param env [#[]] see {.load}
+  # @return [String] the error message, {EXAMPLE_CONFIG} included
   def self.no_connection_message(any_loaded, env)
     opening = any_loaded ? 'no [[llm]] is defined' : 'no config file found'
     "#{opening}, and there is no built-in default connection. " \
       "Write #{candidate_paths(env).last}:\n\n#{EXAMPLE_CONFIG}"
   end
 
+  # @param hash [Object] one +[[code.mcp]]+ entry, not yet known to be a table
+  # @param index [Integer] its position, for messages
+  # @return [McpServer]
+  # @raise [Error] on any schema violation
   def self.build_mcp(hash, index)
     raise Error, "code.mcp[#{index}] must be a table" unless hash.is_a?(Hash)
 
@@ -833,13 +911,22 @@ class Shared::Config
 
   # First non-nil value — precedence resolution that treats +false+ as a
   # real value (so a +sandbox = false+ in a file is not skipped).
+  #
+  # @param values [Boolean, Symbol, nil] the candidates, highest precedence first
+  # @return [Boolean, Symbol, nil] the first non-nil, or +nil+
   def self.pick(*values) = values.find { |v| !v.nil? }
 
+  # @param values [Array<String>] the ids or names to check
+  # @param label [String] what they are, for the message
+  # @return [void]
+  # @raise [Error] naming every duplicate
   def self.check_unique!(values, label)
     dups = values.tally.select { |_, n| n > 1 }.keys
     raise Error, "duplicate #{label}(s): #{dups.join(', ')}" unless dups.empty?
   end
 
+  # @param value [Object] a raw TOML value
+  # @return [Boolean] true for a String with a non-blank character
   def self.non_empty_string?(value) = value.is_a?(String) && !value.strip.empty?
 
   private_class_method :candidate_paths, :warn_loose_perms, :holds_secret?, :parse_file, :deep_merge,

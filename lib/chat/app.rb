@@ -56,6 +56,7 @@ module Chat
   #
   # UI-thread-confined.
   class App
+    # @return [Logger]
     LOG = Pikuri.logger_for('chat')
     private_constant :LOG
 

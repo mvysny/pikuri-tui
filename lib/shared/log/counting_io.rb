@@ -37,6 +37,8 @@ class Shared::Log::CountingIO
   # Re-enters this object's #write once Pikuri.log_io is wired here; safe
   # because the only line we emit is warn-class, so it can't re-trigger
   # #bump_error_count.
+  #
+  # @return [Logger]
   LOG = Pikuri.logger_for('log')
   private_constant :LOG
 

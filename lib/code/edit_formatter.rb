@@ -14,6 +14,7 @@ module Code
   # protocol: {#render_call} on the +ToolCall+, {#render_result} on the
   # paired +ToolResult+.
   class EditFormatter
+    # @return [Logger]
     LOG = Pikuri.logger_for('formatter')
     private_constant :LOG
 

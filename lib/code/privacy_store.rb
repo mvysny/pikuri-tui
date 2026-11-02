@@ -40,6 +40,7 @@ module Code
   #   a later answer wins, and append-only avoids the worse race of clobbering a
   #   concurrent writer.
   class PrivacyStore
+    # @return [Logger]
     LOG = Pikuri.logger_for('privacy')
     private_constant :LOG
 

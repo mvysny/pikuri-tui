@@ -29,6 +29,7 @@ module Shared::Markdown::Grayscale
   # @return [Tuile::Color]
   GRAY = Tuile::Color.new([85, 85, 85])
 
+  # @return [Logger]
   LOG = Pikuri.logger_for('markdown')
   private_constant :LOG
 

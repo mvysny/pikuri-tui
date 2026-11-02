@@ -230,7 +230,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # Safe from any thread: invoked on the agent's worker thread, it marshals the
   # {#current_model=} back onto the UI thread via +screen.event_queue.submit+.
   #
-  # @param event [Pikuri::Agent::Event::Base] any agent event; only
+  # @param event [Data] any agent event; only
   #   {Pikuri::Agent::Event::ModelSwitched} is acted on.
   # @return [void]
   def on_event(event)

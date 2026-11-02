@@ -118,6 +118,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # @return [Integer]
   BAR_COLUMNS = 2
 
+  # @return [Logger]
   LOG = Pikuri.logger_for('markdown')
   private_constant :LOG
 
@@ -706,7 +707,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # Dispatch one event to the pane, marshaled onto the event-loop thread so
     # the downstream region mutations execute under the UI lock.
     #
-    # @param event [Pikuri::Agent::Event::Base]
+    # @param event [Data] any agent event (a +Pikuri::Agent::Event+ variant).
     # @return [void]
     def on_event(event)
       @screen.event_queue.submit { dispatch_event(event) }
@@ -732,7 +733,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # The actual case dispatch. Runs on the event-loop thread (via {#on_event}'s
     # +submit+) so every region mutation is under the UI lock.
     #
-    # @param event [Pikuri::Agent::Event::Base]
+    # @param event [Data] any agent event (a +Pikuri::Agent::Event+ variant).
     # @return [void]
     def dispatch_event(event)
       case event

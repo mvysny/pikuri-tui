@@ -52,6 +52,7 @@ module Shared::Markdown::Renderer
   TABLE_SEPARATOR_LIKE = /^[ \t]*\|?[ \t\-—–:]*\|[ \t\-—–:|]*$/
   private_constant :TABLE_SEPARATOR_LIKE
 
+  # @return [Logger]
   LOG = Pikuri.logger_for('markdown')
   private_constant :LOG
 

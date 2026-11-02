@@ -32,6 +32,7 @@ module Code
     # @return [Integer]
     DIFF_MAX_LINES = 500
 
+    # @return [Logger]
     LOG = Pikuri.logger_for('confirmer')
     private_constant :LOG
 

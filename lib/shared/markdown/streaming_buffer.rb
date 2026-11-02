@@ -104,6 +104,7 @@ class Shared::Markdown::StreamingBuffer
   COMMIT_PROBE_SENTINEL = ""
   private_constant :COMMIT_PROBE_SENTINEL
 
+  # @return [Logger]
   LOG = Pikuri.logger_for('markdown')
   private_constant :LOG
 

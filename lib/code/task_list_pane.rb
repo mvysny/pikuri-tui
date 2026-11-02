@@ -207,7 +207,7 @@ module Code
         @screen = screen
       end
 
-      # @param event [Pikuri::Agent::Event::Base] any agent event; only
+      # @param event [Data] any agent event; only
       #   {Pikuri::Tasks::ListChanged} is acted on.
       # @return [void]
       def on_event(event)

@@ -69,6 +69,7 @@ module Code
   #
   # UI-thread-confined.
   class App
+    # @return [Logger]
     LOG = Pikuri.logger_for('code')
     private_constant :LOG
 

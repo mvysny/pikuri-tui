@@ -1,10 +1,8 @@
 # frozen_string_literal: true
 
 # Types are written once, as YARD tags in lib/; sord compiles them into sig/pikuri_tui.rbs, which
-# is committed but never edited by hand.
-#
-# Not in `rake check` yet: sord still reports untyped tags in lib/. Once they're typed, `check`
-# runs `sig` and CI fails when the regenerated file differs from the committed one.
+# is committed but never edited by hand. `rake check` runs `sig`, and CI fails when the
+# regenerated file differs from the committed one.
 #
 # There's no `sig:validate`: `rbs validate` would have to resolve every Tuile:: and Pikuri:: name,
 # and neither gem ships a sig/. Their signatures exist only as downloads (`rbs collection`).
