@@ -157,7 +157,19 @@ group :computer do
   gem 'pikuri-thunderbird', **pikuri
 end
 
+# Types are written once, as YARD tags; sord compiles them into the committed
+# sig/pikuri_tui.rbs, and `rake sig` (part of `rake check`) fails on any tag
+# sord cannot type. redcarpet renders the Markdown that .yardopts selects.
+group :development do
+  gem 'redcarpet', '~> 3.6'
+  gem 'sord', '~> 7.1', require: false
+  gem 'yard', '~> 0.9.45'
+end
+
 group :test do
+  # Line + branch coverage of the suite, written to coverage/ by spec_helper.
+  gem 'simplecov', '~> 1.3', require: false
+
   # Runs the Rakefile's `check` task — the cross-repo standard entry
   # point (`bundle exec rake check`; also the default task).
   gem 'rake', '~> 13.3'

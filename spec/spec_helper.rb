@@ -1,5 +1,12 @@
 # frozen_string_literal: true
 
+# SimpleCov first, so loading lib/ is measured; the report lands in coverage/.
+require 'simplecov'
+SimpleCov.start do
+  enable_coverage :branch
+  add_filter '/spec/'
+end
+
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 
 # Disable ANSI colorisation in +Shared::Markdown::AnsiConverter+
@@ -10,8 +17,6 @@ $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 ENV['NO_COLOR'] = '1'
 
 require 'rspec/core'
-require 'minitest'
-require 'minitest/assertions'
 require 'stringio'
 
 require 'pikuri-core'
@@ -79,17 +84,11 @@ RSpec.configure do |config|
   # ration another's server. (pikuri's own request_throttle_spec.rb does this.)
   config.after { Pikuri::Agent::ServerPermits.reset! }
 
-  config.include Minitest::Assertions
+  # Minitest's assert_* in every example, with the assertion counter they need.
+  config.expect_with :minitest
   config.include ThreadedUi
   config.include ToolEvents
   config.include PaintOne
-  config.include(Module.new do
-    attr_writer :assertions
-
-    def assertions
-      @assertions ||= 0
-    end
-  end)
 
   # Capture pikuri log output for the duration of the block and return it as
   # a String. pikuri-tui logs through per-class LOG constants
