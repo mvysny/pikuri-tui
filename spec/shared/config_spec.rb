@@ -150,7 +150,7 @@ describe Shared::Config do
       with_dirs do |home, _|
         write_config(home, "ui = 1\n\n#{MINIMAL}")
         err = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes err.message, 'ui: expected Shared::Config::UiTable, got 1'
+        assert_includes err.message, 'ui: expected UiTable, got 1'
       end
     end
   end
@@ -555,7 +555,7 @@ describe Shared::Config do
 
     it 'rejects a non-string env value' do
       e = expect_error("[[code.mcp]]\nid = \"x\"\ncommand = [\"a\"]\nenv = { A = 1 }")
-      assert_includes e.message, 'code.mcp[0].env.A: expected String, got 1'
+      assert_includes e.message, 'code.mcp[0].env.A: expected String, got 1; quote it to make it a string'
     end
 
     it 'rejects auth/headers keys on a stdio MCP server' do
@@ -601,7 +601,7 @@ describe Shared::Config do
 
     it 'rejects a non-integer context_window' do
       e = expect_llm_error("context_window = \"2000000\"\n")
-      assert_includes e.message, 'llm[0].context_window: expected Integer, got "2000000"'
+      assert_includes e.message, 'llm[0].context_window: expected Integer, got "2000000"; remove the quotes'
     end
 
     it 'rejects a non-positive context_window' do
@@ -661,10 +661,31 @@ describe Shared::Config do
 
     it 'rejects [[server]] written as a plain table' do
       with_dirs do |home, _|
-        write_exact_config(home, "[server]\nid = \"a\"\n")
+        write_exact_config(home, "[server]\nid = \"a\"\nurl = \"http://x\"\n")
         e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
-        assert_includes e.message, 'server: expected Array[Shared::Config::Server]'
+        assert_includes e.message, 'server: expected Array[Server], got a single Server; write [[server]], not [server]'
       end
+    end
+
+    it 'rejects [[llm]] written as a plain table' do
+      with_dirs do |home, _|
+        write_exact_config(home, "[llm]\nname = \"a\"\nserver = \"s\"\nmodel = \"m\"\n")
+        e = assert_raises(described_class::Error) { described_class.load(env: env_for(home)) }
+        assert_includes e.message, 'llm: expected Array[LlmTable], got a single LlmTable; write [[llm]], not [llm]'
+      end
+    end
+
+    it 'rejects [[code.mcp]] written as a plain table' do
+      e = expect_error("[code.mcp]\nid = \"a\"\nurl = \"u\"")
+      assert_includes e.message, 'code.mcp: expected Array[McpTable], got a single McpTable; ' \
+                                 'write [[code.mcp]], not [code.mcp]'
+    end
+
+    # The permissions check reads the raw TOML before the schema does, so it
+    # must not assume a table's shape either.
+    it 'rejects [code] written as an array of tables' do
+      e = expect_error("[[code]]\nsandbox = false")
+      assert_includes e.message, 'code: expected CodeTable, got an array of one CodeTable; write [code], not [[code]]'
     end
 
     it 'rejects a non-boolean sandbox' do
@@ -679,22 +700,22 @@ describe Shared::Config do
 
     it 'rejects a non-string search key' do
       e = expect_error("[search]\nbrave_key = 42")
-      assert_includes e.message, 'search.brave_key: expected String, got 42'
+      assert_includes e.message, 'search.brave_key: expected String, got 42; quote it to make it a string'
     end
 
     it 'rejects a non-array engine selection' do
       e = expect_error("[search]\nengines = \"brave\"")
-      assert_includes e.message, 'search.engines: expected Array[String], got "brave"'
+      assert_includes e.message, 'search.engines: expected Array[String], got a single String; wrap it in [ ]'
     end
 
     it 'rejects an engine selection holding a non-string' do
       e = expect_error("[search]\nengines = [\"brave\", 3]")
-      assert_includes e.message, 'search.engines[1]: expected String, got 3'
+      assert_includes e.message, 'search.engines[1]: expected String, got 3; quote it to make it a string'
     end
 
     it 'rejects [search] declared as an array of tables' do
       e = expect_error("[[search]]\nbrave_key = \"b\"")
-      assert_includes e.message, 'search: expected Shared::Config::Search'
+      assert_includes e.message, 'search: expected Search, got an array of one Search; write [search], not [[search]]'
     end
 
     it 'wraps malformed TOML in Config::Error' do

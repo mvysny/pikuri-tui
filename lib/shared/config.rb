@@ -738,7 +738,8 @@ class Shared::Config
     search = parsed['search']
     return true if search.is_a?(Hash) && (search['brave_key'] || search['exa_key'])
 
-    mcp = parsed.dig('code', 'mcp')
+    code = parsed['code']
+    mcp = code['mcp'] if code.is_a?(Hash)
     mcp.is_a?(Array) && mcp.any? do |e|
       e.is_a?(Hash) && (e['bearer_token'] || e['basic_auth'] || e['headers'] || e['env'])
     end
@@ -774,7 +775,7 @@ class Shared::Config
   # @raise [Error] on any schema violation, its message starting with the
   #   offending value's path
   def self.map(merged)
-    MAPPER.load(Root, merged)
+    MAPPER.load(Root, merged, source: :toml)
   rescue Typemap::DataError => e
     raise Error, e.message
   end
