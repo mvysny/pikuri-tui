@@ -193,5 +193,6 @@ only what no limit can, such as `[[code.mcp]]`'s stdio/HTTP exclusivity. Why not
 lines and no `rbs` at runtime: every type would be written twice, in YARD and in `constrain`, and
 the two would drift. What we carry: `rbs` loads at boot, about 0.2 s, the lean chat shell's
 included; a stale `sig/` hands the running app stale types, so the gate regenerates it before the
-specs run; and a message names the path and the class (`server: expected
-Array[Shared::Config::Server]`) where the hand-written one named the fix (`use [[server]]`).
+specs run. Messages are Typemap's, led by the value's path, and a load with `source: :toml`
+words a shape mistake's fix in TOML (`server: expected Array[Server], got a single Server; write
+[[server]], not [server]`), as the hand-written checks did.
