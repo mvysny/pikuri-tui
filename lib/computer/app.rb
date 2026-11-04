@@ -284,6 +284,7 @@ module Computer
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
         conversation: @conversation
       )
+      @session.on_attachment_refused { |reason| @input.refuse_attachment(reason) }
 
       @confirmer = Code::TranscriptConfirmer.new(
         screen: @screen, conversation: @conversation,
@@ -489,9 +490,11 @@ module Computer
     # reachable by name: +/logs+, +/plan+ (toggle), +/model+ (only with more
     # than one connection, like the menu's +m+), +/clear+, and +/exit+ =
     # +/quit+. No +/diff+ — the computer shell has no git window. Plus
-    # +/trifecta+, the one with no menu counterpart: a report to read when you
+    # +/trifecta+, which has no menu counterpart: a report to read when you
     # wonder, not an action worth a leader key — and the shell whose premise is
-    # the reassembled trifecta is the one where it is worth reading. Callbacks
+    # the reassembled trifecta is the one where it is worth reading.
+    # +/image <path>+ has none either: it fills the prompt
+    # ({Shared::InputPane#attach}) rather than acting. Callbacks
     # are lazy (they resolve +@log_ui+ / +@plan_mode+ / +@session+ / +@agent+ /
     # +quit+ at run time), so this is safe to build before the agent; only the
     # +/model+ *presence* is decided now, from {Shared::Model::Picker#multiple?}.
@@ -509,7 +512,9 @@ module Computer
         Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
                                  ->(rest) { @conversation.select_thinking(rest) }),
         Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
-                                 ->(rest) { @conversation.select_tool_detail(rest) })
+                                 ->(rest) { @conversation.select_tool_detail(rest) }),
+        Shared::SlashCommand.new('/image', 'attach an image: /image <path>',
+                                 ->(rest) { @input.attach(rest); nil })
       ]
       if @model_picker.multiple?
         commands << Shared::SlashCommand.new('/model', 'switch model',

@@ -191,6 +191,7 @@ module Chat
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
         conversation: @conversation
       )
+      @session.on_attachment_refused { |reason| @input.refuse_attachment(reason) }
       # ESC (or q) on the transcript hands the caret back rather than falling
       # through to the loop's unhandled-key quit. This shell asks no
       # confirmations, but Tab still reaches the pane.
@@ -207,8 +208,9 @@ module Chat
     # The chat shell's slash commands — the {Shared::LeaderMenu} actions
     # reachable by name: +/logs+, +/model+ (only with more than one connection,
     # like the menu's +m+), +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+,
-    # the one with no menu counterpart: a report to read when you wonder, not an
-    # action worth a leader key. Callbacks are lazy (they resolve +@log_ui+ /
+    # which has no menu counterpart: a report to read when you wonder, not an
+    # action worth a leader key. +/image <path>+ has none either: it fills the
+    # prompt ({Shared::InputPane#attach}) rather than acting. Callbacks are lazy (they resolve +@log_ui+ /
     # +@session+ / +@agent+ / +quit+ at run time), so this is safe to build
     # before the agent; only the +/model+ *presence* is decided now, from
     # {Shared::Model::Picker#multiple?}.
@@ -224,7 +226,9 @@ module Chat
         Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
                                  ->(rest) { @conversation.select_thinking(rest) }),
         Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
-                                 ->(rest) { @conversation.select_tool_detail(rest) })
+                                 ->(rest) { @conversation.select_tool_detail(rest) }),
+        Shared::SlashCommand.new('/image', 'attach an image: /image <path>',
+                                 ->(rest) { @input.attach(rest); nil })
       ]
       if @model_picker.multiple?
         commands << Shared::SlashCommand.new('/model', 'switch model',

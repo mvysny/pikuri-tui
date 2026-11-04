@@ -123,6 +123,43 @@ RSpec.describe Shared::InputPane do
       assert_equal '@/no/such/shot.png why?', pane.area.text.to_s
       assert_equal "Can't attach", screen.pane.modal_overlay.caption.to_s
     end
+
+    it 'attach puts the token first with the caret after it, and Enter sends it' do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, 'my shot.png')
+        File.binwrite(path, "\x89PNG\r\n\x1a\n".b)
+        pane.attach("'#{path}'")
+        assert_equal "@'#{path}' ", pane.area.text.to_s
+        assert_equal pane.area.text.length, pane.area.caret
+        screen.key('?')
+        screen.key(Tuile::Keys::ENTER)
+        assert_equal [['my shot.png ?', ['my shot.png']]], sent
+      end
+    end
+
+    it 'attach alerts and leaves the prompt alone when the file cannot be attached' do
+      pane.attach('/no/such/shot.png')
+      assert_equal '', pane.area.text.to_s
+      assert_equal "Can't attach", screen.pane.modal_overlay.caption.to_s
+    end
+
+    it 'refuse_attachment alerts and puts the refused line back from history' do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, 'shot.png')
+        File.binwrite(path, "\x89PNG\r\n\x1a\n".b)
+        enter("@#{path} why?")
+        pane.refuse_attachment('shot.png (image/png): model m takes no vision input')
+        assert_equal "@#{path} why?", pane.area.text.to_s
+        assert_equal "Can't attach", screen.pane.modal_overlay.caption.to_s
+      end
+    end
+
+    it 'refuse_attachment keeps whatever the user has typed since' do
+      enter('first')
+      Tuile::Testing.set_value(pane.area, 'next thought')
+      pane.refuse_attachment('nope')
+      assert_equal 'next thought', pane.area.text.to_s
+    end
   end
 
   it 'treats Enter on a blank buffer as a consumed no-op' do

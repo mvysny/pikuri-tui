@@ -18,7 +18,9 @@ require 'pikuri-core'
 # drops an image the user believes was sent. Punctuation trailing a bare token
 # (+"see @shot.png, please"+) belongs to the sentence.
 #
-# Every refusal is an {Error} whose message is ready to show the user.
+# {.token} goes the other way, building a checked token from a path for
+# +/image+ to put in the prompt. Every refusal is an {Error} whose message is
+# ready to show the user.
 module Shared::AttachmentTokens
   # A token that names a path which can't be attached. The line it came from
   # should not be sent.
@@ -69,6 +71,36 @@ module Shared::AttachmentTokens
     end
     [text, attachments]
   end
+
+  # Checks the file +arg+ names and returns the token that attaches it, quoted
+  # when the path needs it — what +/image <path>+ puts in the prompt:
+  #
+  #   token("/tmp/shot.png")         # => "@/tmp/shot.png"
+  #   token("'/tmp/my shot.png'")    # => "@'/tmp/my shot.png'"   (a dragged file)
+  #   token("/tmp/my shot.png")      # => "@'/tmp/my shot.png'"   (unquoted: the whole arg is the path)
+  #
+  # @param arg [String] one path, bare, quoted or backslash-escaped.
+  # @return [String] a token {.split} attaches the same file from.
+  # @raise [Error] on a blank +arg+, or a file {.split} would refuse.
+  def self.token(arg)
+    path = unquote(arg.strip)
+    raise Error, 'Usage: /image <path>' if path.empty?
+
+    full = expand(path)
+    raise Error, "No such file: #{path}" unless File.file?(full)
+
+    load(full)
+    return "@#{path}" unless path.match?(/[\s'"\\]/)
+
+    path.include?("'") ? "@#{path.gsub(/([\s'"\\])/, '\\\\\1')}" : "@'#{path}'"
+  end
+
+  # @param arg [String] a path, maybe wrapped in matching quotes.
+  # @return [String] the path with its quotes or backslash escapes removed.
+  def self.unquote(arg)
+    arg[/\A'(.*)'\z/m, 1] || arg[/\A"(.*)"\z/m, 1] || arg.gsub(/\\(.)/, '\1')
+  end
+  private_class_method :unquote
 
   # Peels sentence punctuation off a bare token, unless the file's name really
   # ends in it.

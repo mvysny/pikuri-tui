@@ -213,10 +213,12 @@ module Code
     # The coding shell's built-in slash commands — the {Shared::LeaderMenu}
     # actions reachable by name: +/logs+, +/diff+ (the git-diff popup), +/plan+
     # (toggle), +/model+ (only with more than one connection, like the menu's
-    # +m+), +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+, the one with no
+    # +m+), +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+, which has no
     # menu counterpart: a report to read when you wonder, not an action worth a
     # leader key. Its private leg is whatever the bin's startup question
-    # recorded ({PrivacyStore}), carried in on +filesystem+.
+    # recorded ({PrivacyStore}), carried in on +filesystem+. +/image <path>+ has
+    # none either: it fills the prompt ({Shared::InputPane#attach}) rather than
+    # acting.
     # 
     # These lead the palette and reserve their names; {SkillActivationListener}
     # appends the +/<skill-name>+ half and re-lists it as the path gate opens.
@@ -2371,8 +2373,9 @@ module Chat
     # The chat shell's slash commands — the {Shared::LeaderMenu} actions
     # reachable by name: +/logs+, +/model+ (only with more than one connection,
     # like the menu's +m+), +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+,
-    # the one with no menu counterpart: a report to read when you wonder, not an
-    # action worth a leader key. Callbacks are lazy (they resolve +@log_ui+ /
+    # which has no menu counterpart: a report to read when you wonder, not an
+    # action worth a leader key. +/image <path>+ has none either: it fills the
+    # prompt ({Shared::InputPane#attach}) rather than acting. Callbacks are lazy (they resolve +@log_ui+ /
     # +@session+ / +@agent+ / +quit+ at run time), so this is safe to build
     # before the agent; only the +/model+ *presence* is decided now, from
     # {Shared::Model::Picker#multiple?}.
@@ -2757,9 +2760,11 @@ module Computer
     # reachable by name: +/logs+, +/plan+ (toggle), +/model+ (only with more
     # than one connection, like the menu's +m+), +/clear+, and +/exit+ =
     # +/quit+. No +/diff+ — the computer shell has no git window. Plus
-    # +/trifecta+, the one with no menu counterpart: a report to read when you
+    # +/trifecta+, which has no menu counterpart: a report to read when you
     # wonder, not an action worth a leader key — and the shell whose premise is
-    # the reassembled trifecta is the one where it is worth reading. Callbacks
+    # the reassembled trifecta is the one where it is worth reading.
+    # +/image <path>+ has none either: it fills the prompt
+    # ({Shared::InputPane#attach}) rather than acting. Callbacks
     # are lazy (they resolve +@log_ui+ / +@plan_mode+ / +@session+ / +@agent+ /
     # +quit+ at run time), so this is safe to build before the agent; only the
     # +/model+ *presence* is decided now, from {Shared::Model::Picker#multiple?}.
@@ -2939,6 +2944,13 @@ module Shared
                       model_picker: Shared::Model::Picker,
                       logger: Logger
                     ) -> void
+
+    # Subscribe to a turn the model refused for its images
+    # (+Pikuri::Agent::UnsupportedAttachmentError+): nothing was sent, and the
+    # block runs on the UI thread with the reason.
+    # 
+    #   session.on_attachment_refused { |reason| input.refuse_attachment(reason) }
+    def on_attachment_refused: () ?{ (String reason) -> void } -> void
 
     # _@return_ — whether a turn is currently running. Read on the UI
     # thread.
@@ -3658,7 +3670,9 @@ module Shared
   # drops an image the user believes was sent. Punctuation trailing a bare token
   # (+"see @shot.png, please"+) belongs to the sentence.
   # 
-  # Every refusal is an {Error} whose message is ready to show the user.
+  # {.token} goes the other way, building a checked token from a path for
+  # +/image+ to put in the prompt. Every refusal is an {Error} whose message is
+  # ready to show the user.
   module AttachmentTokens
     MAX_BYTES: Integer
     MIMES: ::Array[String]
@@ -3675,6 +3689,23 @@ module Shared
     # attached token replaced by its file's basename, and the images in token
     # order.
     def self.split: (String line) -> [String, ::Array[Pikuri::Attachment]]
+
+    # Checks the file +arg+ names and returns the token that attaches it, quoted
+    # when the path needs it — what +/image <path>+ puts in the prompt:
+    # 
+    #   token("/tmp/shot.png")         # => "@/tmp/shot.png"
+    #   token("'/tmp/my shot.png'")    # => "@'/tmp/my shot.png'"   (a dragged file)
+    #   token("/tmp/my shot.png")      # => "@'/tmp/my shot.png'"   (unquoted: the whole arg is the path)
+    # 
+    # _@param_ `arg` — one path, bare, quoted or backslash-escaped.
+    # 
+    # _@return_ — a token {.split} attaches the same file from.
+    def self.token: (String arg) -> String
+
+    # _@param_ `arg` — a path, maybe wrapped in matching quotes.
+    # 
+    # _@return_ — the path with its quotes or backslash escapes removed.
+    def self.unquote: (String arg) -> String
 
     # Peels sentence punctuation off a bare token, unless the file's name really
     # ends in it.
@@ -4841,6 +4872,22 @@ module Shared
     # _@param_ `initial` — pre-fill text.
     def capture: (marker: String, ?initial: String) ?{ (String? text) -> void } -> void
 
+    # Put an +@path+ token for +arg+ at the front of the prompt, caret after it,
+    # so the user types the question next — the +/image <path>+ command. A file
+    # that can't be attached gets the same "Can't attach" alert a submit does.
+    # 
+    #   input.attach("'/tmp/my shot.png'")   # prompt: "@'/tmp/my shot.png' ▏"
+    # 
+    # _@param_ `arg` — the path, as typed or dragged after +/image+.
+    def attach: (String arg) -> void
+
+    # Report that the model refused a submitted line's images: the alert, and
+    # the line back in the prompt from history for a fix — unless the user has
+    # already started typing something else.
+    # 
+    # _@param_ `reason` — e.g. +"shot.png (image/png): model m takes no vision input"+.
+    def refuse_attachment: (String reason) -> void
+
     # _@return_ — whether the prompt is currently borrowed by {#capture}.
     def capturing?: () -> bool
 
@@ -4901,6 +4948,14 @@ module Shared
 
       # _@return_ — whether a {#capture} is in progress.
       def capturing?: () -> bool
+
+      # Open the "Can't attach" alert.
+      # 
+      # _@param_ `reason` — the dialog's message.
+      def alert: (String reason) -> void
+
+      # Show the newest history entry, caret at its end.
+      def restore_last: () -> void
 
       # End the capture, empty the buffer, then hand +value+ to its callback — in
       # that order, so a callback that starts a second capture wins.

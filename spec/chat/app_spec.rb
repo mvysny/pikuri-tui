@@ -42,13 +42,13 @@ RSpec.describe Chat::App do
   end
 
   it 'registers the chat slash commands mirroring the leader menu (single connection: no /model)' do
-    assert_equal ['/logs', '/trifecta', '/thinking', '/tools', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/thinking', '/tools', '/image', '/clear', '/exit', '/quit'],
                  app.send(:build_slash_commands).map(&:name)
   end
 
   it 'adds /model to the slash commands only when more than one model is configured' do
     picker_app = build_app(config: chat_config(llms: [llm('Local', 'm1'), llm('Cloud', 'm2')]), model: 'm1')
-    assert_equal ['/logs', '/trifecta', '/thinking', '/tools', '/model', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/thinking', '/tools', '/image', '/model', '/clear', '/exit', '/quit'],
                  picker_app.send(:build_slash_commands).map(&:name)
   end
 

@@ -66,7 +66,7 @@ RSpec.describe Computer::App do
   end
 
   it 'registers the computer slash commands mirroring the leader menu (single connection: no /model, no /diff)' do
-    assert_equal ['/logs', '/trifecta', '/plan', '/thinking', '/tools', '/clear', '/exit', '/quit'],
+    assert_equal ['/logs', '/trifecta', '/plan', '/thinking', '/tools', '/image', '/clear', '/exit', '/quit'],
                  app.send(:build_slash_commands).map(&:name)
   end
 
@@ -86,7 +86,8 @@ RSpec.describe Computer::App do
     def palette = app.instance_variable_get(:@slash_menu).instance_variable_get(:@commands).map(&:name)
 
     it 'appends them after the built-ins, and lets a built-in win a collision' do
-      assert_equal ['/logs', '/trifecta', '/plan', '/thinking', '/tools', '/clear', '/exit', '/quit', '/wh'], palette
+      assert_equal ['/logs', '/trifecta', '/plan', '/thinking', '/tools', '/image', '/clear', '/exit', '/quit', '/wh'],
+                   palette
     end
 
     it 'runs one as an expanded user turn' do

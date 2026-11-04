@@ -149,6 +149,35 @@ class Shared::InputPane < Tuile::Component::Layout
     focus
   end
 
+  # Put an +@path+ token for +arg+ at the front of the prompt, caret after it,
+  # so the user types the question next — the +/image <path>+ command. A file
+  # that can't be attached gets the same "Can't attach" alert a submit does.
+  #
+  #   input.attach("'/tmp/my shot.png'")   # prompt: "@'/tmp/my shot.png' ▏"
+  #
+  # @param arg [String] the path, as typed or dragged after +/image+.
+  # @return [void]
+  def attach(arg)
+    token = Shared::AttachmentTokens.token(arg)
+  rescue Shared::AttachmentTokens::Error => e
+    @area.alert(e.message)
+  else
+    @area.value = "#{token} #{@area.text}"
+    @area.caret = token.length + 1
+    focus
+  end
+
+  # Report that the model refused a submitted line's images: the alert, and
+  # the line back in the prompt from history for a fix — unless the user has
+  # already started typing something else.
+  #
+  # @param reason [String] e.g. +"shot.png (image/png): model m takes no vision input"+.
+  # @return [void]
+  def refuse_attachment(reason)
+    @area.alert(reason)
+    @area.restore_last if @area.text.empty?
+  end
+
   # @return [Boolean] whether the prompt is currently borrowed by {#capture}.
   def capturing? = @area.capturing?
 
@@ -222,6 +251,22 @@ class Shared::InputPane < Tuile::Component::Layout
 
     # @return [Boolean] whether a {#capture} is in progress.
     def capturing? = !@capture.nil?
+
+    # Open the "Can't attach" alert.
+    #
+    # @param reason [String] the dialog's message.
+    # @return [void]
+    def alert(reason)
+      Tuile::Component::ConfirmDialog.alert("Can't attach", reason)
+    end
+
+    # Show the newest history entry, caret at its end.
+    #
+    # @return [void]
+    def restore_last
+      last = @history.entries.last
+      replace_text_quietly(last) if last
+    end
 
     # End the capture, empty the buffer, then hand +value+ to its callback — in
     # that order, so a callback that starts a second capture wins.
@@ -390,7 +435,7 @@ class Shared::InputPane < Tuile::Component::Layout
       begin
         message, attachments = Shared::AttachmentTokens.split(line)
       rescue Shared::AttachmentTokens::Error => e
-        Tuile::Component::ConfirmDialog.alert("Can't attach", e.message)
+        alert(e.message)
         return true
       end
       @history.append(line)

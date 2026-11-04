@@ -124,6 +124,11 @@ tmux needs `allow-passthrough` for it, and Alacritty doesn't speak it. Revisit a
 - **Mid-turn there's always an answer:** the turn in flight already probed `modalities`, so
   `inject_user_message` is pre-checked the same way. pikuri's withhold-with-a-note is only the
   backstop.
+- **Built: the late path** — `AgentSession#on_attachment_refused` → `InputPane#refuse_attachment`.
+  **Not built: every early check.** pikuri's `Agent#attachment_refusal(attachment)` (MIME family
+  → modality → reason) is private, and copying it here would drift; it wants to be public first.
+  Also: a pending model switch (`Model::Picker`) is applied only at the top of the next
+  `run_loop`, so a pre-check must skip while one is pending — it would ask the old model.
 
 ## Images a tool returns (decided: no change)
 

@@ -32,8 +32,8 @@ RSpec.describe Code::App do
   end
 
   it 'registers the coding slash commands mirroring the leader menu (single connection: no /model)' do
-    assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/clear', '/exit',
-                  '/quit'],
+    assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/image', '/clear',
+                  '/exit', '/quit'],
                  app.send(:build_slash_commands).map(&:name)
   end
 
@@ -263,8 +263,8 @@ RSpec.describe Code::App do
     def palette = app.instance_variable_get(:@skill_activation).commands.map(&:name)
 
     it 'lists file commands after the built-ins and before the skills' do
-      assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/clear', '/exit',
-                    '/quit', '/wh', '/writing-rdoc', '/cop'],
+      assert_equal ['/logs', '/trifecta', '/diff', '/sidebar', '/plan', '/thinking', '/tools', '/image', '/clear',
+                    '/exit', '/quit', '/wh', '/writing-rdoc', '/cop'],
                    palette
     end
 

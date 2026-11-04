@@ -311,6 +311,7 @@ module Code
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
         conversation: @conversation
       )
+      @session.on_attachment_refused { |reason| @input.refuse_attachment(reason) }
 
       # The tasks + git sidebar as one box: it owns its tasks-over-git split,
       # the GitWatcher poll (started/stopped in #run), and the diff popup the
@@ -533,10 +534,12 @@ module Code
     # The coding shell's built-in slash commands — the {Shared::LeaderMenu}
     # actions reachable by name: +/logs+, +/diff+ (the git-diff popup), +/plan+
     # (toggle), +/model+ (only with more than one connection, like the menu's
-    # +m+), +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+, the one with no
+    # +m+), +/clear+, and +/exit+ = +/quit+ — plus +/trifecta+, which has no
     # menu counterpart: a report to read when you wonder, not an action worth a
     # leader key. Its private leg is whatever the bin's startup question
-    # recorded ({PrivacyStore}), carried in on +filesystem+.
+    # recorded ({PrivacyStore}), carried in on +filesystem+. +/image <path>+ has
+    # none either: it fills the prompt ({Shared::InputPane#attach}) rather than
+    # acting.
     #
     # These lead the palette and reserve their names; {SkillActivationListener}
     # appends the +/<skill-name>+ half and re-lists it as the path gate opens.
@@ -563,7 +566,9 @@ module Code
         Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
                                  ->(rest) { @conversation.select_thinking(rest) }),
         Shared::SlashCommand.new('/tools', 'tool lines short / verbose (blank toggles)',
-                                 ->(rest) { @conversation.select_tool_detail(rest) })
+                                 ->(rest) { @conversation.select_tool_detail(rest) }),
+        Shared::SlashCommand.new('/image', 'attach an image: /image <path>',
+                                 ->(rest) { @input.attach(rest); nil })
       ]
       if @model_picker.multiple?
         commands << Shared::SlashCommand.new('/model', 'switch model',

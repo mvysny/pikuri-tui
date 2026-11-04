@@ -97,4 +97,37 @@ RSpec.describe Shared::AttachmentTokens do
   it 'refuses an unknown user in a ~ path' do
     assert_raises(described_class::Error) { split('@~nosuchuser_pikuri/x.png') }
   end
+
+  describe '.token' do
+    def token(arg) = described_class.token(arg)
+
+    it 'returns a bare token for a plain path' do
+      path = write('shot.png')
+      assert_equal "@#{path}", token(path)
+    end
+
+    it 'takes a dragged (quoted or escaped) path, or an unquoted one with spaces, and quotes it' do
+      path = write('my shot.png')
+      ["'#{path}'", "\"#{path}\"", path.gsub(' ', '\\ '), path].each do |arg|
+        assert_equal "@'#{path}'", token(arg), arg
+      end
+    end
+
+    it 'escapes a path that holds a single quote, and split reads it back' do
+      path = write("it's.png")
+      tok = token(path)
+      assert_equal(["it's.png", ["it's.png"]], split(tok).then { |t, i| [t, i.map(&:filename)] })
+    end
+
+    it 'round-trips through split for a path with spaces' do
+      path = write('my shot.png')
+      assert_equal ['my shot.png'], split("#{token(path)} hi").last.map(&:filename)
+    end
+
+    it 'refuses a blank argument, a missing file and a non-image' do
+      assert_equal 'Usage: /image <path>', assert_raises(described_class::Error) { token('  ') }.message
+      assert_raises(described_class::Error) { token("#{@dir}/nope.png") }
+      assert_raises(described_class::Error) { token(write('notes.txt', 'hi')) }
+    end
+  end
 end

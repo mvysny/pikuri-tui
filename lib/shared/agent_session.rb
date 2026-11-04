@@ -70,6 +70,19 @@ module Shared
       @logger = logger
       @agent = nil
       @turn_in_progress = false
+      @on_attachment_refused = nil
+    end
+
+    # Subscribe to a turn the model refused for its images
+    # (+Pikuri::Agent::UnsupportedAttachmentError+): nothing was sent, and the
+    # block runs on the UI thread with the reason.
+    #
+    #   session.on_attachment_refused { |reason| input.refuse_attachment(reason) }
+    #
+    # @yieldparam reason [String] e.g. +"shot.png (image/png): model m takes no vision input"+.
+    # @return [void]
+    def on_attachment_refused(&block)
+      @on_attachment_refused = block
     end
 
     # @return [Boolean] whether a turn is currently running. Read on the UI
@@ -198,6 +211,8 @@ module Shared
         # not a failure. Whatever was injected (a skill) already rendered its own
         # SystemInjected block; nudge the user to say something, dim not red.
         @conversation.render_notice('Nothing to send yet — type a message to start the turn.')
+      rescue Pikuri::Agent::UnsupportedAttachmentError => e
+        @screen.event_queue.submit { @on_attachment_refused&.call(e.message) }
       rescue StandardError => e
         @logger.error(
           "agent turn failed: #{e.class}: #{e.message}\n#{(e.backtrace || []).join("\n")}"

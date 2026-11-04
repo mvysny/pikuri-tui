@@ -172,6 +172,17 @@ RSpec.describe Shared::AgentSession do
     let(:png) { Pikuri::Attachment.new(mime: 'image/png', filename: 'a.png', bytes: "\x89PNG\r\n\x1a\n") }
     let(:gif) { Pikuri::Attachment.new(mime: 'image/gif', filename: 'b.gif', bytes: 'GIF89a') }
 
+    it "reports the model's refusal on the UI thread, not as a turn error" do
+      refused = []
+      session.on_attachment_refused { |reason| refused << [reason, Thread.current] }
+      error = Pikuri::Agent::UnsupportedAttachmentError.new(png, 'model m takes no vision input')
+      agent.define_singleton_method(:run_loop) { |**| raise error }
+      session.submit('look', attachments: [png])
+      wait_until { !session.turn_in_progress? }
+      assert_equal [['a.png (image/png): model m takes no vision input', Thread.current]], refused
+      assert_empty conversation.errors
+    end
+
     it 'hands them to run_loop with the message' do
       session.submit('look', attachments: [png])
       wait_until { agent.attachments == [[png]] }
