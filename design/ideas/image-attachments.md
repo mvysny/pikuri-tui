@@ -27,7 +27,7 @@ Bump the pikuri pin to get them (`bundle update pikuri`):
 
 - `lib/shared/agent_session.rb` — the two call sites: `run_loop(user_message:, transport:)` and
   `interloper.inject_user_message(message)`; both need `attachments:`.
-- `lib/shared/input_pane.rb` — where an attachment gets staged.
+- `lib/shared/input_pane.rb` — `/image` and (v2) `Ctrl+V` insert the `@path` token; submit splits it out.
 - `lib/shared/conversation_text_view.rb` — `UserTurn(content:)` renders as `"> #{content}"`;
   a dim `📎` line per attachment.
 
@@ -39,6 +39,20 @@ Bump the pikuri pin to get them (`bundle update pikuri`):
   "no such file", not a silent drop.
 - **v2: `Ctrl+V` pastes a clipboard image**; text paste stays the terminal's own
   (`Ctrl+Shift+V`), as in Claude Code.
+
+## Staging (decided)
+
+- **The staged attachment is the `@path` token in the input pane** — no chip, no hidden state.
+  It's visible, removable by editing, and survives history recall; every way in ends as one.
+- **`/image <file>` rewrites the input to `@<file> ` and leaves the caret behind it** for the
+  question. It can't be a staging command proper: a line starting with `/` goes whole to the slash
+  menu (`InputPane::Area#submit_command`), so it can't carry the question, and holding the image
+  for the next submit would need exactly the hidden state ruled out above.
+- What `/image` adds over typing the token: palette discoverability, and validation before the
+  question is typed — exists, ≤ 5 MiB, PNG/JPEG/GIF/WebP, and the model's vision once
+  `agent.modalities` is known.
+- Submit splits the tokens out as pikuri's `ChatAttachments.split` does (a `@word` naming no file
+  and not path-like stays text); the dim `📎` transcript line comes from `UserTurn#attachments`.
 
 ### What Tuile already gives (0.17.0)
 
@@ -88,8 +102,6 @@ tmux needs `allow-passthrough` for it, and Alacritty doesn't speak it. Revisit a
 
 ## Open questions
 
-- `Q_staging` — is a staged attachment visible in the input pane before submit (a chip/line you
-  can remove), or only in the transcript after?
 - `Q_refusal` — on a blind model: grey out / refuse at staging time via `agent.modalities`, or
   let `UnsupportedAttachmentError` surface as a status message? (`modalities` is `nil` until the
   first turn's probe — the first turn can't be pre-checked.)
