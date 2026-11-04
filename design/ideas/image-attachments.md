@@ -1,42 +1,48 @@
 # Image attachments — show the model a picture
 
 Goal: let the user hand the agent an image ("what's wrong in this screenshot?") from the TUI,
-before a turn and while one runs. To be brainstormed and built in its own session; the sibling
-idea is pikuri-web's `design/ideas/image-attachments.md`.
+before a turn and while one runs. The sibling idea is pikuri-web's
+`design/ideas/image-attachments.md`.
 
-## What pikuri already provides (master as of `ddda137`, 2026-11-04)
+## State — paused 2026-11-04
 
-Bump the pikuri pin to get them (`bundle update pikuri`):
+**v1 is built**, except the early refusal checks. pikuri is pinned at `05b6d97`, which carries
+the attachment API; no `Extension#on_user_message` override exists here, so its new third
+argument broke nothing.
 
-- `Pikuri::Attachment.new(mime:, filename:, bytes:)` — the only attachment type; read the file
-  **once** into bytes (never hand ruby_llm a path).
-- `agent.run_loop(user_message:, attachments: [...])` — an attachment-only turn is fine.
-- `interloper.inject_user_message(text, attachments: [...])` — the same mid-turn.
-- `Event::UserTurn#attachments` — what was actually sent (mid-loop, minus any the model can't
-  take; their `[shot.png not shown: …]` notes are then in `content`).
-- `agent.modalities` (`{vision: false, …}` from llama.cpp's `/props`): a refused attachment makes
-  `run_loop` raise `Pikuri::Agent::UnsupportedAttachmentError` **before** anything is appended;
-  mid-turn it is withheld with a note instead. Check `modalities` up front to grey out the
-  affordance.
-- **Breaking:** `Extension#on_user_message(ctx, content, attachments)` grew a third argument —
-  check any override here.
-- Reference implementation: pikuri's `pikuri-core/bin/chat_attachments.rb` (`@path` tokens,
-  `📎 shot.png (image/png, 48.3 kB)` line, PNG/JPEG/GIF/WebP, 5 MiB cap).
+| Piece | Where |
+|---|---|
+| `@path` tokens split out on submit; a bad token refuses the line with an alert and keeps it | `Shared::AttachmentTokens.split`, `InputPane::Area#submit` |
+| `attachments:` through both pikuri call sites; mid-turn leftovers re-sent as a fresh turn keep theirs | `Shared::AgentSession#submit` / `#deliver_pending_injections` |
+| dim `📎 shot.png (image/png, 48.3 kB)` line per image under the user turn | `Shared::ConversationTextView::Listener#attachment_line` |
+| `/image <path>` in all three shells: validates, puts the token first, caret after it | `Shared::AttachmentTokens.token`, `Shared::InputPane#attach` |
+| late refusal: pikuri's `UnsupportedAttachmentError` → alert + the line back from history | `AgentSession#on_attachment_refused` → `InputPane#refuse_attachment` |
 
-## Where it lands here
+**Left, in order:**
 
-- `lib/shared/agent_session.rb` — the two call sites: `run_loop(user_message:, transport:)` and
-  `interloper.inject_user_message(message)`; both need `attachments:`.
-- `lib/shared/input_pane.rb` — `/image` and (v2) `Ctrl+V` insert the `@path` token; submit splits it out.
-- `lib/shared/conversation_text_view.rb` — `UserTurn(content:)` renders as `"> #{content}"`;
-  a dim `📎` line per attachment.
+1. **Early refusal checks** — blocked on `Q_refusal_primitive` below. Three call points: `/image`
+   before inserting the token, `Area#submit` before the clear, `AgentSession#queue_mid_turn` before
+   `inject_user_message` (today a mid-turn image to a blind model gets pikuri's
+   `[shot.png not shown: …]` note instead of an alert).
+2. **Try it live** — everything so far is checked by specs only, never against a real vision and a
+   real blind model.
+3. **v2: `Ctrl+V`** — the clipboard sketch below.
+4. **Graduate** this file once v1 ships: decisions to `design/decisions.md`, then delete.
+
+## Open questions
+
+- `Q_refusal_primitive` — pikuri's `Agent#attachment_refusal(attachment)` (MIME family → modality
+  → reason, `nil` when unknown) is **private**. Every early check needs exactly it; copying the
+  mapping here would drift. Recommended: make it public in pikuri, bump the pin, then build the
+  three checks. Whichever way: a pending model switch (`Model::Picker`) is applied only at the
+  top of the next `run_loop`, so a pre-check must stand down while one is pending — it would ask
+  the old model.
 
 ## Input (decided)
 
 - **v1: `@path` tokens and `/image <path>`.** A terminal pastes a dragged file as its path, so
   drag-and-drop comes free — but only when the TUI runs on the machine the file was dragged from;
-  over ssh the dropped path names a file on the *local* host, so it must fail with a clear
-  "no such file", not a silent drop.
+  over ssh the dropped path names a file on the *local* host, and fails as "No such file".
 - **v2: `Ctrl+V` pastes a clipboard image**; text paste stays the terminal's own
   (`Ctrl+Shift+V`), as in Claude Code.
 
@@ -44,17 +50,18 @@ Bump the pikuri pin to get them (`bundle update pikuri`):
 
 - **The staged attachment is the `@path` token in the input pane** — no chip, no hidden state.
   It's visible, removable by editing, and survives history recall; every way in ends as one.
-- **`/image <file>` rewrites the input to `@<file> ` and leaves the caret behind it** for the
+- **`/image <file>` puts `@<file> ` at the front of the input with the caret behind it** for the
   question. It can't be a staging command proper: a line starting with `/` goes whole to the slash
   menu (`InputPane::Area#submit_command`), so it can't carry the question, and holding the image
-  for the next submit would need exactly the hidden state ruled out above.
+  for the next submit would need exactly the hidden state ruled out above. Everything after
+  `/image` is the path, so an unquoted one with spaces works; the token is quoted when needed.
 - What `/image` adds over typing the token: palette discoverability, and validation before the
-  question is typed — exists, ≤ 5 MiB, PNG/JPEG/GIF/WebP, and the model's vision once
-  `agent.modalities` is known.
-- Submit splits the tokens out with our own `Shared::AttachmentTokens`, not a port of pikuri's
-  CLI helper: the TUI's input surface (`/image`, `Ctrl+V`) is its own. Each token leaves its
-  file's basename in the text, so "compare @a.png with @b.png" still says which image is which.
-  The dim `📎` transcript line comes from `UserTurn#attachments`.
+  question is typed — exists, ≤ 5 MiB, PNG/JPEG/GIF/WebP (and the model's vision, once
+  `Q_refusal_primitive` lands).
+- **Our own parser, not a port of pikuri's CLI helper** (`pikuri-core/bin/chat_attachments.rb`):
+  the TUI's input surface (`/image`, `Ctrl+V`) is its own. Deliberate differences: each token
+  leaves its file's basename in the text, so "compare @a.png with @b.png" still says which image
+  is which (the CLI drops the token); sentence punctuation behind a bare token stays text.
 
 ### What Tuile already gives (0.17.0)
 
@@ -75,22 +82,25 @@ Bump the pikuri pin to get them (`bundle update pikuri`):
   signal both ways: `ssh -X` forwards `DISPLAY` and `xclip` then reads the user's real clipboard,
   while a tmux session keeps whatever env it was started with, a stale `DISPLAY` included. So a
   probe that exits non-zero ("Can't open display") counts as no clipboard.
-- The outcomes are status-line messages, never a crash: no display → "no clipboard reachable
-  here (over ssh?) — attach with @path"; no tool → "install wl-clipboard / xclip"; no image →
-  "no image on the clipboard".
+- The outcomes go to the same "Can't attach" alert, never a crash: no display → "no clipboard
+  reachable here (over ssh?) — attach with @path"; no tool → "install wl-clipboard / xclip"; no
+  image → "no image on the clipboard".
 - **A pasted image becomes an ordinary `@path` token.** Write the bytes to
-  `$XDG_RUNTIME_DIR/pikuri-tui/paste-<n>.<ext>` and insert the `@path` at the caret. There is no
-  `XDG_*_TEMP`; `XDG_RUNTIME_DIR` (`/run/user/<uid>`) is the closest: per-user, `0700`, tmpfs and
-  cleared on logout. When it's unset, fall back to a `0700` dir under `Dir.tmpdir`; write the file
-  `0600`. The result is that v2 adds no second staging path. The token can be seen and deleted in
-  the input pane like a typed one, and resubmitting it from history works for as long as the file
-  survives. After a logout it fails like any other missing path.
+  `$XDG_RUNTIME_DIR/pikuri-tui/paste-<n>.<ext>` and insert the `@path` at the caret (quoted through
+  `Shared::AttachmentTokens.token`). There is no `XDG_*_TEMP`; `XDG_RUNTIME_DIR`
+  (`/run/user/<uid>`) is the closest: per-user, `0700`, tmpfs and cleared on logout. When it's
+  unset, fall back to a `0700` dir under `Dir.tmpdir`; write the file `0600`. So v2 adds no second
+  staging path: the token can be seen and deleted like a typed one, and resubmitting it from
+  history works for as long as the file survives. After a logout it fails like any other missing
+  path.
 - Run the probe off the UI thread with a timeout — `xclip` can block on an unresponsive selection
   owner — and marshal the inserted token back through `event_queue.submit`.
 - Privacy holds: the clipboard is read only on an explicit keystroke, and nothing leaves the
   machine that the user didn't attach.
 - Where it lives: a small `Shared::` block (say `Shared::ClipboardImage`); the input pane binds the
   key and inserts the `@path` it returns.
+- The owner's own setup (Alacritty → ssh → tmux in a VM, no `DISPLAY`, only `xsel`) is exactly the
+  "no clipboard reachable" case — `@path` / `/image` are the main way in there.
 
 ### Is this a Tuile feature request? Not yet
 
@@ -108,27 +118,22 @@ tmux needs `allow-passthrough` for it, and Alacritty doesn't speak it. Revisit a
   never send the text and drop the image. Earliest points: `/image` and (v2) `Ctrl+V` refuse before
   inserting a token, or writing a temp file; a typed `@path` is refused at submit, before
   `run_loop`.
-- **One surface for every refusal: `Tuile::Component::ConfirmDialog.alert`** — the one-button
-  dialog sized to its message (`InfoDialog` takes half the screen). A missing or oversized file
-  uses it too (built). No greyed chips — they'd need
-  colour a terminal may not render, and there are no chips anyway (see Staging). While
-  `modalities` is still `nil` (the first turn's probe hasn't run), `run_loop` raises
-  `UnsupportedAttachmentError` on the worker before appending anything; catch it there, marshal it
-  back, and open the same dialog. The user can't tell which path refused.
+- **One surface for every refusal: `Tuile::Component::ConfirmDialog.alert("Can't attach", …)`** —
+  the one-button dialog sized to its message (`InfoDialog` takes half the screen). A missing,
+  oversized or non-image file uses it too. No greyed chips — they'd need colour a terminal may not
+  render, and there are no chips anyway (see Staging). While `modalities` is still `nil` (the first
+  turn's probe hasn't run), `run_loop` raises `UnsupportedAttachmentError` on the worker before
+  appending anything; the session marshals it back to the same alert. The user can't tell which
+  path refused.
 - **Not a breach of `D_transcript_confirmer`.** That rules out a modal for questions that open
   *unbidden* mid-typing. This one answers the user's own Enter / `Ctrl+V` / `/image`, and asks
   nothing — dismissing it decides nothing.
-- **The refused line must survive.** `InputPane::Area#submit` clears the buffer *before*
-  `on_submit`, so the submit-time check runs before the clear and leaves the line in place. On the
-  worker-raised path, put the line back if the input is still empty; it's in history either way.
+- **The refused line survives.** The submit-time check runs before `Area#submit`'s clear and
+  leaves the line in place; on the late path the line comes back from history, unless the user
+  has typed something since.
 - **Mid-turn there's always an answer:** the turn in flight already probed `modalities`, so
-  `inject_user_message` is pre-checked the same way. pikuri's withhold-with-a-note is only the
+  `inject_user_message` can be pre-checked the same way. pikuri's withhold-with-a-note is only the
   backstop.
-- **Built: the late path** — `AgentSession#on_attachment_refused` → `InputPane#refuse_attachment`.
-  **Not built: every early check.** pikuri's `Agent#attachment_refusal(attachment)` (MIME family
-  → modality → reason) is private, and copying it here would drift; it wants to be public first.
-  Also: a pending model switch (`Model::Picker`) is applied only at the top of the next
-  `run_loop`, so a pre-check must skip while one is pending — it would ask the old model.
 
 ## Images a tool returns (decided: no change)
 
@@ -140,7 +145,3 @@ line there is ever wanted, the primitive is an `attachments` field on `ToolResul
 add. The two also mean different things: `📎` under a user turn is "you sent this", a tool line is
 "the agent chose to look". Rendering the image itself (sixel / kitty graphics) is a separate idea,
 Tuile's to own.
-
-## Open questions
-
-None — ready to build.
