@@ -100,10 +100,28 @@ clipboard protocol (OSC 5522, MIME types, images included) is the only image-cap
 tmux needs `allow-passthrough` for it, and Alacritty doesn't speak it. Revisit as a Tuile idea
 (probe + `Screen#read_clipboard(mime)`) if a kitty user asks for it.
 
+## Refusal on a blind model (decided)
+
+- **Refuse as early as `agent.modalities` allows, and refuse the whole attempt**, text included —
+  never send the text and drop the image. Earliest points: `/image` and (v2) `Ctrl+V` refuse before
+  inserting a token, or writing a temp file; a typed `@path` is refused at submit, before
+  `run_loop`.
+- **One surface for both cases: a `Tuile::Component::InfoDialog`.** No greyed chips — they'd need
+  colour a terminal may not render, and there are no chips anyway (see Staging). While
+  `modalities` is still `nil` (the first turn's probe hasn't run), `run_loop` raises
+  `UnsupportedAttachmentError` on the worker before appending anything; catch it there, marshal it
+  back, and open the same dialog. The user can't tell which path refused.
+- **Not a breach of `D_transcript_confirmer`.** That rules out a modal for questions that open
+  *unbidden* mid-typing. This one answers the user's own Enter / `Ctrl+V` / `/image`, and asks
+  nothing — dismissing it decides nothing.
+- **The refused line must survive.** `InputPane::Area#submit` clears the buffer *before*
+  `on_submit`, so the submit-time check runs before the clear and leaves the line in place. On the
+  worker-raised path, put the line back if the input is still empty; it's in history either way.
+- **Mid-turn there's always an answer:** the turn in flight already probed `modalities`, so
+  `inject_user_message` is pre-checked the same way. pikuri's withhold-with-a-note is only the
+  backstop.
+
 ## Open questions
 
-- `Q_refusal` — on a blind model: grey out / refuse at staging time via `agent.modalities`, or
-  let `UnsupportedAttachmentError` surface as a status message? (`modalities` is `nil` until the
-  first turn's probe — the first turn can't be pre-checked.)
 - `Q_tool_images` — `read` returning an image already works; should the transcript show it the
   same way (the tool's display line already says `Returned image/png, 27.1 kB`)?
