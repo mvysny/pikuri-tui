@@ -121,7 +121,17 @@ tmux needs `allow-passthrough` for it, and Alacritty doesn't speak it. Revisit a
   `inject_user_message` is pre-checked the same way. pikuri's withhold-with-a-note is only the
   backstop.
 
+## Images a tool returns (decided: no change)
+
+`read` on an image already sends the bytes to the model, and the transcript's generic tool line
+already says so (`Read(docs/shot.png)` / `Returned image/png, 27.1 kB`). It gets no `📎` line:
+`Event::ToolResult` carries only the text note, so spotting an image would mean parsing pikuri's
+summary back out and restyling it — the tui-side remap `D_short_tool_lines` rules out. If a `📎`
+line there is ever wanted, the primitive is an `attachments` field on `ToolResult`, pikuri's to
+add. The two also mean different things: `📎` under a user turn is "you sent this", a tool line is
+"the agent chose to look". Rendering the image itself (sixel / kitty graphics) is a separate idea,
+Tuile's to own.
+
 ## Open questions
 
-- `Q_tool_images` — `read` returning an image already works; should the transcript show it the
-  same way (the tool's display line already says `Returned image/png, 27.1 kB`)?
+None — ready to build.
