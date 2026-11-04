@@ -59,8 +59,8 @@ Bump the pikuri pin to get them (`bundle update pikuri`):
 - **`Ctrl+V` reaches us as a key** — `Tuile::Keys::CTRL_V` (`"\x16"`) through `handle_key?`; no
   Tuile widget binds it. Raw mode turns off the tty's `lnext`, so nothing eats it on the way.
 - **A terminal paste never carries an image.** The terminal reads `text/plain` itself and hands
-  it over bracketed (mode 2004) as one `Component#handle_paste(text)` (`D_bracketed_paste` in
-  Tuile). With an image on the clipboard `Ctrl+Shift+V` sends nothing useful, so image paste has
+  it over bracketed (mode 2004) as one `Component#handle_paste(text)` (Tuile's bracketed-paste
+  decision). With an image on the clipboard `Ctrl+Shift+V` sends nothing useful, so image paste has
   to be *us* reading the clipboard on the `Ctrl+V` key.
 
 ### Reaching the clipboard — v2 sketch
