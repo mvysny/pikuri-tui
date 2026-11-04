@@ -328,6 +328,14 @@ as `Ctrl+K` `s` does). The coding and computer shells also list every on-disk
 prompt template found in `.pikuri/commands` or `.claude/commands`, and the
 coding shell one `/<skill-name>` per skill currently in play.
 
+To show the model an image (PNG, JPEG, GIF or WebP, up to 5 MiB), name it in
+the prompt as `@path` — `@shot.png what's wrong here?` — or drag the file onto
+the terminal, which pastes its path; quote a path with spaces
+(`@'my shot.png'`). `/image <path>` checks the file first and puts the token in
+the prompt for you. Over ssh a dragged path names a file on *your* machine, not
+the one pikuri-tui runs on, so attach by the remote path there. A model that
+reports it takes no images refuses the line before anything is sent.
+
 ## Hacking on it
 
 `AGENTS.md` is the contributor's index — the promises, the invariants, the

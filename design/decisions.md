@@ -196,3 +196,35 @@ included; a stale `sig/` hands the running app stale types, so the gate regenera
 specs run. Messages are Typemap's, led by the value's path, and a load with `source: :toml`
 words a shape mistake's fix in TOML (`server: expected Array[Server], got a single Server; write
 [[server]], not [server]`), as the hand-written checks did.
+
+## D_attachment_token — Why stage an image as an `@path` token in the prompt rather than a chip?
+
+The user hands the agent a picture by naming it in the prompt — `@shot.png`, or a dragged file,
+which a terminal pastes as its path. Every way in ends as that token: `/image <path>` checks the
+file and puts the token at the front of the prompt with the caret behind it, and a clipboard
+paste is to write a file and insert its token too. So a staged image is text the user can see,
+delete by editing and recall from history. Why not a chip above the prompt, or `/image` holding
+the file for the next submit: that is hidden state beside the prompt, a second thing to clear on
+Enter, Escape and recall — and `/image` cannot carry the question itself, since a line starting
+with `/` goes whole to the slash palette. Why our own parser rather than pikuri CLI's
+`chat_attachments.rb`: the TUI's ways in are its own, and its token leaves the file's basename in
+the text, so "compare @a.png with @b.png" still says which is which. The `📎` line under a user
+turn means "you sent this"; an image the `read` tool returns already shows on its tool line and
+gets none — spotting it would mean parsing pikuri's summary back out (`D_short_tool_lines`), and
+the primitive, an `attachments` field on `ToolResult`, is pikuri's to add.
+
+## D_attachment_refusal — Why refuse a whole line when the model can't see its image, rather than send the text alone?
+
+The text alone asks about a picture the model never saw. So a line whose image the model can't
+take is refused whole and stays in the prompt for a fix, as early as pikuri's `Agent#modalities`
+can tell: at `/image`, and at Enter before the prompt clears, mid-turn included. Only a reported
+`false` for `:vision` refuses; unknown — a hosted server that reports nothing — lets the image
+out, and `run_loop`'s own `UnsupportedAttachmentError` is the backstop (mid-turn, pikuri's
+withhold-with-a-note). Both paths, and a missing or oversized file, end in one "Can't attach"
+alert worded alike, so the user can't tell which refused. Why a modal, against
+`D_transcript_confirmer`: that rules out a question opening unbidden mid-typing; this answers the
+user's own keystroke and asks nothing — dismissing it decides nothing. What we carry: to know
+before the first turn, each `App` detects the boot model's modalities blocking
+(`ChatTransport#with_detected_modalities`, at most two requests to a server we already talk to,
+so no new egress). A server that accepts and then hangs costs about 14 s of blank boot screen —
+accepted, since a local one answers in milliseconds and a refused connection fails at once.
