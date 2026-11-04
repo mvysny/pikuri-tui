@@ -134,7 +134,9 @@ module Chat
       @model_picker = Shared::Model::Picker.new(models: @models)
       # Test seam: the backend the agent boots on. Production uses the config's
       # first connection; a spec injects a fake_transport (see class header).
-      @boot_transport = transport || @models.first.transport
+      # Detected now, blocking boot on the server, so an image is checked
+      # before the first turn rather than refused by it.
+      @boot_transport = transport || @models.first.transport.with_detected_modalities
 
       build_components
       @log_ui.wire!
@@ -189,7 +191,7 @@ module Chat
       )
       @input = Shared::InputPane.new(
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
-        conversation: @conversation
+        conversation: @conversation, attachment_refusal: @session.method(:attachment_refusal)
       )
       @session.on_attachment_refused { |reason| @input.refuse_attachment(reason) }
       # ESC (or q) on the transcript hands the caret back rather than falling

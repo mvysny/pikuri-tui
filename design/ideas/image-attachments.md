@@ -6,9 +6,9 @@ before a turn and while one runs. The sibling idea is pikuri-web's
 
 ## State — paused 2026-11-04
 
-**v1 is built**, except the early refusal checks. pikuri is pinned at `e979f02`, which carries
-the attachment API and `ChatTransport#with_detected_modalities`; no `Extension#on_user_message`
-override exists here, so its new third argument broke nothing.
+**v1 is built.** pikuri is pinned at `e979f02`, which carries the attachment API and
+`ChatTransport#with_detected_modalities`; no `Extension#on_user_message` override exists here, so
+its new third argument broke nothing.
 
 | Piece | Where |
 |---|---|
@@ -17,17 +17,15 @@ override exists here, so its new third argument broke nothing.
 | dim `📎 shot.png (image/png, 48.3 kB)` line per image under the user turn | `Shared::ConversationTextView::Listener#attachment_line` |
 | `/image <path>` in all three shells: validates, puts the token first, caret after it | `Shared::AttachmentTokens.token`, `Shared::InputPane#attach` |
 | late refusal: pikuri's `UnsupportedAttachmentError` → alert + the line back from history | `AgentSession#on_attachment_refused` → `InputPane#refuse_attachment` |
+| early refusal at `/image` and at Enter, idle or mid-turn, for the model the line would reach | `AgentSession#attachment_refusal`, passed to `InputPane` as `attachment_refusal:` |
+| modalities known before the first turn and for a picked model | `App#initialize` (boot transport), `Model::Picker#detect_modalities` |
 
 **Left, in order:**
 
-1. **Early refusal checks** — unblocked, on today's pin (see *The early check* below). Three call
-   points: `/image` before inserting the token, `Area#submit` before the clear,
-   `AgentSession#queue_mid_turn` before `inject_user_message` (today a mid-turn image to a blind
-   model gets pikuri's `[shot.png not shown: …]` note instead of an alert).
-2. **Try it live** — everything so far is checked by specs only, never against a real vision and a
+1. **Try it live** — everything so far is checked by specs only, never against a real vision and a
    real blind model.
-3. **v2: `Ctrl+V`** — the clipboard sketch below.
-4. **Graduate** this file once v1 ships: decisions to `design/decisions.md`, then delete.
+2. **v2: `Ctrl+V`** — the clipboard sketch below.
+3. **Graduate** this file once v1 ships: decisions to `design/decisions.md`, then delete.
 
 ## The early check (decided)
 
@@ -38,9 +36,12 @@ override exists here, so its new third argument broke nothing.
   family → modality table. Our parser accepts only PNG/JPEG/GIF/WebP, so for us that table is
   always `image → :vision`. It only matters if a non-image type is ever accepted, which means a
   parser change anyway.
-- **The alert matches the late path's wording:** build `"#{filename} (#{mime}): model #{model}
-  takes no vision input"`, the string `UnsupportedAttachmentError` makes. This copies the
-  format, and we accept that so the user can't tell which path refused.
+- **The alert matches the late path's wording.** The check builds an `UnsupportedAttachmentError`
+  and shows its `message`, so only the reason (`model X takes no vision input`) is copied, and
+  the user can't tell which path refused.
+- **Two call points, not three:** `/image` before inserting the token, and `Area#submit` before
+  the clear. Every typed line goes through `Area#submit`, the mid-turn ones included, so a check
+  in `AgentSession#queue_mid_turn` would only repeat it, and by then the line is already cleared.
 - **Get a value before the first turn with `ChatTransport#with_detected_modalities`.** Without
   it, `agent.modalities` stays `nil` until the first `run_loop` probe, so the first image would
   always go to the late path. The method reads the router's `/v1/models` (`input_modalities`), or
@@ -49,21 +50,24 @@ override exists here, so its new third argument broke nothing.
   UI thread**. pikuri also warns: "detect every transport you hand `Agent`" — a transport that
   differs only in `modalities` still compares unequal, so `apply_transport!` would treat it as a
   model switch (a `ModelSwitched` event, foreign thinking stripped).
-  - **Boot transport:** detect it before `Agent.new` in each `App#initialize`, before the
-    screen is up, as the bins' pre-screen prompts already are. A local server answers in
-    milliseconds, and a refused connection fails at once. A server that accepts the connection
-    and then hangs costs up to `OPEN_TIMEOUT` 2 s + `LOOKUP_TIMEOUT` 5 s per request, two
-    requests at worst, about 14 s of boot. After that the transport comes back unchanged (`nil`
-    modalities, so the late path applies). If that delay matters, detect after the screen is up
-    and build the `Agent` once the answer arrives.
+  - **Boot transport:** detect it before `Agent.new` in each `App#initialize`, blocking. The
+    screen is already up by then (the bin wraps `App.new`), so a slow server shows as a blank
+    screen. A local server answers in milliseconds, and a refused connection fails at once. A
+    server that accepts the connection and then hangs costs up to `OPEN_TIMEOUT` 2 s +
+    `LOOKUP_TIMEOUT` 5 s per request, two requests at worst, about 14 s of boot (accepted). After
+    that the transport comes back unchanged (`nil` modalities, so the late path applies). A
+    spec's injected transport is not detected.
   - **Picker choices:** detect on pick, on a worker, and make the *detected* transport the
-    pending one (`Model::Picker`). Cache the result by `Choice.key`, so picking the current model
-    again hands over a transport equal to the agent's and doesn't switch.
-- **A pending switch: ask the pending transport.** pikuri applies it only at the top of the next
-  `run_loop` (`apply_transport!` then resets `@modalities` to the new transport's own), so
-  until then `agent.modalities` describes the old model. Because the pending transport is
-  detected, the check reads `pending&.modalities || agent.modalities`. It needs to stand down
-  only while that pick's detection is still running.
+    pending one once it answers, unless something else is pending by then. A turn that starts
+    first takes the undetected transport, and its own probe fills in the modalities. **Picking
+    the running model cancels a pending switch** rather than queueing that model's transport,
+    which may differ from the agent's only in detected `modalities` and would switch. So no
+    cache is needed.
+- **A pending switch: ask the pending transport, between turns only.** pikuri applies it at the
+  top of the next `run_loop` (`apply_transport!` then resets `@modalities` to the new
+  transport's own). Between turns the check asks the pending transport, and gets `nil` (lets
+  the image through) while its lookup is still running. Mid-turn it asks the agent, because a
+  mid-turn line joins the running turn on the current model.
 - **Still `nil` when the server reports nothing** (a hosted provider, or a server that's down),
   so the check lets the image through. A worker can also overwrite the value just after the UI
   thread read it. Both cases end up at the late `UnsupportedAttachmentError` alert, or mid-turn
@@ -87,7 +91,7 @@ override exists here, so its new third argument broke nothing.
   for the next submit would need exactly the hidden state ruled out above. Everything after
   `/image` is the path, so an unquoted one with spaces works; the token is quoted when needed.
 - What `/image` adds over typing the token: palette discoverability, and validation before the
-  question is typed — exists, ≤ 5 MiB, PNG/JPEG/GIF/WebP, and (once built) the model's vision.
+  question is typed — exists, ≤ 5 MiB, PNG/JPEG/GIF/WebP, and the model's vision.
 - **Our own parser, not a port of pikuri's CLI helper** (`pikuri-core/bin/chat_attachments.rb`):
   the TUI's input surface (`/image`, `Ctrl+V`) is its own. Deliberate differences: each token
   leaves its file's basename in the text, so "compare @a.png with @b.png" still says which image

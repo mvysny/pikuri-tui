@@ -58,7 +58,8 @@ module Shared
     # @param status_rule [Shared::StatusRuleLabel] the status rule whose
     #   mid-turn spinner this drives (+start_animation+ / +stop_animation+).
     # @param model_picker [Shared::Model::Picker] the shared picker; a pending
-    #   switch is consumed via +take_pending+ at the top of each turn.
+    #   switch is consumed via +take_pending+ at the top of each turn, and read
+    #   via +pending+ by {#attachment_refusal}.
     # @param logger [Logger] the per-shell logger (so dropped-injection and
     #   clear-during-turn warnings keep the shell's subsystem tag in the
     #   diagnostic pane); typically the +App+'s +LOG+ constant.
@@ -88,6 +89,34 @@ module Shared
     # @return [Boolean] whether a turn is currently running. Read on the UI
     #   thread.
     def turn_in_progress? = @turn_in_progress
+
+    # Why the model a {#submit} would reach can't see +attachments+, asked
+    # before anything is sent. Mid-turn that is the running model; between
+    # turns, a pending switch's.
+    #
+    #   session.attachment_refusal([png])
+    #   # => "shot.png (image/png): model m takes no vision input"
+    #
+    # Only a reported +false+ for +:vision+ refuses (+Pikuri::Agent#modalities+).
+    # When nothing is known yet, the answer is +nil+ and the attachment goes
+    # out. On the first turn pikuri's own check catches it, and
+    # {#on_attachment_refused} hears; mid-turn, pikuri withholds it with a
+    # note.
+    #
+    # @param attachments [Array<Pikuri::Attachment>]
+    # @return [String, nil] the reason, worded as +run_loop+'s own refusal; +nil+
+    #   when they may go out.
+    def attachment_refusal(attachments)
+      image = attachments.find { |a| a.mime.start_with?('image/') }
+      return nil unless image
+
+      pending = @model_picker.pending unless @turn_in_progress
+      transport = pending || @agent.transport
+      modalities = pending ? pending.modalities : @agent.modalities
+      return nil unless modalities&.[](:vision) == false
+
+      Pikuri::Agent::UnsupportedAttachmentError.new(image, "model #{transport.model} takes no vision input").message
+    end
 
     # Start a turn for +message+, or — if one is already running — queue it as
     # a mid-turn injection instead of starting a second +run_loop+. The

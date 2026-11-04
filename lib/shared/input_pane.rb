@@ -92,10 +92,14 @@ class Shared::InputPane < Tuile::Component::Layout
   # @param conversation [Shared::ConversationTextView, nil] the transcript
   #   PageUp/PageDown page while the prompt holds focus, or nil to leave those
   #   keys to the {Tuile::Component::TextArea}.
-  def initialize(on_submit:, slash_menu: nil, conversation: nil)
+  # @param attachment_refusal [Proc, Method, nil] called with the images a line
+  #   or {#attach} names; a +String+ back is why the model can't see them, and
+  #   refuses them with the "Can't attach" alert. +nil+ checks nothing.
+  def initialize(on_submit:, slash_menu: nil, conversation: nil, attachment_refusal: nil)
     super()
     @marker = Tuile::Component::Label.new
-    @area = Area.new(on_submit: on_submit, slash_menu: slash_menu, conversation: conversation)
+    @area = Area.new(on_submit: on_submit, slash_menu: slash_menu, conversation: conversation,
+                     attachment_refusal: attachment_refusal)
     add(@marker)
     add(@area)
     # A Theme::Ref re-resolves against the theme on every paint, so the tint
@@ -151,7 +155,8 @@ class Shared::InputPane < Tuile::Component::Layout
 
   # Put an +@path+ token for +arg+ at the front of the prompt, caret after it,
   # so the user types the question next — the +/image <path>+ command. A file
-  # that can't be attached gets the same "Can't attach" alert a submit does.
+  # that can't be attached, or that the model can't see, gets the same "Can't
+  # attach" alert a submit does.
   #
   #   input.attach("'/tmp/my shot.png'")   # prompt: "@'/tmp/my shot.png' ▏"
   #
@@ -159,9 +164,12 @@ class Shared::InputPane < Tuile::Component::Layout
   # @return [void]
   def attach(arg)
     token = Shared::AttachmentTokens.token(arg)
+    _, attachments = Shared::AttachmentTokens.split(token)
   rescue Shared::AttachmentTokens::Error => e
     @area.alert(e.message)
   else
+    return if @area.refused?(attachments)
+
     @area.value = "#{token} #{@area.text}"
     @area.caret = token.length + 1
     focus
@@ -213,11 +221,13 @@ class Shared::InputPane < Tuile::Component::Layout
     #   nil for a plain input (then every slash branch below is skipped).
     # @param conversation [Shared::ConversationTextView, nil] the pane the page
     #   keys scroll, or nil to leave them unclaimed.
-    def initialize(on_submit:, slash_menu:, conversation:)
+    # @param attachment_refusal [Proc, Method, nil] see {Shared::InputPane#initialize}.
+    def initialize(on_submit:, slash_menu:, conversation:, attachment_refusal:)
       super()
       @on_submit = on_submit
       @slash_menu = slash_menu
       @conversation = conversation
+      @attachment_refusal = attachment_refusal
       @history = Shared::PromptHistory.new
       @capture = nil
       # The palette follows the user's edits only: a recall or a clear is this
@@ -258,6 +268,18 @@ class Shared::InputPane < Tuile::Component::Layout
     # @return [void]
     def alert(reason)
       Tuile::Component::ConfirmDialog.alert("Can't attach", reason)
+    end
+
+    # Ask the model check about +attachments+, and alert when it refuses.
+    #
+    # @param attachments [Array<Pikuri::Attachment>]
+    # @return [Boolean] whether they were refused.
+    def refused?(attachments)
+      return false if attachments.empty?
+
+      reason = @attachment_refusal&.call(attachments)
+      alert(reason) if reason
+      !reason.nil?
     end
 
     # Show the newest history entry, caret at its end.
@@ -423,8 +445,9 @@ class Shared::InputPane < Tuile::Component::Layout
     # Split the +@path+ tokens out, record the line as typed, clear it, then
     # hand off to the host callback — in that order, so a handler that redraws
     # synchronously sees an empty input, and one that *raises* costs neither
-    # the clear nor the history entry. A token that can't be attached refuses
-    # the whole line: an alert says why, and the buffer stays for a fix.
+    # the clear nor the history entry. A token that can't be attached, or an
+    # image the model can't see, refuses the whole line: an alert says why, and
+    # the buffer stays for a fix.
     #
     # @return [Boolean] always true; the host has decided Enter is a
     #   meaningful key for the input.
@@ -438,6 +461,8 @@ class Shared::InputPane < Tuile::Component::Layout
         alert(e.message)
         return true
       end
+      return true if refused?(attachments)
+
       @history.append(line)
       self.value = ''
       @on_submit.call(message, attachments: attachments)

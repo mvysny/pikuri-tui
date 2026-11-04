@@ -14,6 +14,9 @@ RSpec.describe Shared::AgentSession do
   # the mid-turn paths.
   class TurnAgentStub
     attr_reader :cancellable, :interloper, :messages, :attachments, :transports, :clear_count, :drained
+    attr_accessor :modalities
+
+    def transport = Pikuri::Agent::ChatTransport.new(model: 'running', provider: :openai)
 
     def initialize(interloper: Pikuri::Agent::Control::Interloper.new)
       @cancellable = Pikuri::Agent::Control::Cancellable.new
@@ -77,12 +80,13 @@ RSpec.describe Shared::AgentSession do
   end
 
   # A one-shot pending-switch source: hands out +pending+ in order, then
-  # +nil+ — the only surface the session uses ({#take_pending}).
+  # +nil+ — the surface the session uses ({#take_pending}, {#pending}).
   class FakePicker
     def initialize(pending: [])
       @pending = pending.dup
     end
 
+    def pending = @pending.first
     def take_pending = @pending.shift
   end
 
@@ -181,6 +185,52 @@ RSpec.describe Shared::AgentSession do
       wait_until { !session.turn_in_progress? }
       assert_equal [['a.png (image/png): model m takes no vision input', Thread.current]], refused
       assert_empty conversation.errors
+    end
+
+    describe '#attachment_refusal' do
+      def transport(model, modalities) = Pikuri::Agent::ChatTransport.new(model: model, provider: :openai,
+                                                                          modalities: modalities)
+
+      it "refuses an image to a model reported blind, in run_loop's words" do
+        agent.modalities = { vision: false }
+        assert_equal 'a.png (image/png): model running takes no vision input', session.attachment_refusal([png])
+      end
+
+      it 'lets it through while vision is unknown or reported' do
+        [nil, {}, { audio: false }, { vision: true }].each do |modalities|
+          agent.modalities = modalities
+          assert_nil session.attachment_refusal([png]), modalities.inspect
+        end
+      end
+
+      it 'asks nothing without an image' do
+        agent.modalities = { vision: false }
+        assert_nil session.attachment_refusal([])
+      end
+
+      it "answers for a pending switch's model between turns" do
+        agent.modalities = { vision: true }
+        session = new_session(picker: FakePicker.new(pending: [transport('blind', { vision: false })]))
+        assert_equal 'a.png (image/png): model blind takes no vision input', session.attachment_refusal([png])
+      end
+
+      it 'stands down while the pending switch is still being looked up' do
+        agent.modalities = { vision: false }
+        session = new_session(picker: FakePicker.new(pending: [transport('new', nil)]))
+        assert_nil session.attachment_refusal([png])
+      end
+
+      it 'answers for the running model mid-turn, a pending switch notwithstanding' do
+        agent.block_turns!
+        agent.modalities = { vision: false }
+        session = new_session(picker: FakePicker.new(pending: [nil, transport('sighted', { vision: true })]))
+        session.submit('first')
+        wait_until { agent.messages.size == 1 }
+        assert_equal 'a.png (image/png): model running takes no vision input', session.attachment_refusal([png])
+      ensure
+        agent.finish_turn!
+        wait_until { !session.turn_in_progress? }
+      end
     end
 
     it 'hands them to run_loop with the message' do

@@ -143,6 +143,43 @@ RSpec.describe Shared::InputPane do
       assert_equal "Can't attach", screen.pane.modal_overlay.caption.to_s
     end
 
+    describe 'with a model that refuses' do
+      let(:pane) do
+        described_class.new(on_submit: ->(text, attachments:) { sent << [text, attachments.map(&:filename)] },
+                            attachment_refusal: ->(images) { "#{images.first.filename}: blind" })
+      end
+
+      def with_png
+        Dir.mktmpdir do |dir|
+          path = File.join(dir, 'shot.png')
+          File.binwrite(path, "\x89PNG\r\n\x1a\n".b)
+          yield path
+        end
+      end
+
+      it 'refuses the line at Enter, keeping it in the buffer' do
+        with_png do |path|
+          enter("@#{path} why?")
+          assert_empty sent
+          assert_equal "@#{path} why?", pane.area.text.to_s
+          assert_equal "Can't attach", screen.pane.modal_overlay.caption.to_s
+        end
+      end
+
+      it 'still sends a line without an image' do
+        enter('@alice hi')
+        assert_equal [['@alice hi', []]], sent
+      end
+
+      it 'refuses attach before the token reaches the prompt' do
+        with_png do |path|
+          pane.attach(path)
+          assert_equal '', pane.area.text.to_s
+          assert_equal "Can't attach", screen.pane.modal_overlay.caption.to_s
+        end
+      end
+    end
+
     it 'refuse_attachment alerts and puts the refused line back from history' do
       Dir.mktmpdir do |dir|
         path = File.join(dir, 'shot.png')

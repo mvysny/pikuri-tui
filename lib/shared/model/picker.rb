@@ -26,8 +26,24 @@ require 'tuile'
 # reference: the picker is a catalog + a request slot, not a source of
 # truth.
 #
+# == Implementation details
+#
+# A pick asks the server which input kinds the model takes
+# (+ChatTransport#with_detected_modalities+), on a worker. When the answer
+# comes back, the detected transport replaces the pending one, so the image
+# check ({Shared::AgentSession#attachment_refusal}) can answer for the model
+# about to run. A turn that starts before the answer takes the undetected
+# transport, and that turn's own probe fills in the modalities. Picking the
+# model already running clears the pending switch. Its transport may differ
+# from the agent's only in detected +modalities+, and pikuri counts that as a
+# switch.
+#
 # UI-thread-confined.
 class Shared::Model::Picker
+  # @return [Logger]
+  LOG = Pikuri.logger_for('models')
+  private_constant :LOG
+
   # @return [String] caption shown at the top of the picker popup.
   CAPTION = 'Switch model'
 
@@ -48,6 +64,11 @@ class Shared::Model::Picker
   #   resolves to a friendly name.
   attr_reader :names
 
+  # @return [Pikuri::Agent::ChatTransport, nil] the pick the next turn will
+  #   switch to, without taking it; its +modalities+ are filled in once the
+  #   server answers.
+  attr_reader :pending
+
   # @return [Boolean] true when there is more than one connection to pick
   #   between — the gate the shells use to decide whether to register the
   #   leader-menu +m+ entry (so the menu never offers a no-op pick).
@@ -58,8 +79,9 @@ class Shared::Model::Picker
   # don't both flag)
   # marked with a +●+. Picking stashes that connection's transport as the
   # pending switch, applied at the top of the next +run_loop+ (see
-  # {#take_pending}); the status rule moves only once the switch lands. ESC /
-  # +q+ dismiss without changing anything.
+  # {#take_pending}); the status rule moves only once the switch lands.
+  # Picking the active entry cancels a pending switch. ESC / +q+ dismiss
+  # without changing anything.
   #
   # Hotkeys cover the first nine entries (+PickerDialog+ keys are single
   # characters); arrow-keys + Enter select any entry.
@@ -76,7 +98,7 @@ class Shared::Model::Picker
     end
     Tuile::Component::PickerDialog.new(CAPTION, options) do |key|
       choice = @models[key.to_i - 1]
-      @pending = choice.transport if choice
+      pick(choice, current_key) if choice
     end.open
   end
 
@@ -90,5 +112,36 @@ class Shared::Model::Picker
     pending = @pending
     @pending = nil
     pending
+  end
+
+  private
+
+  # @param choice [Shared::Model::Choice] the picked entry.
+  # @param current_key [Array(String, String, Hash)] the running model's
+  #   {Shared::Model::Choice.key}.
+  # @return [void]
+  def pick(choice, current_key)
+    if choice.key == current_key
+      @pending = nil
+      return
+    end
+
+    @pending = choice.transport
+    detect_modalities(choice.transport) unless choice.transport.modalities
+  end
+
+  # Look up +transport+'s modalities on a worker, and make the detected copy
+  # the pending switch if +transport+ is still the one pending.
+  #
+  # @param transport [Pikuri::Agent::ChatTransport]
+  # @return [void]
+  def detect_modalities(transport)
+    queue = Tuile::Screen.instance.event_queue
+    Thread.new do
+      detected = transport.with_detected_modalities
+      queue.submit { @pending = detected if @pending.equal?(transport) }
+    rescue StandardError => e
+      LOG.warn("modalities lookup for #{transport.model} failed: #{e.class}: #{e.message}")
+    end
   end
 end

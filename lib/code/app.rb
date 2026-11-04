@@ -213,7 +213,9 @@ module Code
       @model_picker = Shared::Model::Picker.new(models: @models)
       # Test seam: the backend the agent boots on. Production uses the config's
       # first connection; a spec injects a fake_transport (see class header).
-      @boot_transport = transport || @models.first.transport
+      # Detected now, blocking boot on the server, so an image is checked
+      # before the first turn rather than refused by it.
+      @boot_transport = transport || @models.first.transport.with_detected_modalities
       # Built here, not in the agent block: the palette's
       # SkillActivationListener needs its gate before the agent exists.
       # +root:+ is what a `paths:` skill's globs are matched against.
@@ -309,7 +311,7 @@ module Code
       )
       @input = Shared::InputPane.new(
         on_submit: @session.method(:submit), slash_menu: @slash_menu,
-        conversation: @conversation
+        conversation: @conversation, attachment_refusal: @session.method(:attachment_refusal)
       )
       @session.on_attachment_refused { |reason| @input.refuse_attachment(reason) }
 

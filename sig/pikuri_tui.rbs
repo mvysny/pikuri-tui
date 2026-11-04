@@ -2934,7 +2934,7 @@ module Shared
     # 
     # _@param_ `status_rule` — the status rule whose mid-turn spinner this drives (+start_animation+ / +stop_animation+).
     # 
-    # _@param_ `model_picker` — the shared picker; a pending switch is consumed via +take_pending+ at the top of each turn.
+    # _@param_ `model_picker` — the shared picker; a pending switch is consumed via +take_pending+ at the top of each turn, and read via +pending+ by {#attachment_refusal}.
     # 
     # _@param_ `logger` — the per-shell logger (so dropped-injection and clear-during-turn warnings keep the shell's subsystem tag in the diagnostic pane); typically the +App+'s +LOG+ constant.
     def initialize: (
@@ -2955,6 +2955,25 @@ module Shared
     # _@return_ — whether a turn is currently running. Read on the UI
     # thread.
     def turn_in_progress?: () -> bool
+
+    # Why the model a {#submit} would reach can't see +attachments+, asked
+    # before anything is sent. Mid-turn that is the running model; between
+    # turns, a pending switch's.
+    # 
+    #   session.attachment_refusal([png])
+    #   # => "shot.png (image/png): model m takes no vision input"
+    # 
+    # Only a reported +false+ for +:vision+ refuses (+Pikuri::Agent#modalities+).
+    # When nothing is known yet, the answer is +nil+ and the attachment goes
+    # out. On the first turn pikuri's own check catches it, and
+    # {#on_attachment_refused} hears; mid-turn, pikuri withholds it with a
+    # note.
+    # 
+    # _@param_ `attachments`
+    # 
+    # _@return_ — the reason, worded as +run_loop+'s own refusal; +nil+
+    # when they may go out.
+    def attachment_refusal: (::Array[Pikuri::Attachment] attachments) -> String?
 
     # Start a turn for +message+, or — if one is already running — queue it as
     # a mid-turn injection instead of starting a second +run_loop+. The
@@ -4851,7 +4870,14 @@ module Shared
     # _@param_ `slash_menu` — the slash-command palette this prompt drives, or nil for a plain input. This pane becomes its anchor (the palette floats just above it).
     # 
     # _@param_ `conversation` — the transcript PageUp/PageDown page while the prompt holds focus, or nil to leave those keys to the {Tuile::Component::TextArea}.
-    def initialize: (on_submit: (Proc | Method), ?slash_menu: Shared::SlashMenuPopup?, ?conversation: Shared::ConversationTextView?) -> void
+    # 
+    # _@param_ `attachment_refusal` — called with the images a line or {#attach} names; a +String+ back is why the model can't see them, and refuses them with the "Can't attach" alert. +nil+ checks nothing.
+    def initialize: (
+                      on_submit: (Proc | Method),
+                      ?slash_menu: Shared::SlashMenuPopup?,
+                      ?conversation: Shared::ConversationTextView?,
+                      ?attachment_refusal: (Proc | Method)?
+                    ) -> void
 
     # Focuses the editable area. The pane itself is passive layout; the {Area} is
     # what owns the caret and the keyboard, and unlike a
@@ -4874,7 +4900,8 @@ module Shared
 
     # Put an +@path+ token for +arg+ at the front of the prompt, caret after it,
     # so the user types the question next — the +/image <path>+ command. A file
-    # that can't be attached gets the same "Can't attach" alert a submit does.
+    # that can't be attached, or that the model can't see, gets the same "Can't
+    # attach" alert a submit does.
     # 
     #   input.attach("'/tmp/my shot.png'")   # prompt: "@'/tmp/my shot.png' ▏"
     # 
@@ -4939,7 +4966,14 @@ module Shared
       # _@param_ `slash_menu` — the palette to drive, or nil for a plain input (then every slash branch below is skipped).
       # 
       # _@param_ `conversation` — the pane the page keys scroll, or nil to leave them unclaimed.
-      def initialize: (on_submit: (Proc | Method), slash_menu: Shared::SlashMenuPopup?, conversation: Shared::ConversationTextView?) -> void
+      # 
+      # _@param_ `attachment_refusal` — see {Shared::InputPane#initialize}.
+      def initialize: (
+                        on_submit: (Proc | Method),
+                        slash_menu: Shared::SlashMenuPopup?,
+                        conversation: Shared::ConversationTextView?,
+                        attachment_refusal: (Proc | Method)?
+                      ) -> void
 
       # Route the next Enter / ESC to +on_finish+ instead of submitting a turn.
       # 
@@ -4953,6 +4987,13 @@ module Shared
       # 
       # _@param_ `reason` — the dialog's message.
       def alert: (String reason) -> void
+
+      # Ask the model check about +attachments+, and alert when it refuses.
+      # 
+      # _@param_ `attachments`
+      # 
+      # _@return_ — whether they were refused.
+      def refused?: (::Array[Pikuri::Attachment] attachments) -> bool
 
       # Show the newest history entry, caret at its end.
       def restore_last: () -> void
@@ -5040,8 +5081,9 @@ module Shared
       # Split the +@path+ tokens out, record the line as typed, clear it, then
       # hand off to the host callback — in that order, so a handler that redraws
       # synchronously sees an empty input, and one that *raises* costs neither
-      # the clear nor the history entry. A token that can't be attached refuses
-      # the whole line: an alert says why, and the buffer stays for a fix.
+      # the clear nor the history entry. A token that can't be attached, or an
+      # image the model can't see, refuses the whole line: an alert says why, and
+      # the buffer stays for a fix.
       # 
       # _@return_ — always true; the host has decided Enter is a
       # meaningful key for the input.
