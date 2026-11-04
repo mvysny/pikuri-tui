@@ -619,9 +619,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #
   # Mirrors the terminal listener with four intentional departures:
   #
-  # 1. {Pikuri::Agent::Event::UserTurn} renders as +"> #{content}"+ instead of
-  #    staying silent — submitting clears the input, so without an echo the
-  #    user's message would vanish.
+  # 1. {Pikuri::Agent::Event::UserTurn} renders as +"> #{content}"+, plus a dim
+  #    +📎+ line per image, instead of staying silent — submitting clears the
+  #    input, so without an echo the user's message would vanish.
   # 2. Library failures during rendering are caught + logged (by the pane's
   #    {#render_markdown}), never raised — an uncaught raise on the worker
   #    thread would kill the agent loop.
@@ -737,11 +737,12 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # @return [void]
     def dispatch_event(event)
       case event
-      in Pikuri::Agent::Event::UserTurn(content:)
+      in Pikuri::Agent::Event::UserTurn(content:, attachments:)
         @assistant.wipe
         @thinking.preserve
         @thinking_streamed = false
         @view.add_block(@view.theme.user("> #{content}"), indent: @indent)
+        attachments.each { |a| @view.add_block(attachment_line(a), indent: @indent) }
       in Pikuri::Agent::Event::ThinkingDelta(content:)
         @assistant.wipe
         @thinking.append(content)
@@ -933,6 +934,18 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # @param text [String]
     # @return [String]
     def safe(text) = Pikuri::Sanitizer.sanitize(text).text.gsub(/\s+/, ' ').strip
+
+    # The dim line under a user turn for each image it showed the model:
+    #
+    #   > shot.png what's wrong here?
+    #   📎 shot.png (image/png, 48.3 kB)
+    #
+    # @param attachment [Pikuri::Attachment]
+    # @return [String] the toned line.
+    def attachment_line(attachment)
+      size = Pikuri::Tool.format_bytes(attachment.bytes.bytesize)
+      @view.theme.detail("📎 #{safe(attachment.filename)} (#{attachment.mime}, #{size})")
+    end
 
     # Elide +text+ to +limit+ characters, ellipsis included. Applied after
     # {#safe} so a cut can't land inside an escaped +\xNN+ token.

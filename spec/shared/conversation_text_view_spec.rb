@@ -120,6 +120,13 @@ RSpec.describe Shared::ConversationTextView do
     assert_includes rendered, '> hello?'
   end
 
+  it 'renders a dim 📎 line under the UserTurn for each image the model was shown' do
+    png = Pikuri::Attachment.new(mime: 'image/png', filename: "sh\e[31mot.png", bytes: 'x' * 2048)
+    listener.on_event(Pikuri::Agent::Event::UserTurn.new(content: 'why?', attachments: [png]))
+    lines = rendered.lines.map(&:rstrip)
+    assert_equal '📎 sh\x1b[31mot.png (image/png, 2.0 kB)', lines[lines.index('> why?') + 1].strip
+  end
+
   it 'renders mid-loop UserTurn injections (Interloper deliveries) the same way' do
     listener.on_event(Pikuri::Agent::Event::UserTurn.new(content: 'also handle this', mid_loop: true))
     assert_includes rendered, '> also handle this'
