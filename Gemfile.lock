@@ -1,6 +1,6 @@
 GIT
   remote: https://codeberg.org/mvysny/pikuri.git
-  revision: 05b6d978fc6f9142fb1ce46d6c48ea6a721338c1
+  revision: e979f023eec55b23409f54729c4580a5c4bbf4ef
   branch: master
   specs:
     pikuri-code (0.1.0)
