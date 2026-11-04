@@ -47,7 +47,7 @@ RSpec.describe Computer::App do
   # pairs, so a spec observes what a turn was handed without scripting it.
   def spy_on_run_loop(agent)
     seen = []
-    agent.define_singleton_method(:run_loop) { |user_message:, transport: nil| seen << [user_message, transport] }
+    agent.define_singleton_method(:run_loop) { |user_message:, transport: nil, **| seen << [user_message, transport] }
     seen
   end
 

@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
+require 'tmpdir'
+
 RSpec.describe Shared::InputPane do
   let(:submitted) { [] }
-  let(:window)    { described_class.new(on_submit: ->(text) { submitted << text }) }
+  let(:window)    { described_class.new(on_submit: ->(text, **) { submitted << text }) }
 
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
@@ -78,13 +80,49 @@ RSpec.describe Shared::InputPane do
 
   it 'clears the buffer BEFORE invoking on_submit (a redrawing handler sees it empty)' do
     seen = nil
-    win = described_class.new(on_submit: ->(_text) { seen = win.area.text.to_s })
+    win = described_class.new(on_submit: ->(_text, **) { seen = win.area.text.to_s })
     screen = Tuile::Screen.instance
     screen.content = win
     win.focus
     Tuile::Testing.set_value(win.area, 'hi')
     screen.key(Tuile::Keys::ENTER)
     assert_equal '', seen
+  end
+
+  describe '@path attachments' do
+    let(:sent) { [] }
+    let(:pane) do
+      described_class.new(on_submit: ->(text, attachments:) { sent << [text, attachments.map(&:filename)] })
+    end
+    let(:screen) { Tuile::Screen.instance }
+
+    before do
+      screen.content = pane
+      pane.focus
+    end
+
+    def enter(line)
+      Tuile::Testing.set_value(pane.area, line)
+      screen.key(Tuile::Keys::ENTER)
+    end
+
+    it 'hands the images to on_submit, and keeps the line as typed in the history' do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, 'shot.png')
+        File.binwrite(path, "\x89PNG\r\n\x1a\n".b)
+        enter("@#{path} why?")
+        assert_equal [['shot.png why?', ['shot.png']]], sent
+        screen.key(Tuile::Keys::UP_ARROW)
+        assert_equal "@#{path} why?", pane.area.text.to_s
+      end
+    end
+
+    it 'refuses the whole line with an alert, leaving it in the buffer' do
+      enter('@/no/such/shot.png why?')
+      assert_empty sent
+      assert_equal '@/no/such/shot.png why?', pane.area.text.to_s
+      assert_equal "Can't attach", screen.pane.modal_overlay.caption.to_s
+    end
   end
 
   it 'treats Enter on a blank buffer as a consumed no-op' do
@@ -174,7 +212,7 @@ RSpec.describe Shared::InputPane do
         commands: [Shared::SlashCommand.new('/logs', 'open the log', ->(_rest) { nil })],
         conversation: Shared::ConversationTextView.new
       )
-      pane = described_class.new(on_submit: ->(_text) {}, slash_menu: menu)
+      pane = described_class.new(on_submit: ->(_text, **) {}, slash_menu: menu)
       Tuile::Screen.instance.content = pane
       pane.focus
       pane.capture(marker: '✎') { |text| answers << text }
@@ -188,7 +226,7 @@ RSpec.describe Shared::InputPane do
         commands: [Shared::SlashCommand.new('/logs', 'open the log', ->(_rest) { nil })],
         conversation: Shared::ConversationTextView.new
       )
-      pane = described_class.new(on_submit: ->(_text) {}, slash_menu: menu)
+      pane = described_class.new(on_submit: ->(_text, **) {}, slash_menu: menu)
       Tuile::Screen.instance.content = pane
       pane.focus
       Tuile::Testing.set_value(pane.area, '/lo')
@@ -328,7 +366,7 @@ RSpec.describe Shared::InputPane do
     let(:menu) do
       Shared::SlashMenuPopup.new(screen: Tuile::Screen.instance, commands: commands, conversation: conversation)
     end
-    let(:window) { described_class.new(on_submit: ->(text) { submitted << text }, slash_menu: menu) }
+    let(:window) { described_class.new(on_submit: ->(text, **) { submitted << text }, slash_menu: menu) }
 
     before do
       screen = Tuile::Screen.instance
@@ -442,7 +480,7 @@ RSpec.describe Shared::InputPane do
       Shared::SlashMenuPopup.new(screen: Tuile::Screen.instance, commands: commands, conversation: conversation)
     end
     let(:window) do
-      described_class.new(on_submit: ->(text) { submitted << text }, conversation: conversation)
+      described_class.new(on_submit: ->(text, **) { submitted << text }, conversation: conversation)
     end
     let(:half_page) { conversation.rect.height / 2 }
 
@@ -483,7 +521,7 @@ RSpec.describe Shared::InputPane do
     end
 
     it 'leaves the page keys alone without a conversation' do
-      plain = described_class.new(on_submit: ->(text) { submitted << text })
+      plain = described_class.new(on_submit: ->(text, **) { submitted << text })
       Tuile::Screen.instance.content = plain
       plain.focus
       refute plain.area.handle_key?(Tuile::Keys::PAGE_UP)
@@ -491,7 +529,7 @@ RSpec.describe Shared::InputPane do
 
     context 'with the slash palette open' do
       let(:window) do
-        described_class.new(on_submit: ->(text) { submitted << text }, slash_menu: menu, conversation: conversation)
+        described_class.new(on_submit: ->(text, **) { submitted << text }, slash_menu: menu, conversation: conversation)
       end
 
       it 'pages the palette, not the transcript' do

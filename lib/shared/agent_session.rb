@@ -89,17 +89,19 @@ module Shared
     # inject.
     #
     # @param message [String] the draft; blank only from a skill bare-load.
+    # @param attachments [Array<Pikuri::Attachment>] images to show the model
+    #   with +message+.
     # @return [void]
-    def submit(message)
+    def submit(message, attachments: [])
       if @turn_in_progress
-        return if message.to_s.strip.empty?
+        return if message.to_s.strip.empty? && attachments.empty?
 
-        queue_mid_turn(message)
+        queue_mid_turn(message, attachments)
         return
       end
 
       @turn_in_progress = true
-      start_turn(message)
+      start_turn(message, attachments)
     end
 
     # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven
@@ -160,15 +162,16 @@ module Shared
     # message is dropped with a warn in the diagnostic log.
     #
     # @param message [String]
+    # @param attachments [Array<Pikuri::Attachment>]
     # @return [void]
-    def queue_mid_turn(message)
+    def queue_mid_turn(message, attachments)
       interloper = @agent.interloper
       if interloper.nil?
         @logger.warn('mid-turn message dropped: the agent has no Interloper wired')
         return
       end
 
-      interloper.inject_user_message(message)
+      interloper.inject_user_message(message, attachments: attachments)
     end
 
     # Spawn a worker thread for one agent turn. Library exceptions are logged
@@ -178,15 +181,16 @@ module Shared
     # already rendered the +Cancelled+ event.
     #
     # @param message [String]
+    # @param attachments [Array<Pikuri::Attachment>]
     # @return [void]
-    def start_turn(message)
+    def start_turn(message, attachments)
       # Consume the picker's pending model switch (if any) on the UI thread,
       # before the worker spawns: run_loop applies it at the top of the turn.
       # take_pending clears it so it's applied at most once.
       transport = @model_picker.take_pending
       @status_rule.start_animation
       Thread.new do
-        @agent.run_loop(user_message: message, transport: transport)
+        @agent.run_loop(user_message: message, attachments: attachments, transport: transport)
       rescue Pikuri::Agent::Control::Cancellable::Cancelled
         # Notice already rendered by the Shared::ConversationTextView::Listener; nothing else to do.
       rescue Pikuri::Agent::EmptyTurnError
@@ -216,7 +220,7 @@ module Shared
     #
     # The queue holds two {Pikuri::Agent::Control::Interloper::Item} kinds
     # (+:user+ / +:system+). +:user+ leftovers join, in submission order, into
-    # the fresh turn's message; +:system+ leftovers (e.g. a skill scheduled
+    # the fresh turn's message, their attachments with them; +:system+ leftovers (e.g. a skill scheduled
     # during the final assistant message and never drained) go *back* on the
     # queue via +inject_system_message+, so the next +run_loop+ re-applies them
     # as system context at its top rather than folding a skill body into a user
@@ -234,7 +238,7 @@ module Shared
 
       system_items, user_items = pending.partition { |item| item.kind == :system }
       system_items.each { |item| interloper.inject_system_message(item.content) }
-      submit(user_items.map(&:content).join("\n\n"))
+      submit(user_items.map(&:content).join("\n\n"), attachments: user_items.flat_map(&:attachments))
     end
   end
 end

@@ -83,9 +83,9 @@ class Shared::InputPane < Tuile::Component::Layout
   # @return [Integer]
   HEIGHT = 3
 
-  # @param on_submit [Proc, Method] one-arg callable invoked with the
-  #   buffer text when the user presses Enter on a non-blank line; handed
-  #   straight to the wrapped {Area}.
+  # @param on_submit [Proc, Method] called as +(text, attachments:)+ when the
+  #   user presses Enter on a non-blank line: the text with its +@path+ tokens
+  #   split out by {Shared::AttachmentTokens}, and the images they named.
   # @param slash_menu [Shared::SlashMenuPopup, nil] the slash-command palette
   #   this prompt drives, or nil for a plain input. This pane becomes its
   #   anchor (the palette floats just above it).
@@ -163,8 +163,10 @@ class Shared::InputPane < Tuile::Component::Layout
   # The editable content: a {Tuile::Component::TextArea} that rebinds Enter
   # from "insert a newline" to "submit the buffer and clear it".
   #
-  #   # Enter on "hi"   → on_submit.call("hi"), then the field clears
-  #   # Enter on "   "  → no-op (a blank buffer can't burn a turn)
+  #   # Enter on "hi"           → on_submit.call("hi", attachments: []), then the field clears
+  #   # Enter on "@a.png why?"  → on_submit.call("a.png why?", attachments: [a.png's image])
+  #   # Enter on "@nope.png"    → "Can't attach" alert; the line stays
+  #   # Enter on "   "          → no-op (a blank buffer can't burn a turn)
   #
   # Enter is line-at-a-time because pikuri's turn is, and Shift+Enter is not
   # used for a newline: most terminals don't distinguish it from a plain
@@ -175,10 +177,9 @@ class Shared::InputPane < Tuile::Component::Layout
   # inherited unchanged. Private to {Shared::InputPane} — the pane is the only
   # public handle.
   class Area < Tuile::Component::TextArea
-    # @param on_submit [Proc, Method] one-arg callable invoked when the
-    #   user presses Enter on a non-blank buffer. Receives the buffer text
-    #   *before* it is cleared; this class owns the clear, so callers don't
-    #   wipe the input in their handler.
+    # @param on_submit [Proc, Method] called as +(text, attachments:)+ when
+    #   the user presses Enter on a non-blank buffer. This class owns the
+    #   clear, so callers don't wipe the input in their handler.
     # @param slash_menu [Shared::SlashMenuPopup, nil] the palette to drive, or
     #   nil for a plain input (then every slash branch below is skipped).
     # @param conversation [Shared::ConversationTextView, nil] the pane the page
@@ -374,20 +375,27 @@ class Shared::InputPane < Tuile::Component::Layout
       true
     end
 
-    # Capture the buffer, record it, clear it, then hand off to the host
-    # callback — in that order, so a handler that redraws synchronously sees an
-    # empty input, and one that *raises* costs neither the clear nor the
-    # history entry.
+    # Split the +@path+ tokens out, record the line as typed, clear it, then
+    # hand off to the host callback — in that order, so a handler that redraws
+    # synchronously sees an empty input, and one that *raises* costs neither
+    # the clear nor the history entry. A token that can't be attached refuses
+    # the whole line: an alert says why, and the buffer stays for a fix.
     #
     # @return [Boolean] always true; the host has decided Enter is a
     #   meaningful key for the input.
     def submit
-      message = text.dup
-      return true if message.strip.empty?
+      line = text.dup
+      return true if line.strip.empty?
 
-      @history.append(message)
+      begin
+        message, attachments = Shared::AttachmentTokens.split(line)
+      rescue Shared::AttachmentTokens::Error => e
+        Tuile::Component::ConfirmDialog.alert("Can't attach", e.message)
+        return true
+      end
+      @history.append(line)
       self.value = ''
-      @on_submit.call(message)
+      @on_submit.call(message, attachments: attachments)
       true
     end
   end

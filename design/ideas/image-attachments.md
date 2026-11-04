@@ -51,8 +51,10 @@ Bump the pikuri pin to get them (`bundle update pikuri`):
 - What `/image` adds over typing the token: palette discoverability, and validation before the
   question is typed — exists, ≤ 5 MiB, PNG/JPEG/GIF/WebP, and the model's vision once
   `agent.modalities` is known.
-- Submit splits the tokens out as pikuri's `ChatAttachments.split` does (a `@word` naming no file
-  and not path-like stays text); the dim `📎` transcript line comes from `UserTurn#attachments`.
+- Submit splits the tokens out with our own `Shared::AttachmentTokens`, not a port of pikuri's
+  CLI helper: the TUI's input surface (`/image`, `Ctrl+V`) is its own. Each token leaves its
+  file's basename in the text, so "compare @a.png with @b.png" still says which image is which.
+  The dim `📎` transcript line comes from `UserTurn#attachments`.
 
 ### What Tuile already gives (0.17.0)
 
@@ -106,7 +108,9 @@ tmux needs `allow-passthrough` for it, and Alacritty doesn't speak it. Revisit a
   never send the text and drop the image. Earliest points: `/image` and (v2) `Ctrl+V` refuse before
   inserting a token, or writing a temp file; a typed `@path` is refused at submit, before
   `run_loop`.
-- **One surface for both cases: a `Tuile::Component::InfoDialog`.** No greyed chips — they'd need
+- **One surface for every refusal: `Tuile::Component::ConfirmDialog.alert`** — the one-button
+  dialog sized to its message (`InfoDialog` takes half the screen). A missing or oversized file
+  uses it too (built). No greyed chips — they'd need
   colour a terminal may not render, and there are no chips anyway (see Staging). While
   `modalities` is still `nil` (the first turn's probe hasn't run), `run_loop` raises
   `UnsupportedAttachmentError` on the worker before appending anything; catch it there, marshal it

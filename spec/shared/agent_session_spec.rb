@@ -8,17 +8,18 @@ RSpec.describe Shared::AgentSession do
   # +run_loop+ (from the worker thread), +cancellable+ (from {#interrupt}),
   # +interloper+ (mid-turn queueing) and +clear_conversation+.
   #
-  # +run_loop+ records each +user_message:+ / +transport:+; after
+  # +run_loop+ records each +user_message:+ / +attachments:+ / +transport:+; after
   # {#block_turns!} it additionally parks on an internal queue until the
   # spec calls {#finish_turn!}, so a spec can hold a turn open and observe
   # the mid-turn paths.
   class TurnAgentStub
-    attr_reader :cancellable, :interloper, :messages, :transports, :clear_count, :drained
+    attr_reader :cancellable, :interloper, :messages, :attachments, :transports, :clear_count, :drained
 
     def initialize(interloper: Pikuri::Agent::Control::Interloper.new)
       @cancellable = Pikuri::Agent::Control::Cancellable.new
       @interloper = interloper
       @messages = []
+      @attachments = []
       @transports = []
       @drained = []
       @clear_count = 0
@@ -36,8 +37,9 @@ RSpec.describe Shared::AgentSession do
 
     def clear_conversation = @clear_count += 1
 
-    def run_loop(user_message:, transport: nil)
+    def run_loop(user_message:, attachments: [], transport: nil)
       @messages << user_message
+      @attachments << attachments
       @transports << transport
       # Mirror the real agent draining its interloper at turn start, so a
       # re-injected :system leftover is consumed here (recorded for specs)
@@ -164,6 +166,44 @@ RSpec.describe Shared::AgentSession do
   ensure
     agent.finish_turn! # release the leftover-delivery turn
     wait_until { !session.turn_in_progress? }
+  end
+
+  describe 'attachments' do
+    let(:png) { Pikuri::Attachment.new(mime: 'image/png', filename: 'a.png', bytes: "\x89PNG\r\n\x1a\n") }
+    let(:gif) { Pikuri::Attachment.new(mime: 'image/gif', filename: 'b.gif', bytes: 'GIF89a') }
+
+    it 'hands them to run_loop with the message' do
+      session.submit('look', attachments: [png])
+      wait_until { agent.attachments == [[png]] }
+      wait_until { !session.turn_in_progress? }
+    end
+
+    it 'queues a mid-turn submission with its attachments, even an attachment-only one' do
+      agent.block_turns!
+      session.submit('first')
+      wait_until { agent.messages.size == 1 }
+
+      session.submit('', attachments: [png])
+      assert_equal [[png]], agent.interloper.peek.map(&:attachments)
+    ensure
+      2.times { agent.finish_turn! }
+      wait_until { agent.messages.size == 2 && !session.turn_in_progress? }
+    end
+
+    it 'keeps leftover attachments when the leftovers become a fresh turn' do
+      agent.block_turns!
+      session.submit('first')
+      wait_until { agent.messages.size == 1 }
+
+      session.submit('this', attachments: [png])
+      session.submit('and this', attachments: [gif])
+      agent.finish_turn!
+      wait_until { agent.messages.size == 2 }
+      assert_equal [[], [png, gif]], agent.attachments
+    ensure
+      agent.finish_turn!
+      wait_until { !session.turn_in_progress? }
+    end
   end
 
   it 'drops a mid-turn submission with a warn when the agent has no interloper wired' do

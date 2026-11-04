@@ -2957,7 +2957,9 @@ module Shared
     # inject.
     # 
     # _@param_ `message` — the draft; blank only from a skill bare-load.
-    def submit: (String message) -> void
+    # 
+    # _@param_ `attachments` — images to show the model with +message+.
+    def submit: (String message, ?attachments: ::Array[Pikuri::Attachment]) -> void
 
     # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven
     # explicitly because a global shortcut fires before the pane and so never
@@ -2996,7 +2998,9 @@ module Shared
     # message is dropped with a warn in the diagnostic log.
     # 
     # _@param_ `message`
-    def queue_mid_turn: (String message) -> void
+    # 
+    # _@param_ `attachments`
+    def queue_mid_turn: (String message, ::Array[Pikuri::Attachment] attachments) -> void
 
     # Spawn a worker thread for one agent turn. Library exceptions are logged
     # (the long-running TUI takes the "exceptions logged, our bugs raise" path
@@ -3005,7 +3009,9 @@ module Shared
     # already rendered the +Cancelled+ event.
     # 
     # _@param_ `message`
-    def start_turn: (String message) -> void
+    # 
+    # _@param_ `attachments`
+    def start_turn: (String message, ::Array[Pikuri::Attachment] attachments) -> void
 
     # A turn can end with items still sitting in the interloper queue (the agent
     # only drains it at +after_tool_result+ boundaries). Drain them and start a
@@ -3015,7 +3021,7 @@ module Shared
     # 
     # The queue holds two {Pikuri::Agent::Control::Interloper::Item} kinds
     # (+:user+ / +:system+). +:user+ leftovers join, in submission order, into
-    # the fresh turn's message; +:system+ leftovers (e.g. a skill scheduled
+    # the fresh turn's message, their attachments with them; +:system+ leftovers (e.g. a skill scheduled
     # during the final assistant message and never drained) go *back* on the
     # queue via +inject_system_message+, so the next +run_loop+ re-applies them
     # as system context at its top rather than folding a skill body into a user
@@ -3633,6 +3639,67 @@ module Shared
       # 
       # _@param_ `_anchor_rect` — unused: this placement declares no {#anchor}.
       def rect_for: (Shared::SlashMenuPopup _popup, Tuile::Size screen_size, Tuile::Rect? _anchor_rect) -> Tuile::Rect
+    end
+  end
+
+  # Turns the +@path+ tokens in a prompt line into images for the model, leaving
+  # each file's name in the text so a sentence about two images still says which
+  # is which:
+  # 
+  #   text, images = Shared::AttachmentTokens.split("compare @a.png with @'/tmp/my b.png'")
+  #   text    # => "compare a.png with my b.png"
+  #   images  # => [#<data Pikuri::Attachment filename="a.png" ...>, #<data ... filename="my b.png" ...>]
+  # 
+  # A token is +@+ at the start of the line or after whitespace, then a path:
+  # bare (backslash escapes a space), or single- / double-quoted — the forms a
+  # terminal pastes for a dragged file. A +@word+ that names no file and doesn't
+  # look like a path (no +/+, no image extension) stays text, so +@alice+ is
+  # still a mention; one that does look like a path raises, so a typo never
+  # drops an image the user believes was sent. Punctuation trailing a bare token
+  # (+"see @shot.png, please"+) belongs to the sentence.
+  # 
+  # Every refusal is an {Error} whose message is ready to show the user.
+  module AttachmentTokens
+    MAX_BYTES: Integer
+    MIMES: ::Array[String]
+    TOKEN: Regexp
+    IMAGE_EXTENSION: Regexp
+    TRAILING_PUNCTUATION: Regexp
+
+    # Splits +line+ into the text to send and the images its tokens name, each
+    # file read once.
+    # 
+    # _@param_ `line` — the prompt as typed.
+    # 
+    # _@return_ — the text with every
+    # attached token replaced by its file's basename, and the images in token
+    # order.
+    def self.split: (String line) -> [String, ::Array[Pikuri::Attachment]]
+
+    # Peels sentence punctuation off a bare token, unless the file's name really
+    # ends in it.
+    # 
+    #   split_tail('shot.png,')   # => ["shot.png", ","]
+    # 
+    # _@param_ `raw` — an unquoted token's path, escapes resolved.
+    # 
+    # _@return_ — the path and the punctuation behind it.
+    def self.split_tail: (String raw) -> [String, String]
+
+    # _@param_ `raw` — a token's path, as typed.
+    # 
+    # _@return_ — the absolute path; relative ones resolve against the
+    # process's working directory.
+    def self.expand: (String raw) -> String
+
+    # Reads +path+ once, so the model sees exactly the bytes that were checked.
+    # 
+    # _@param_ `path` — an existing file.
+    def self.load: (String path) -> Pikuri::Attachment
+
+    # A token that names a path which can't be attached. The line it came from
+    # should not be sent.
+    class Error < StandardError
     end
   end
 
@@ -4738,7 +4805,7 @@ module Shared
     TRAILING_PAD: Integer
     HEIGHT: Integer
 
-    # _@param_ `on_submit` — one-arg callable invoked with the buffer text when the user presses Enter on a non-blank line; handed straight to the wrapped {Area}.
+    # _@param_ `on_submit` — called as +(text, attachments:)+ when the user presses Enter on a non-blank line: the text with its +@path+ tokens split out by {Shared::AttachmentTokens}, and the images they named.
     # 
     # _@param_ `slash_menu` — the slash-command palette this prompt drives, or nil for a plain input. This pane becomes its anchor (the palette floats just above it).
     # 
@@ -4794,8 +4861,10 @@ module Shared
     # The editable content: a {Tuile::Component::TextArea} that rebinds Enter
     # from "insert a newline" to "submit the buffer and clear it".
     # 
-    #   # Enter on "hi"   → on_submit.call("hi"), then the field clears
-    #   # Enter on "   "  → no-op (a blank buffer can't burn a turn)
+    #   # Enter on "hi"           → on_submit.call("hi", attachments: []), then the field clears
+    #   # Enter on "@a.png why?"  → on_submit.call("a.png why?", attachments: [a.png's image])
+    #   # Enter on "@nope.png"    → "Can't attach" alert; the line stays
+    #   # Enter on "   "          → no-op (a blank buffer can't burn a turn)
     # 
     # Enter is line-at-a-time because pikuri's turn is, and Shift+Enter is not
     # used for a newline: most terminals don't distinguish it from a plain
@@ -4808,7 +4877,7 @@ module Shared
     class Area < Tuile::Component::TextArea
       PAGE_KEYS: ::Array[String]
 
-      # _@param_ `on_submit` — one-arg callable invoked when the user presses Enter on a non-blank buffer. Receives the buffer text *before* it is cleared; this class owns the clear, so callers don't wipe the input in their handler.
+      # _@param_ `on_submit` — called as +(text, attachments:)+ when the user presses Enter on a non-blank buffer. This class owns the clear, so callers don't wipe the input in their handler.
       # 
       # _@param_ `slash_menu` — the palette to drive, or nil for a plain input (then every slash branch below is skipped).
       # 
@@ -4903,10 +4972,11 @@ module Shared
       # _@return_ — always true; Enter on a slash buffer is ours.
       def submit_command: () -> bool
 
-      # Capture the buffer, record it, clear it, then hand off to the host
-      # callback — in that order, so a handler that redraws synchronously sees an
-      # empty input, and one that *raises* costs neither the clear nor the
-      # history entry.
+      # Split the +@path+ tokens out, record the line as typed, clear it, then
+      # hand off to the host callback — in that order, so a handler that redraws
+      # synchronously sees an empty input, and one that *raises* costs neither
+      # the clear nor the history entry. A token that can't be attached refuses
+      # the whole line: an alert says why, and the buffer stays for a fix.
       # 
       # _@return_ — always true; the host has decided Enter is a
       # meaningful key for the input.
