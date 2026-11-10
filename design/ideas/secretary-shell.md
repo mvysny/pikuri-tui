@@ -69,22 +69,37 @@ The user chooses one of two:
 
 There's no system Notes app on Linux; `~/Documents` is the closest thing. It mixes what the user
 wrote with what they downloaded, so the document tools declare `private: true, untrusted: :hard`.
-That's fine, because egress stays vouched. Three ways to search it, and pikuri ships all three
-already:
+That's fine, because egress stays vouched.
 
-1. **Read-only workspace tools** (`read` / `glob` / `grep`) rooted at `~/Documents`. They're
-   exact, always fresh, and scoped to the folder for free. `grep` is blind inside PDFs and office
-   docs, but pikuri-pdf extracts text for `read`.
-2. **The OS index**: pikuri-os's `fileindex_search` / `fileindex_read` over GNOME localsearch or
-   recoll. PDFs and office docs come for free and it's stemmed. But localsearch can't be scoped to
-   a folder: it ranks across the whole home, so hits from outside `~/Documents` arrive too. Recoll
-   can be scoped with its own `topdirs`.
-3. **Our own index**: pikuri-rag, which fuses SQLite FTS5 with vectors over "a pile of your own
-   documents". It's the best answer for "what did we agree about X?", but it needs an embedder,
-   and the index has to be kept current.
+**Decided: pikuri-rag, straight away.** It fuses an SQLite FTS5 keyword index with vectors, by
+reciprocal rank, over "a pile of your own documents", and the v3 daemon below is built around
+keeping exactly that index warm. Its four tools:
 
-Lean: (1) as the baseline, plus (2) when the OS has an index. Try (3) once (1) proves too literal.
-See `Q_documents_index`.
+- `rag_search`: hybrid top-5, for "what did we agree about X?".
+- `rag_find`: *every* document containing all the terms, no top-k. Use it for "every note about
+  Acme" and for exact tokens like invoice numbers.
+- `rag_read`: one document in full.
+- `rag_reindex`: rebuild both stores.
+
+Wired as `Pikuri::Rag::Extension.new(backend:, source: '~/Documents', private: true,
+trusted: false)` plus a `Pikuri::VectorDb::Watcher`. It's **`trusted: false`**, because pikuri-rag's
+README warns that `trusted: true` is a big claim for a folder holding PDFs, and `~/Documents`
+holds downloads.
+
+The rejected two, for the record: read-only workspace tools (`grep` is blind in PDFs and office
+docs, and too literal for "what did we agree"), and the OS index through pikuri-os's
+`fileindex_search` (localsearch can't be scoped to a folder, so hits from the whole home leak in).
+
+What (3) costs a TUI that starts on demand:
+
+- **An embedder.** It goes through `RubyLLM.embed`, so a local llama-server with an embedding model
+  keeps it private. That's one more model to run beside the chat model.
+- **A persistent index, or a full re-embed at every boot.** The in-memory backend re-embeds all of
+  `~/Documents` on each start. The persistent ones are Qdrant or Chroma (one more local server)
+  with the FTS5 half in a file under `Pikuri::Paths.cache`. Everything converges on the boot
+  sweep, but the first run is long. See `Q_rag_backend`.
+- **The index is only current while the TUI runs.** The watcher stops with the process, so the
+  next boot catches up. The v3 daemon removes this cost.
 
 ## Memory: a file like `MACHINE.md`, but its own
 
@@ -166,6 +181,33 @@ Meanwhile, the federation already gives v1 a research path: `pikuri-tui-chat` ho
 The user researches there and carries the answer over. If v1 practice shows that hop is constant,
 that's the evidence v2 is worth building. If it's rare, v2 isn't.
 
+## v3, far out: a GNOME daemon with a Super+Space popup
+
+The TUI is the prototype. Once the secretary proves itself, the long-term goal is a resident GNOME
+program: a chatbox pops up on a hotkey, and `~/Documents` stays indexed and RAG-ready in the
+background. It's like GNOME Newelle, but on pikuri, privacy-first, and with no MCP. Sketch: a
+long-running Ruby process with a JSON API, plus a small native program that draws the UI. Nothing
+here is decided. These are the facts to start from:
+
+- **The daemon is what makes pikuri-rag cheap.** One process owns the index and the watcher, so
+  `~/Documents` is current the moment the popup opens, and the boot-time re-embed is gone.
+- **A local socket, never a TCP port.** Privacy first means no network listener, not even on
+  loopback. So a Unix socket in `$XDG_RUNTIME_DIR` (per-user, `0700`), or the D-Bus session bus,
+  which is GNOME's native IPC: a `.service` file starts the daemon on the first call, so it needs
+  no autostart.
+- **The API is pikuri's event stream, serialized.** pikuri-web (Sinatra plus one SSE stream of
+  agent events) is the existing proof that a pikuri agent drives a remote UI. The transcript
+  confirmer becomes a request/response pair on the wire. And once a daemon exists, this TUI could
+  become just another client of it.
+- **The hotkey: Super+Space is taken.** GNOME binds it to "switch input source" by default. Also,
+  on Wayland no app can grab a global key. It's either a custom shortcut in GNOME Settings that
+  runs `secretary --popup`, or the XDG `GlobalShortcuts` portal (recent GNOME implements it; the
+  version needs checking).
+- **The native UI's toolkit:** GTK4 plus libadwaita, to look like GNOME. Of the candidate
+  languages, Rust's gtk4-rs is the mature binding, Go's gotk4 is usable, and Kotlin/Native's GTK
+  bindings are thin. The other road is ruby-gnome's GTK4 gem: one language and one process, but it
+  depends on what the distro packages.
+
 ## Open questions
 
 - `Q_search_confirm_default`: confirm searches by default? Privacy first says yes. The annoyance
@@ -182,8 +224,9 @@ that's the evidence v2 is worth building. If it's rare, v2 isn't.
 - `Q_prompt_home`: where does the secretary's system prompt live upstream? Options: a new
   `pikuri-secretary` gem, pikuri-assistant's `prompts/` (the federation's "likely home"), or beside
   pikuri-thunderbird. It carries the "for the machine, run pikuri-tui-computer" hand-off.
-- `Q_documents_index`: workspace tools alone, or with the OS index (and then localsearch's
-  whole-home scope or recoll's `topdirs`)? Is pikuri-rag worth an embedder?
+- `Q_rag_backend`: in-memory (re-embed every boot) for the very first prototype, or Qdrant /
+  Chroma from day one? Which embedding model, and does it share the llama-server router with the
+  chat model?
 - `Q_tools`: Thunderbird gives mail search/read, attachments, compose hand-off, calendar
   search/read/create and contacts. Keep `calendar_create` gated like compose. Add the calculator?
   (`system_info` stays the computer shell's, per the federation split.)
