@@ -30,8 +30,10 @@ window: a header bar, a `boxed-list` transcript of `Adw::ActionRow`s, an entry a
   Then the Playwright MCP opens `http://127.0.0.1:8085/` and reloads it once the app is up.
   `page.mouse.click(x, y)` and `page.keyboard.type/press` reach GTK, Enter included.
   `page.screenshot` gives the view as the user would see it.
-- **In-process PNG, the test-friendly capture:** pixel-exact, just the window, no browser and no
-  shadow. It needs only a display connection, which Broadway provides:
+- **In-process PNG, the test-friendly capture:** pixel-exact, just the window, no shadow. It needs
+  a painted frame, and Broadway paints only while a browser has the page open. Without one, the
+  window reports itself mapped at full size, yet `snap.to_node` is `nil` and `render_texture`
+  raises:
 
   ```ruby
   paintable = Gtk::WidgetPaintable.new(win)
@@ -40,7 +42,9 @@ window: a header bar, a `boxed-list` transcript of `Adw::ActionRow`s, an entry a
   win.native.renderer.render_texture(snap.to_node, nil).save_to_png(path)
   ```
 
-  Call it from a `GLib::Timeout` after `present` (the boot frame) or after an action.
+  Call it from a `GLib::Timeout` after `present` (the boot frame) or after an action. Ruby-GNOME
+  has no `GLib::SOURCE_REMOVE` / `SOURCE_CONTINUE`: the block returns `false` to stop, `true` to
+  repeat. Retry until `to_node` stops being `nil` rather than trusting a fixed delay.
 
 ## Gotchas hit (each cost a blank screen)
 
@@ -57,6 +61,37 @@ window: a header bar, a `boxed-list` transcript of `Adw::ActionRow`s, an entry a
   shipped app's IPC (see the secretary's v3 notes).
 - **Playwright MCP writes only under the project** (`.playwright-mcp/`). Screenshots can't go to
   the scratchpad.
+- **A Ruby subclass of a GTK widget calls `super` with positional arguments**:
+  `super(app)` in an `Adw::ApplicationWindow` subclass; `super(application: app)` raises.
+
+## Broadway vs native
+
+Re-checked 2026-11-10 with a second throwaway app: a rich-text editor (`TextView`, bold and italic
+`TextTag`s, `ToggleButton`s, `win.*` actions with Ctrl+B / Ctrl+I accelerators). Typing, the
+Shift / Ctrl / Home / End selection keys, the accelerators and the button state all behaved the
+same as when it was launched natively.
+
+Broadway replaces only the GDK backend, the layer that talks to the display. The widget tree,
+signals, layout, `TextBuffer`, actions, CSS and libadwaita's widgets run the same code on both. So
+Broadway is good enough for building and testing app logic and layout. What differs is where the
+app meets the desktop, ranked by how much it could bite:
+
+1. **Desktop settings don't reach the app.** Seen: the icon theme. Natively the
+   `format-text-bold-symbolic` icon is Yaru's "B" (`gsettings … icon-theme` = `Yaru`); on
+   Broadway it is GTK's default, Adwaita, whose icon is a bold lowercase "a". Not checked, but
+   probably the same for fonts (name, size, scaling), dark mode and the accent colour. Fonts
+   matter most: a different size changes text widths, so wrapping, truncation and minimum window
+   sizes can differ. Dark mode can be forced through `Adw::StyleManager`.
+2. **Desktop integration** is missing or only roughly imitated: window management, popover and
+   dialog placement, focus between windows, the clipboard shared with other apps, drag and drop,
+   IME and dead keys, `GlobalShortcuts`, portals such as the file chooser. See `Q_wayland_fidelity`.
+3. **The keyboard goes through the browser** and Broadway's keymap translation. Plain keys,
+   modifiers and Enter work; the browser may intercept some combinations.
+4. **Pixels differ:** Broadway's own renderer versus GL or Vulkan, HiDPI scale, font hinting.
+   Screenshots answer "does it look right", not "does it match a native golden".
+
+So a native launch now and then stays part of the workflow, at least before trusting anything in
+point 2.
 
 ## Xvfb: tried, parked
 
@@ -70,9 +105,11 @@ Revisit only if CI wants an X server rather than a broadwayd.
 - `Q_test_harness`: rspec plus in-process PNGs plus synthetic input. Can a spec drive the widget
   tree directly (`button.clicked`, `entry.text =`, then a `GLib::MainContext` iteration) instead of
   going through the browser, keeping Playwright for exploratory looks? That's the GTK twin of
-  `Tuile::Testing`.
+  `Tuile::Testing`. The in-process PNG needs a browser attached to Broadway, so the specs that
+  take PNGs can't run without one. Does something other than a browser make Broadway paint?
 - `Q_golden_images`: compare PNGs against checked-in goldens? Fonts and the GTK version drift, so
-  a tolerance or a perceptual diff would be needed.
+  a tolerance or a perceptual diff would be needed. Goldens would also have to come from Broadway,
+  since its theme and fonts differ from the desktop's (*Broadway vs native*).
 - `Q_wayland_fidelity`: the popup, focus and `GlobalShortcuts` need a real compositor.
   `mutter --headless --virtual-monitor` isn't installed. When does the project need it?
 - `Q_ci`: does Woodpecker's image get `gtk4-broadwayd` + `ruby-gtk4` from apt the same way?
