@@ -6,3 +6,4 @@
 /.yardoc/
 /doc/
 /coverage/
+.playwright-mcp/
