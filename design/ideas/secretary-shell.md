@@ -55,15 +55,19 @@ What it still has:
 This must be a new shell, not a mode of `pikuri-tui-computer`. The computer shell promises that
 *every* outbound leg waits on a keystroke, and an ungated search is outbound.
 
-## Config: approve each search, or accept leaks to the engine
+## Approve each search, or accept leaks to the engine
 
-The user chooses one of two:
+Decided: a CLI flag, and no config setting.
 
-- **Confirm each search** (the private default?). The query goes through the transcript confirmer
-  like a write does. The query *is* the bytes that leave, so the human reviews the real payload,
-  and the leg becomes `egress_payload_review: :human_reviewed`.
-- **Don't confirm.** Searches fly free, and the user accepts that private text may reach the
-  engine's logs.
+- **Default: confirm each search.** The query goes through the transcript confirmer like a write
+  does. The query *is* the bytes that leave, so the human reviews the real payload, and the leg
+  becomes `egress_payload_review: :human_reviewed`.
+- **`--no-confirm-searches`:** searches fly free, and the user accepts that private text may reach
+  the engine's logs.
+
+There's no `[secretary]` table in the TOML config, and that's on purpose: the secretary is expected
+to move to its own repo (see v3, Ruby GTK4), so it adds no keys to a config schema it will leave
+behind. The `[search]` engines and keys stay shared, as the computer shell already reads them.
 
 ## Documents: `~/Documents`, in place of Siri's Notes
 
@@ -203,18 +207,19 @@ here is decided. These are the facts to start from:
   on Wayland no app can grab a global key. It's either a custom shortcut in GNOME Settings that
   runs `secretary --popup`, or the XDG `GlobalShortcuts` portal (recent GNOME implements it; the
   version needs checking).
-- **The native UI's toolkit:** GTK4 plus libadwaita, to look like GNOME. Of the candidate
-  languages, Rust's gtk4-rs is the mature binding, Go's gotk4 is usable, and Kotlin/Native's GTK
-  bindings are thin. The other road is ruby-gnome's GTK4 gem: one language and one process, but it
-  depends on what the distro packages.
+- **The UI: Ruby GTK4, the front-runner.** One language with pikuri, and the distro packages it:
+  `ruby-gtk4`, `ruby-gio2` and `ruby-gobject-introspection` are all in apt. libadwaita has no
+  `ruby-*` package. Loading `Adw` through GObject Introspection at runtime is unverified. The
+  native-binary road (Rust's gtk4-rs is the mature one, Go's gotk4 usable, Kotlin/Native's thin)
+  stays the fallback.
+- **The secretary then moves to its own repo.** A GTK program isn't "a terminal UI and nothing
+  else", which is this repo's first promise. So the prototype here stays self-contained: a
+  `Secretary::` namespace that reuses `Shared::` but grows nothing secretary-only in it, and no
+  config keys (see the search-confirm flag above). Whatever both repos need goes upstream to
+  pikuri, never into a copy.
 
 ## Open questions
 
-- `Q_search_confirm_default`: confirm searches by default? Privacy first says yes. The annoyance
-  says no, because an assistant searches a lot.
-- `Q_search_confirm_key`: where does the switch live? `[search]` is shared with chat, where it
-  would mean nothing, so probably a `[secretary]` table with `confirm_searches = true`. A CLI flag
-  too, like `--no-internet`?
 - `Q_gate_primitive`: `WebSearch.build` takes no confirmer, so a gated search is a missing pikuri
   primitive (a `confirmer:` kwarg that also flips the leg to `:human_reviewed`), not a TUI-side
   wrapper.
