@@ -134,6 +134,18 @@ RSpec.describe Shared::Markdown::StreamingBuffer do
       buf.finalize(buf.source)
       assert_equal content_before, region.text.to_s
     end
+
+    # Streamed, a reference a block away from its definition stays literal;
+    # the final render resolves it.
+    it 'resolves a reference link whose definition came blocks later' do
+      source = "See [the docs][1] for more.\n\nSecond para.\n\n[1]: https://example.com\n"
+      buf = build
+      stream(buf, source, 1)
+      assert_includes region.text.to_s, '[the docs][1]'
+      buf.finalize(buf.source)
+      refute_includes region.text.to_s, '[the docs][1]'
+      assert_renders_as source, region
+    end
   end
 
   context 'render failure handling' do

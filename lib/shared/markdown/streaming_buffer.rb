@@ -18,9 +18,10 @@ require 'tuile'
 # blank line apart, as {Shared::Markdown::AnsiConverter} spaces a whole text.
 #
 # One buffer per assistant turn: {#append} each +AssistantDelta+, then
-# {#finalize} once with the +Assistant+ content. Deltas are only a preview of
-# it, so a differing final text re-renders from scratch; {#finalize} with
-# {#source} (the cancel-preserve case) just ends the stream.
+# {#finalize} once with the +Assistant+ content, which renders the reply
+# afresh, whole: deltas are only a preview of it, and only the whole text
+# resolves a reference link or footnote whose definition is a block away
+# (streaming-markdown-parser's README, "When is a block finished?").
 #
 # == Implementation details
 #
@@ -66,7 +67,10 @@ class Shared::Markdown::StreamingBuffer
   end
 
   # Ends the stream with the authoritative final Markdown, which may differ
-  # from the deltas.
+  # from the deltas, and renders it as a reply that arrived whole: a fresh
+  # parser, not the streaming one, whose +finish+ given the streamed text
+  # would keep its blocks and their literal references. The region keeps the
+  # streamed render until the whole one is ready.
   #
   # @param authoritative [String] the final Markdown for this turn.
   # @return [void]
@@ -74,6 +78,8 @@ class Shared::Markdown::StreamingBuffer
   def finalize(authoritative)
     raise 'Shared::Markdown::StreamingBuffer#finalize called twice' if finalized?
 
+    @parser = StreamingMarkdownParser.new(self)
+    on_reset
     parse { @parser.finish(authoritative.to_s) }
   end
 
