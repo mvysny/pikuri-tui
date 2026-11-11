@@ -11,12 +11,21 @@ RSpec.describe Shared::ConversationTextView do
     # listener's event routing, not Markdown rendering quality
     # (markdown_renderer_spec.rb and ansi_converter_spec.rb own that).
     @original_md_render = Shared::Markdown::Renderer.method(:render)
+    @original_md_convert = Shared::Markdown::Renderer.method(:convert)
     Shared::Markdown::Renderer.define_singleton_method(:render) { |text, **| text }
+    # A streamed block arrives parsed: turn it back into Markdown and through
+    # whichever +render+ stub the example installed, so one stub covers both paths.
+    Shared::Markdown::Renderer.define_singleton_method(:convert) do |root, section_indent: 0, **kw|
+      _ = section_indent
+      render(Kramdown::Converter::Kramdown.convert(root).first, **kw)
+    end
   end
 
   after do
-    original = @original_md_render
-    Shared::Markdown::Renderer.define_singleton_method(:render) { |*a, **k| original.call(*a, **k) }
+    render = @original_md_render
+    convert = @original_md_convert
+    Shared::Markdown::Renderer.define_singleton_method(:render) { |*a, **k| render.call(*a, **k) }
+    Shared::Markdown::Renderer.define_singleton_method(:convert) { |*a, **k| convert.call(*a, **k) }
     Tuile::Screen.close
   end
 

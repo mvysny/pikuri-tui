@@ -331,23 +331,23 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # per block), so an appearance flip mid-block keeps the scheme it started
   # with. Drives a {Shared::StreamedBlock}.
   #
-  # @param indent [Integer] leading spaces baked into the render proc.
+  # @param indent [Integer] leading spaces on the block's first line.
   # @return [Array(Tuile::Component::TextView::Region, #append)] the region and
   #   its streaming buffer.
   def open_assistant_block(indent: 0)
     region = create_region
     buffer =
       if @markdown
-        Shared::Markdown::StreamingBuffer.new(render: indent_render(build_markdown_renderer, indent), region: region)
+        Shared::Markdown::StreamingBuffer.new(render: build_markdown_renderer, region: region, indent: indent)
       else
-        Shared::Markdown::PassthroughBuffer.new(region: region)
+        Shared::Markdown::PassthroughBuffer.new(region: region, indent: indent)
       end
     [region, buffer]
   end
 
   # Twin of {#open_assistant_block} for the reasoning pane, tinted gray in both
-  # Markdown modes: the render is {Shared::Markdown::Renderer}→recolor when
-  # Markdown is on, recolor-only when off. The reasoning tone is snapshot at
+  # Markdown modes: streamed Markdown is recolored after the render, a
+  # +markdown: false+ stream chunk by chunk. The reasoning tone is snapshot at
   # build time, like the width.
   #
   # Hidden reasoning still opens its region — so the block holds the place the
@@ -357,29 +357,28 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # reveal.
   #
   # The region registers as a +:thinking+ block whose thunk re-renders the
-  # buffer's own +#source+ — which is what lets {#show_thinking=} reach
-  # reasoning that already streamed, whether its buffer went on to be finalized,
-  # preserved, or is still open.
+  # buffer's own +#source+ through {#render_thinking} — which is what lets
+  # {#show_thinking=} reach reasoning that already streamed, whether its buffer
+  # went on to be finalized, preserved, or is still open.
   #
-  # @param indent [Integer] leading spaces baked into the render proc.
+  # @param indent [Integer] leading spaces on the block's first line.
   # @return [Array(Tuile::Component::TextView::Region, #append)] the region and
   #   its streaming buffer.
   def open_thinking_block(indent: 0)
     region = create_region
     thinking = screen.theme[:thinking]
-    render = if @markdown
-               markdown = build_markdown_renderer
-               ->(md) { Shared::Markdown::Grayscale.recolor(markdown.call(md), fg: thinking) }
-             else
-               ->(md) { Shared::Markdown::Grayscale.recolor(md, fg: thinking) }
-             end
-    buffer = if @show_thinking
-               Shared::Markdown::StreamingBuffer.new(render: indent_render(render, indent), region: region)
-             else
+    gray = ->(ansi) { Shared::Markdown::Grayscale.recolor(ansi, fg: thinking) }
+    buffer = if !@show_thinking
                Shared::Markdown::CollectingBuffer.new
+             elsif @markdown
+               markdown = build_markdown_renderer
+               render = ->(root, section) { gray.call(markdown.call(root, section)) }
+               Shared::Markdown::StreamingBuffer.new(render: render, region: region, indent: indent)
+             else
+               Shared::Markdown::PassthroughBuffer.new(region: region, indent: indent, style: gray)
              end
     @kinded_blocks << KindedBlock.new(region: region, kind: :thinking, indent: indent,
-                                      render: -> { render.call(buffer.source) })
+                                      render: -> { render_thinking(buffer.source) })
     [region, buffer]
   end
 
@@ -566,29 +565,14 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     Tuile::StyledString.plain(pad) + text
   end
 
-  # Wrap a +String -> String+ render proc so its output carries +indent+ spaces
-  # on the first line. A no-op (returns the proc unchanged) for the main agent.
-  # The {Shared::Markdown::StreamingBuffer}'s commit-probe sentinel is
-  # unaffected: the pad lands on the first line, the sentinel on the last.
-  #
-  # @param render [#call]
-  # @param indent [Integer]
-  # @return [#call]
-  def indent_render(render, indent)
-    return render if indent.zero?
-
-    pad = ' ' * indent
-    ->(md) { pad + render.call(md) }
-  end
-
-  # A callable snapshotting the current {#buffer_width} + terminal scheme,
-  # routing through {Shared::Markdown::Renderer.render}.
+  # The +render:+ a {Shared::Markdown::StreamingBuffer} takes, snapshotting the
+  # current {#buffer_width} + terminal scheme.
   #
   # @return [Proc]
   def build_markdown_renderer
     width = buffer_width
     dark = dark_scheme?
-    ->(md) { Shared::Markdown::Renderer.render(md, width: width, dark: dark) }
+    ->(root, section) { Shared::Markdown::Renderer.convert(root, width: width, dark: dark, section_indent: section) }
   end
 
   # Whether the pane is on a dark terminal background, so

@@ -4,36 +4,32 @@ require 'tuile'
 
 # API-compatible passthrough variant of {Shared::Markdown::StreamingBuffer}: same
 # +#append+ / +#finalize+ / +#finalized?+ / +#source+ surface, same
-# one-region-per-turn lifecycle, but no Markdown rendering and no
-# block-cutter. {#append} forwards the chunk straight to
-# +Region#append+ (which splits on embedded +\n+ for hard lines);
-# {#finalize} assigns the authoritative content to +Region#text+.
+# one-region-per-turn lifecycle, but no Markdown: each chunk goes straight to
+# +Region#append+ (embedded +\n+ become hard lines).
 #
-# Use this where the streamed content is already in its final display
-# form (plain text, pre-formatted output, ANSI from elsewhere) and the
-# {Shared::Markdown::Renderer} trip through {Shared::Markdown::StreamingBuffer} would either
-# corrupt the text or add unwanted styling.
+#   buf = Shared::Markdown::PassthroughBuffer.new(region: region, style: ->(text) { Grayscale.recolor(text) })
+#   buf.append('**stays** ')       # shown verbatim, recolored
+#   buf.finalize(authoritative)
 #
-# == Lifecycle
-#
-# Identical to {Shared::Markdown::StreamingBuffer}: one buffer per turn, drive
-# {#append} until done, then {#finalize} exactly once.
+# Use it where the stream is already in its display form — plain text, the
+# +markdown: false+ mode — and a Markdown render would corrupt it.
 #
 # UI-thread-confined (the region's mutators call +Tuile::Screen#check_locked+).
 class Shared::Markdown::PassthroughBuffer
-  # @param region [Tuile::Component::TextView::Region] the region to
-  #   write into. The buffer assumes exclusive ownership for its
-  #   lifetime — only the buffer should mutate the region between
-  #   construction and {#finalize}.
-  def initialize(region:)
+  # @param region [Tuile::Component::TextView::Region] the region to write
+  #   into; nothing else may write it until {#finalize}.
+  # @param indent [Integer] leading spaces on the region's first line.
+  # @param style [#call, nil] +String -> String+ applied to every chunk, e.g. a
+  #   recolor; it must style a chunk and the whole text alike.
+  def initialize(region:, indent: 0, style: nil)
     @region = region
+    @pad = ' ' * indent
+    @style = style || ->(text) { text }
     @source = +''
     @finalized = false
   end
 
-  # Feeds one streamed chunk. Concatenates onto the accumulated source
-  # and forwards verbatim to the region. Empty / +nil+ content is a
-  # no-op.
+  # Feeds one streamed chunk. Empty / +nil+ content is a no-op.
   #
   # @param content [String, nil] the chunk to append.
   # @return [void]
@@ -42,14 +38,12 @@ class Shared::Markdown::PassthroughBuffer
     raise 'Shared::Markdown::PassthroughBuffer#append called after #finalize' if @finalized
     return if content.nil? || content.empty?
 
+    @region.append(@style.call(@source.empty? ? @pad + content : content))
     @source << content
-    @region.append(content)
   end
 
-  # Replaces the accumulated source with +authoritative+ and writes
-  # it to the region. Fast path: if +authoritative+ equals {#source},
-  # just mark the buffer finalized — the region already shows the
-  # right thing.
+  # Replaces the accumulated source with +authoritative+ and writes it to the
+  # region, unless it equals {#source} and the region already shows it.
   #
   # @param authoritative [String] the final content for this turn.
   # @return [void]
@@ -57,23 +51,18 @@ class Shared::Markdown::PassthroughBuffer
   def finalize(authoritative)
     raise 'Shared::Markdown::PassthroughBuffer#finalize called twice' if @finalized
 
-    if authoritative == @source
-      @finalized = true
-      return
-    end
+    @finalized = true
+    return if authoritative == @source
 
     @source = authoritative.to_s.dup
-    @region.text = @source
-    @finalized = true
+    @region.text = @source.empty? ? @source : @style.call(@pad + @source)
   end
 
   # @return [Boolean] +true+ after {#finalize} has run.
   def finalized? = @finalized
 
-  # @return [String] the accumulated source. Same semantics as
-  #   {Shared::Markdown::StreamingBuffer#source} — exposed so the owner can call
-  #   +finalize(source)+ on a cancellation path to commit the preview
-  #   as-is.
+  # @return [String] the accumulated source — what the owner passes to
+  #   {#finalize} to keep the preview as-is.
   def source
     @source.dup
   end

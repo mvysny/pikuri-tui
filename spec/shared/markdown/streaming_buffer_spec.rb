@@ -2,89 +2,90 @@
 
 RSpec.describe Shared::Markdown::StreamingBuffer do
   let(:width) { 80 }
-  # Render function used by the buffer in tests: the production
-  # +Shared::Markdown::Renderer+ with width baked in. Assertions below compare
-  # +region.text.to_s+ against the same renderer's single-shot output,
-  # so the buffer and the expected value are always tested against the
-  # same Markdown → ANSI transform.
-  let(:render) { ->(md) { Shared::Markdown::Renderer.render(md, width: width) } }
+  # The production block render; each streamed result is compared with the
+  # same text rendered whole, which is the buffer's whole promise.
+  let(:render) { ->(root, section) { Shared::Markdown::Renderer.convert(root, width: width, section_indent: section) } }
   let(:view) { Tuile::Component::TextView.new }
   let(:region) { view.create_region }
 
   before { Tuile::Screen.fake }
   after  { Tuile::Screen.close }
 
-  def build(render: self.render, region: self.region)
-    described_class.new(render: render, region: region)
+  def build(render: self.render, region: self.region, indent: 0)
+    described_class.new(render: render, region: region, indent: indent)
   end
 
-  context 'construction' do
-    it 'is not finalized at construction' do
-      buf = build
-      refute buf.finalized?
-    end
+  def whole(source) = Shared::Markdown::Renderer.render(source, width: width)
 
-    it 'does not touch the region' do
-      build
+  # Rouge and Tuile's StyledString emit equivalent but byte-different SGR, so
+  # compare structurally.
+  def assert_renders_as(source, region)
+    assert_equal Tuile::StyledString.parse(whole(source).strip), Tuile::StyledString.parse(region.text.to_ansi.strip)
+  end
+
+  def stream(buf, source, slice) = source.chars.each_slice(slice) { |chunk| buf.append(chunk.join) }
+
+  context 'construction' do
+    it 'is not finalized and does not touch the region' do
+      refute build.finalized?
       assert region.empty?
     end
   end
 
   context '#append' do
-    it 'is a no-op on nil content' do
+    it 'is a no-op on nil or empty content' do
       buf = build
       buf.append(nil)
-      assert region.empty?
-    end
-
-    it 'is a no-op on empty content' do
-      buf = build
       buf.append('')
       assert region.empty?
     end
 
-    it 'writes the rendered content into the region' do
-      buf = build
-      buf.append('hello world')
-      assert_equal render.call('hello world').strip, region.text.to_s.strip
-    end
-
-    it 'token-by-token feeding ends in the same render as a single-shot' do
+    it 'char-by-char feeding ends in the whole-text render' do
       buf = build
       'hello world'.each_char { |c| buf.append(c) }
-      assert_equal render.call('hello world').strip, region.text.to_s.strip
+      assert_renders_as 'hello world', region
     end
 
-    it 'multi-paragraph source converges to the single-shot render' do
-      buf = build
-      source = "First paragraph.\n\nSecond paragraph here.\n\nThird."
-      source.chars.each_slice(3) { |chunk| buf.append(chunk.join) }
-      assert_equal render.call(source).strip, region.text.to_s.strip
+    {
+      'paragraphs' => "First paragraph.\n\nSecond paragraph here.\n\nThird.",
+      'a code fence' => "Here's some code:\n\n```ruby\ndef hi\n  puts :hi\nend\n```\n\ndone.",
+      'a fence then a paragraph with no blank line' => "```\ncode\n```\nAfter fence.\n",
+      'a table' => "| a | b |\n|---|---|\n| 1 | very long cell |\n| 2 | 3 |",
+      'a loose ordered list' => "1. a\n\n2. b\n\n3. c\n",
+      'header sections' => "# Title\n\nIntro.\n\n## Section\n\nBody.\n\n- a\n- b\n\n### Deeper\n\nMore.\n"
+    }.each do |name, source|
+      it "streams #{name} into the whole-text render" do
+        [1, 3, 7].each do |slice|
+          target = view.create_region
+          buf = build(region: target)
+          stream(buf, source, slice)
+          assert_renders_as source, target
+          buf.finalize(source)
+          assert_renders_as source, target
+        end
+      end
     end
 
-    it 'streamed code fence converges to the single-shot render' do
+    it 'numbers a loose ordered list on, mid-stream too' do
       buf = build
-      source = "Here's some code:\n\n```ruby\ndef hi\n  puts :hi\nend\n```\n\ndone."
-      source.chars.each_slice(2) { |chunk| buf.append(chunk.join) }
-      # Rouge and Tuile's StyledString emit semantically equivalent but
-      # byte-different SGR (e.g. `\e[38;5;221;01m` vs `\e[1;38;5;221m`, and
-      # Rouge wraps whitespace in empty styled spans that StyledString
-      # normalizes away). Round-trip both sides through the parser so the
-      # comparison is structural, not byte-wise.
-      expected = Tuile::StyledString.parse(render.call(source).strip)
-      assert_equal expected, Tuile::StyledString.parse(region.text.to_ansi.strip)
+      "1. a\n\n2. b\n\n3. c".each_char { |c| buf.append(c) }
+      assert_includes region.text.to_s, '3. c'
     end
 
-    it 'streamed table (the reformat-earlier-lines case) converges' do
+    it 'keeps a header section indent across finished blocks' do
       buf = build
-      source = "| a | b |\n|---|---|\n| 1 | very long cell |\n| 2 | 3 |"
-      source.chars.each_slice(4) { |chunk| buf.append(chunk.join) }
-      assert_equal render.call(source).strip, region.text.to_s.strip
+      stream(buf, "## Section\n\nBody.\n\nMore.\n\n", 1)
+      assert_equal '  More.', region.text.to_s.lines(chomp: true).last
+    end
+
+    it 'pads the region first line by indent' do
+      buf = build(indent: 2)
+      stream(buf, "One.\n\nTwo.\n\n", 1)
+      assert_equal ['  One.', '', 'Two.'], region.text.to_s.lines(chomp: true)
     end
 
     it 'raises if called after finalize' do
       buf = build
-      buf.append('hello')
       buf.finalize('hello')
       assert_raises(RuntimeError) { buf.append(' world') }
     end
@@ -99,70 +100,58 @@ RSpec.describe Shared::Markdown::StreamingBuffer do
   end
 
   context '#finalize' do
-    it 'sets finalized? to true' do
-      buf = build
-      buf.finalize('done')
-      assert buf.finalized?
-    end
-
     it 'raises on double-finalize' do
       buf = build
       buf.finalize('done')
+      assert buf.finalized?
       assert_raises(RuntimeError) { buf.finalize('done') }
     end
 
-    it 'replaces the preview with the authoritative content' do
+    it 'replaces the preview with differing authoritative content' do
       buf = build
-      buf.append('hello tehre') # typo
-      buf.finalize('hello there')
-      assert_equal render.call('hello there').strip, region.text.to_s.strip
+      stream(buf, "hello tehre\n\nsecond\n\n", 2)
+      buf.finalize("hello there\n\nsecond\n")
+      assert_renders_as "hello there\n\nsecond\n", region
     end
 
     it 'works on a buffer that never received an append' do
       buf = build
       buf.finalize('just the final')
-      assert_equal render.call('just the final').strip, region.text.to_s.strip
+      assert_renders_as 'just the final', region
     end
 
-    it 'handles authoritative content that is empty' do
+    it 'empties the region for empty authoritative content' do
       buf = build
       buf.append('partial preview')
       buf.finalize('')
       assert region.empty?
     end
 
-    it 'fast-paths when authoritative equals current source (region keeps its content)' do
+    it 'keeps the preview when finalized with its own source' do
       buf = build
       buf.append('keep this')
       content_before = region.text.to_s
       buf.finalize(buf.source)
-      assert buf.finalized?
       assert_equal content_before, region.text.to_s
     end
   end
 
   context 'render failure handling' do
-    # Stateful render lambda used by the failure-handling specs. Starts
-    # out as a thin wrapper around the production renderer; flip
-    # +explode+ to +true+ to make the next render(s) raise, then back to
-    # +false+ to simulate the upstream library recovering.
-    class FlakyRenderer
-      attr_accessor :explode
+    # Wraps the production render; flip +explode+ to make the next renders raise.
+    let(:flaky) do
+      real = render
+      Class.new do
+        attr_accessor :explode
 
-      def initialize(width:)
-        @width = width
-        @explode = false
-      end
+        define_method(:call) do |root, section|
+          raise StandardError, 'synthetic render boom' if explode
 
-      def call(md)
-        raise StandardError, 'synthetic render boom' if @explode
-
-        Shared::Markdown::Renderer.render(md, width: @width)
-      end
+          real.call(root, section)
+        end
+      end.new
     end
 
-    it 'catches render exceptions, logs, and keeps prior region content' do
-      flaky = FlakyRenderer.new(width: width)
+    it 'logs and keeps the previous render of the open tail' do
       buf = build(render: flaky)
       buf.append('hello')
       content_before = region.text.to_s
@@ -171,22 +160,28 @@ RSpec.describe Shared::Markdown::StreamingBuffer do
       log = capture_log { buf.append(' world') }
 
       assert_equal content_before, region.text.to_s
-      assert_includes log, 'render failed'
       assert_includes log, 'synthetic render boom'
     end
 
-    it 'recovers cleanly on the next successful render' do
-      flaky = FlakyRenderer.new(width: width)
+    it 'recovers on the next successful render' do
       buf = build(render: flaky)
       buf.append('hello')
-
       flaky.explode = true
       buf.append(' boom')
-
       flaky.explode = false
       buf.append(' world')
-      expected = Shared::Markdown::Renderer.render('hello boom world', width: width)
-      assert_equal expected.strip, region.text.to_s.strip
+      assert_renders_as 'hello boom world', region
+    end
+
+    it 'shows a finished block whose render failed as its Markdown source' do
+      buf = build(render: flaky)
+      buf.append("**bold** text\n\n")
+      flaky.explode = true
+      capture_log { buf.append("Next\n") } # a complete line begins a block, finishing the first
+      flaky.explode = false
+      buf.append('More')
+      assert_includes region.text.to_s, '**bold** text'
+      assert_includes region.text.to_s, 'Next More'
     end
   end
 end

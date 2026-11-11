@@ -133,4 +133,23 @@ RSpec.describe Shared::Markdown::PassthroughBuffer do
       assert_equal content_before, region.text.to_s
     end
   end
+
+  context 'indent and style' do
+    let(:upcase) { :upcase.to_proc }
+
+    it 'pads the first line and styles every chunk' do
+      buf = described_class.new(region: region, indent: 2, style: upcase)
+      buf.append("one\n")
+      buf.append('two')
+      assert_equal "  ONE\nTWO", region.text.to_s
+      assert_equal "one\ntwo", buf.source
+    end
+
+    it 'pads and styles a differing authoritative text' do
+      buf = described_class.new(region: region, indent: 2, style: upcase)
+      buf.append('draft')
+      buf.finalize('final')
+      assert_equal '  FINAL', region.text.to_s
+    end
+  end
 end

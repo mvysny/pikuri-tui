@@ -138,18 +138,37 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
   MIN_WRAP_WIDTH = 20
   private_constant :MIN_WRAP_WIDTH
 
+  # The section indent in effect after +root+'s blocks, so a block rendered on
+  # its own starts where the whole text would have it:
+  #
+  #   indent = AnsiConverter.section_indent_after(root, indent)   # "## Usage" → 2
+  #
+  # @param root [Kramdown::Element] a +:root+ element.
+  # @param indent [Integer] the section indent before +root+.
+  # @return [Integer] the indent of +root+'s last top-level header, else +indent+.
+  def self.section_indent_after(root, indent)
+    header = root.children.reverse_each.find { |el| el.type == :header }
+    header ? header_indent(header) : indent
+  end
+
+  # @param header [Kramdown::Element] a +:header+ element.
+  # @return [Integer] the indent a top-level header sets for itself and what follows.
+  def self.header_indent(header) = (header.options[:level] - 1) * INDENT_STEP
+
   # @param root [Kramdown::Element] the +:root+ element.
   # @param options [Hash] kramdown document options; reads +:width+
   #   (target render width, default 80), +:color+ (+false+
-  #   disables all styling; default on unless +NO_COLOR+ is set), and
+  #   disables all styling; default on unless +NO_COLOR+ is set),
   #   +:dark+ (+false+ picks {LIGHT_CODE_THEME} for code blocks;
-  #   default +true+ keeps the dark-tuned +Terminal256+ default).
+  #   default +true+ keeps the dark-tuned +Terminal256+ default), and
+  #   +:section_indent+ (the indent the headers before +root+ left, see
+  #   {.section_indent_after}; default 0).
   def initialize(root, options)
     super
     @width = options[:width] || 80
     @color = options[:color] != false && ENV['NO_COLOR'].to_s.empty?
     @dark = options[:dark] != false
-    @current_indent = 0
+    @current_indent = options[:section_indent] || 0
   end
 
   # Convert an element (and its subtree) to ANSI text.
@@ -190,15 +209,18 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
 
   # --- block elements ---------------------------------------------
 
+  # Top-level blocks sit one blank line apart whatever the source has between
+  # them, so a reply rendered whole matches the same reply streamed block by
+  # block ({Shared::Markdown::StreamingBuffer}).
   def convert_root(el, opts)
-    inner(el, opts).join
+    inner(el, opts).reject(&:empty?).join(NEWLINE)
   end
 
-  # Source blank lines separate blocks; a run of any length renders
-  # as a single blank line (kramdown coalesces the run into one
-  # +:blank+ element, and we ignore its length).
-  def convert_blank(_el, _opts)
-    NEWLINE
+  # Inside a list item or a quote, a source blank line separates blocks; a run
+  # of any length renders as a single blank line (kramdown coalesces the run
+  # into one +:blank+ element). At the top level {#convert_root} spaces instead.
+  def convert_blank(_el, opts)
+    opts[:parent]&.type == :root ? '' : NEWLINE
   end
 
   def convert_p(el, opts)
@@ -206,10 +228,9 @@ class Shared::Markdown::AnsiConverter < Kramdown::Converter::Base
   end
 
   def convert_header(el, opts)
-    level = el.options[:level]
     # Top-level headers set the indent for everything that follows.
-    @current_indent = (level - 1) * INDENT_STEP if opts[:parent]&.type == :root
-    style = level == 1 ? STYLES[:header] + UNDERLINE : STYLES[:header]
+    @current_indent = self.class.header_indent(el) if opts[:parent]&.type == :root
+    style = el.options[:level] == 1 ? STYLES[:header] + UNDERLINE : STYLES[:header]
     block(inline(el, opts), style: style)
   end
 

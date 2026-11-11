@@ -2,97 +2,52 @@
 
 require 'kramdown'
 require 'kramdown-parser-gfm'
-require 'tuile'
+require 'streaming_markdown_parser'
 
-# Turns a Markdown string into ANSI for the conversation pane — the single
-# entry point every pikuri-tui Markdown render goes through, one-shot
-# ({Shared::ConversationTextView#render_markdown}) or per-delta (the
-# +render:+ callable a {Shared::Markdown::StreamingBuffer} is built with):
+# Turns Markdown into ANSI for the conversation pane: a whole text at once, or
+# one block a {Shared::Markdown::StreamingBuffer} already parsed.
 #
 #   ansi = Shared::Markdown::Renderer.render(md, width: 80, dark: true)
+#   ansi = Shared::Markdown::Renderer.convert(root, width: 80, dark: true, section_indent: 2)
 #
-# == Pipeline
+# Both parse as the streaming parser does — its GFM options and its
+# +StreamingMarkdownParser::Repair+ of what LLMs get wrong — so a reply looks
+# the same streamed and rendered whole. {Shared::Markdown::AnsiConverter} draws.
 #
-# 1. *Pre-process*: repair LLM-typographic table separators (see
-#    below).
-# 2. *Parse*: kramdown with the GFM dialect (+kramdown-parser-gfm+) —
-#    backtick fences, GFM tables, strikethrough — and
-#    +hard_wrap: false+ so single newlines inside a paragraph stay
-#    soft breaks (CommonMark semantics), matching how LLMs emit
-#    markdown.
-# 3. *Render*: {Shared::Markdown::AnsiConverter}, this project's own
-#    +Kramdown::Converter+ subclass, straight to ANSI with no
-#    post-processing pass — loose lists render loose (bulleted *and*
-#    ordered, numbering intact) and block spacing comes out right.
-#
-# Parser and converter warnings are forwarded to the +'markdown'+ pikuri
-# logger (the diagnostic pane), not the conversation pane.
-#
-# == Table separators
-#
-# LLMs frequently typographically substitute +"---"+ with +"—-"+
-# (em-dash + hyphen) when emitting GFM table separator rows.
-# kramdown's separator detector only accepts +-+, +:+, +|+, and
-# whitespace; any other character disqualifies the block, and the
-# table falls back to prose paragraphs that contain literal pipes.
-# We pre-process any line that looks like a separator row (only
-# pipe / dash / em-dash / en-dash / colon / space characters, with
-# at least one interior pipe) and rewrite the em-dashes and
-# en-dashes back to ASCII hyphens before parsing. Prose lines that
-# contain em-dashes are untouched — the pattern requires the whole
-# line to be made of separator characters.
+# Parser and converter warnings go to the +'markdown'+ pikuri logger (the
+# diagnostic pane), not the conversation pane.
 module Shared::Markdown::Renderer
-  # Matches a line whose entire content is GFM-table-separator-shaped
-  # — only pipes, dashes, em-dashes (U+2014), en-dashes (U+2013),
-  # colons, and horizontal whitespace, with at least one interior
-  # pipe. The interior pipe is the disambiguator: prose with a stray
-  # em-dash won't match, and a horizontal rule (+"---"+ alone) won't
-  # match either. Used to find malformed separator rows emitted by
-  # LLMs that typographically substitute +"---"+ with +"—-"+.
-  TABLE_SEPARATOR_LIKE = /^[ \t]*\|?[ \t\-—–:]*\|[ \t\-—–:|]*$/
-  private_constant :TABLE_SEPARATOR_LIKE
-
   # @return [Logger]
   LOG = Pikuri.logger_for('markdown')
   private_constant :LOG
 
   module_function
 
-  # Render Markdown to ANSI.
-  #
   # @param source [String] Markdown source.
-  # @param width [Integer] target render width, forwarded to
-  #   {Shared::Markdown::AnsiConverter}.
-  # @param dark [Boolean] whether the terminal background is dark,
-  #   forwarded to {Shared::Markdown::AnsiConverter} to pick a legible code-block
-  #   highlighting theme. Defaults to +true+ (the "inconclusive means
-  #   dark" convention), so callers that don't know the scheme keep the
-  #   dark-tuned output.
-  # @return [String] rendered ANSI, with internal newlines preserved
-  #   (callers that want hard lines should +#split("\n")+ the result).
-  # @raise [StandardError] whatever kramdown parsing or {Shared::Markdown::AnsiConverter}
-  #   raises. Callers handle this — both the streaming buffer and
-  #   {Shared::ConversationTextView#render_markdown} catch and degrade.
+  # @param width [Integer] target render width.
+  # @param dark [Boolean] whether the terminal background is dark, to pick a
+  #   legible code-highlighting theme; "inconclusive" callers keep the default.
+  # @return [String] rendered ANSI, newline-terminated lines.
+  # @raise [StandardError] whatever kramdown or {Shared::Markdown::AnsiConverter}
+  #   raises; the callers degrade.
   def render(source, width:, dark: true)
-    patched = fix_table_separators(source)
-    doc = Kramdown::Document.new(patched, input: 'GFM', hard_wrap: false, width: width, dark: dark)
-    ansi, warnings = Shared::Markdown::AnsiConverter.convert(doc.root, doc.options)
+    doc = Kramdown::Document.new(StreamingMarkdownParser::Repair.call(source),
+                                 **StreamingMarkdownParser::DEFAULT_OPTIONS)
     doc.warnings.each { |w| LOG.debug("Shared::Markdown::Renderer: kramdown: #{w}") }
-    warnings.each { |w| LOG.warn("Shared::Markdown::Renderer: #{w}") }
-    ansi
+    convert(doc.root, width: width, dark: dark)
   end
 
-  # Rewrite em-dashes (U+2014) and en-dashes (U+2013) back to ASCII
-  # hyphens on lines that look like GFM table separator rows, so
-  # kramdown recognises the table. No-op on lines that don't match
-  # {TABLE_SEPARATOR_LIKE} and on separator rows that already use
-  # only ASCII hyphens.
-  #
-  # @param source [String] Markdown source.
-  # @return [String]
-  def fix_table_separators(source)
-    source.gsub(TABLE_SEPARATOR_LIKE) do |line|
-      line.match?(/[—–]/) ? line.tr('—–', '-') : line
-    end
+  # @param root [Kramdown::Element] a parsed +:root+, e.g. one streamed block.
+  # @param width [Integer] target render width.
+  # @param dark [Boolean] as in {.render}.
+  # @param section_indent [Integer] the indent the headers before +root+ left;
+  #   see {Shared::Markdown::AnsiConverter.section_indent_after}.
+  # @return [String] rendered ANSI, newline-terminated lines.
+  # @raise [StandardError] whatever {Shared::Markdown::AnsiConverter} raises.
+  def convert(root, width:, dark: true, section_indent: 0)
+    ansi, warnings = Shared::Markdown::AnsiConverter.convert(root, width: width, dark: dark,
+                                                                   section_indent: section_indent)
+    warnings.each { |w| LOG.warn("Shared::Markdown::Renderer: #{w}") }
+    ansi
   end
 end

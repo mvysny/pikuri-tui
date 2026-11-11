@@ -4241,15 +4241,15 @@ module Shared
     # per block), so an appearance flip mid-block keeps the scheme it started
     # with. Drives a {Shared::StreamedBlock}.
     # 
-    # _@param_ `indent` — leading spaces baked into the render proc.
+    # _@param_ `indent` — leading spaces on the block's first line.
     # 
     # _@return_ — the region and
     # its streaming buffer.
     def open_assistant_block: (?indent: Integer) -> [Tuile::Component::TextView::Region, untyped]
 
     # Twin of {#open_assistant_block} for the reasoning pane, tinted gray in both
-    # Markdown modes: the render is {Shared::Markdown::Renderer}→recolor when
-    # Markdown is on, recolor-only when off. The reasoning tone is snapshot at
+    # Markdown modes: streamed Markdown is recolored after the render, a
+    # +markdown: false+ stream chunk by chunk. The reasoning tone is snapshot at
     # build time, like the width.
     # 
     # Hidden reasoning still opens its region — so the block holds the place the
@@ -4259,11 +4259,11 @@ module Shared
     # reveal.
     # 
     # The region registers as a +:thinking+ block whose thunk re-renders the
-    # buffer's own +#source+ — which is what lets {#show_thinking=} reach
-    # reasoning that already streamed, whether its buffer went on to be finalized,
-    # preserved, or is still open.
+    # buffer's own +#source+ through {#render_thinking} — which is what lets
+    # {#show_thinking=} reach reasoning that already streamed, whether its buffer
+    # went on to be finalized, preserved, or is still open.
     # 
-    # _@param_ `indent` — leading spaces baked into the render proc.
+    # _@param_ `indent` — leading spaces on the block's first line.
     # 
     # _@return_ — the region and
     # its streaming buffer.
@@ -4358,18 +4358,8 @@ module Shared
     # _@param_ `indent`
     def indent_block: ((String | Tuile::StyledString) text, Integer indent) -> (String | Tuile::StyledString)
 
-    # Wrap a +String -> String+ render proc so its output carries +indent+ spaces
-    # on the first line. A no-op (returns the proc unchanged) for the main agent.
-    # The {Shared::Markdown::StreamingBuffer}'s commit-probe sentinel is
-    # unaffected: the pad lands on the first line, the sentinel on the last.
-    # 
-    # _@param_ `render`
-    # 
-    # _@param_ `indent`
-    def indent_render: (untyped render, Integer indent) -> untyped
-
-    # A callable snapshotting the current {#buffer_width} + terminal scheme,
-    # routing through {Shared::Markdown::Renderer.render}.
+    # The +render:+ a {Shared::Markdown::StreamingBuffer} takes, snapshotting the
+    # current {#buffer_width} + terminal scheme.
     def build_markdown_renderer: () -> Proc
 
     # Whether the pane is on a dark terminal background, so
