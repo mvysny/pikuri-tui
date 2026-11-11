@@ -12,17 +12,18 @@ module Code
   #   confirmer = Code::TranscriptConfirmer.new(screen: screen, conversation: conversation,
   #                                             status_rule: status_rule, input: input)
   #   # ... a tool, on the agent worker thread:
-  #   case confirmer.ask(request: request)   # parks here until the human answers
+  #   case decision = confirmer.ask(request: request)   # parks until the human answers
   #   in Pikuri::Workspace::Confirmer::Approved then run_it
-  #   in Pikuri::Workspace::Confirmer::Rejected(reason:) then tell_the_model(reason)
+  #   in Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected
+  #     return decision.observation('the bash command')
   #   end
   #
   #   ⏵ OK to run this command?
   #   rm -rf build
-  #   (y) approve   (n) reject   (r) reject w/ reason
+  #   (y) approve   (n) reject   (r) redirect
   #
-  # +y+ approves the payload unchanged, +n+ declines, and +r+ borrows the prompt
-  # for a steering reason the tool folds into the model's next observation. An
+  # +y+ approves the payload unchanged, +n+ rejects (the model stops), and +r+
+  # borrows the prompt for words the model gets as guidance — a redirect. An
   # *editable* request (only the +agent+ tool's delegation sets that) also offers
   # +e+, which borrows the prompt to rewrite the payload the tool then acts on —
   # the "author, not approver" seat. Both typing outcomes go through
@@ -33,8 +34,10 @@ module Code
   # is a different focus target and can never reach a decision. The one
   # obligation that puts on a caller: *dismissal is not decline.* Tabbing away
   # leaves the decision parked, and a parked decision holds the agent's worker
-  # thread, so +Ctrl+C+ and quit must both call {#reject_pending!} or they do
-  # nothing visible while a question waits.
+  # thread, so +Ctrl+C+ and quit must both call {#cancel_pending!} or they do
+  # nothing visible while a question waits. That cancels rather than rejects:
+  # the parked {#ask} raises +Cancellable::Cancelled+, so the turn ends there
+  # instead of running on for one more model reply.
   #
   # == Sanitizing
   #
@@ -69,13 +72,19 @@ module Code
     # @return [String]
     CAPTURE_MARKER = '✎'
 
+    # What {#cancel_pending!} wakes a parked {#ask} with, in place of a decision.
+    #
+    # @return [Object]
+    CANCELLED = Object.new.freeze
+    private_constant :CANCELLED
+
     # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals the
     #   question onto the UI thread.
     # @param conversation [Shared::ConversationTextView] the pane the question is
     #   asked in and answered at.
     # @param status_rule [Shared::StatusRuleLabel] the rule whose parked-decision
     #   badge says a turn is waiting on a human.
-    # @param input [Shared::InputPane] the prompt borrowed for the edit / reason
+    # @param input [Shared::InputPane] the prompt borrowed for the edit / redirect
     #   text, and the focus target the answer returns to.
     def initialize(screen:, conversation:, status_rule:, input:)
       super()
@@ -86,6 +95,9 @@ module Code
       # The parked answer channel, owned by the UI thread: #ask hands it over
       # inside the submit and never touches it again.
       @pending = nil
+      # Set by #cancel_pending! while a capture in flight unwinds, so #finish
+      # turns that capture's nil answer into a cancel rather than a reject.
+      @cancelling = false
     end
 
     # Ask +request+ in the transcript and block the calling (worker) thread
@@ -99,7 +111,10 @@ module Code
     # @param request [Pikuri::Workspace::Confirmer::Request] semantic content
     #   composed by the calling tool; sanitized and rendered here.
     # @return [Pikuri::Workspace::Confirmer::Approved,
-    #   Pikuri::Workspace::Confirmer::Rejected] the resolved decision.
+    #   Pikuri::Workspace::Confirmer::Rejected,
+    #   Pikuri::Workspace::Confirmer::Redirected] the resolved decision.
+    # @raise [Pikuri::Agent::Control::Cancellable::Cancelled] when
+    #   {#cancel_pending!} ends the wait.
     def ask(request:)
       question = Pikuri::Sanitizer.sanitize(request.question)
       detail   = request.detail ? Pikuri::Sanitizer.sanitize(request.detail) : nil
@@ -111,27 +126,33 @@ module Code
         park(channel, request: request, question: question, detail: detail,
                       warnings: warnings, change: change)
       end
-      channel.pop
+      decision = channel.pop
+      raise Pikuri::Agent::Control::Cancellable::Cancelled if decision.equal?(CANCELLED)
+
+      decision
     end
 
     # @return [Boolean] whether a tool is parked waiting for an answer. Read on
     #   the UI thread.
     def pending? = !@pending.nil?
 
-    # Reject whatever is parked, so a +Ctrl+C+ or a quit isn't swallowed by a
-    # decision the user never noticed.
+    # Cancel whatever is parked, so a +Ctrl+C+ or a quit isn't swallowed by a
+    # decision the user never noticed: the parked {#ask} raises
+    # +Cancellable::Cancelled+. Pair it with cancelling the agent's
+    # +Cancellable+, so a sub-agent tree stops too.
     #
-    # @return [Boolean] +false+ when nothing was parked (the caller should fall
-    #   through to its normal handling), +true+ when a decision was declined.
-    def reject_pending!
+    # @return [Boolean] +false+ when nothing was parked, +true+ when a decision
+    #   was cancelled.
+    def cancel_pending!
       return false if @pending.nil?
 
-      # A capture in flight resolves through its own callback, which rejects on
-      # a nil answer — the same path ESC takes.
       if @input.capturing?
+        # The capture resolves through its own callback with a nil answer;
+        # @cancelling makes #finish read that as this cancel, not as ESC.
+        @cancelling = true
         @input.cancel_capture
       else
-        finish(Rejected.new(reason: nil), 'rejected')
+        finish(CANCELLED, 'cancelled')
       end
       true
     end
@@ -178,23 +199,23 @@ module Code
       offered << choice.new(key: 'y', label: 'approve', outcome: :approve) unless editable && !clean
       offered << choice.new(key: 'e', label: 'edit', outcome: :edit) if editable
       offered << choice.new(key: 'n', label: 'reject', outcome: :reject)
-      offered << choice.new(key: 'r', label: 'reject w/ reason', outcome: :reject_reason)
+      offered << choice.new(key: 'r', label: 'redirect', outcome: :redirect)
       offered
     end
 
     # Act on the picked outcome: resolve it, or borrow the prompt for the text
     # the outcome still needs.
     #
-    # @param outcome [Symbol] +:approve+, +:edit+, +:reject+, +:reject_reason+.
+    # @param outcome [Symbol] +:approve+, +:edit+, +:reject+, +:redirect+.
     # @param payload [String, nil] the raw +Request#detail+.
     # @param clean [Boolean] whether the sanitizer flagged nothing.
     # @return [void]
     def decide(outcome, payload:, clean:)
       case outcome
       when :approve then finish(Approved.new(new_request_detail: payload), 'approved')
-      when :reject then finish(Rejected.new(reason: nil), 'rejected')
+      when :reject then finish(Rejected.new, 'rejected')
       when :edit then capture_task(payload: payload, clean: clean)
-      when :reject_reason then capture_reason
+      when :redirect then capture_redirect
       end
     end
 
@@ -210,22 +231,26 @@ module Code
       @conversation.settle_pending_decision('editing the task — Enter sends it, Esc rejects')
       @input.capture(marker: CAPTURE_MARKER, initial: clean ? payload : '') do |text|
         if text.nil?
-          finish(Rejected.new(reason: nil), 'rejected')
+          finish(Rejected.new, 'rejected')
         else
           finish(Approved.new(new_request_detail: text), 'approved, task rewritten')
         end
       end
     end
 
-    # Hand the prompt the steering reason. A blank answer or a cancel is a
-    # reasonless decline.
+    # Hand the prompt the words a redirect sends the model. A blank answer or
+    # an ESC is a plain reject.
     #
     # @return [void]
-    def capture_reason
-      @conversation.settle_pending_decision('rejecting — type a reason, Enter sends it, Esc skips')
+    def capture_redirect
+      @conversation.settle_pending_decision('redirecting — tell the agent, Enter sends it, Esc just rejects')
       @input.capture(marker: CAPTURE_MARKER) do |text|
-        reason = text.nil? || text.strip.empty? ? nil : text.strip
-        finish(Rejected.new(reason: reason), reason ? "rejected: #{reason}" : 'rejected')
+        message = text&.strip
+        if message.nil? || message.empty?
+          finish(Rejected.new, 'rejected')
+        else
+          finish(Redirected.new(message: message), "redirected: #{message}")
+        end
       end
     end
 
@@ -234,10 +259,17 @@ module Code
     # pane.
     #
     # @param decision [Pikuri::Workspace::Confirmer::Approved,
-    #   Pikuri::Workspace::Confirmer::Rejected]
+    #   Pikuri::Workspace::Confirmer::Rejected,
+    #   Pikuri::Workspace::Confirmer::Redirected, Object] a decision, or
+    #   {CANCELLED}.
     # @param note [String] the outcome as the transcript records it.
     # @return [void]
     def finish(decision, note)
+      if @cancelling
+        decision = CANCELLED
+        note = 'cancelled'
+        @cancelling = false
+      end
       channel = @pending
       @pending = nil
       @conversation.settle_pending_decision(note)

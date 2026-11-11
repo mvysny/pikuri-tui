@@ -359,7 +359,10 @@ RSpec.describe Code::App do
     # #ask parks the calling thread, so it runs where a tool runs: off the UI.
     def asking(some_app)
       answer = nil
-      worker = Thread.new { answer = some_app.confirmer.ask(request: request) }
+      worker = Thread.new do
+        Thread.current.report_on_exception = false # a cancel's raise is joined below
+        answer = some_app.confirmer.ask(request: request)
+      end
       wait_until { some_app.confirmer.pending? }
       yield
       worker.join(2) || raise('the confirmer never answered')
@@ -374,15 +377,13 @@ RSpec.describe Code::App do
         app.conversation.handle_key?('n')
       end
 
-      assert_equal Pikuri::Workspace::Confirmer::Rejected.new(reason: nil), answer
+      assert_equal Pikuri::Workspace::Confirmer::Rejected.new, answer
       assert_includes app.conversation.text.to_s, '· rejected'
       refute_predicate app.status_rule, :decision_pending
     end
 
-    it 'declines it on Ctrl+C, so the interrupt is never swallowed' do
-      answer = asking(app) { press_ctrl_c }
-
-      assert_equal Pikuri::Workspace::Confirmer::Rejected.new(reason: nil), answer
+    it 'cancels it on Ctrl+C, so the interrupt is never swallowed' do
+      assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) { asking(app) { press_ctrl_c } }
       refute_predicate app.confirmer, :pending?
     end
   end

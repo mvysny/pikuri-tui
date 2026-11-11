@@ -456,17 +456,16 @@ module Computer
       @log_ui.install_shortcut { @leader_menu.open }
     end
 
-    # +Ctrl+C+: decline a parked confirmation if there is one, else run the
-    # {Shared::AgentSession#interrupt} escalation (cancel turn -> unfocus ->
-    # quit).
-    #
-    # The decision comes first because a parked tool has the worker blocked, so
-    # cancelling the turn alone would look like nothing happened until the
-    # decision was answered.
+    # +Ctrl+C+: the {Shared::AgentSession#interrupt} escalation (cancel turn ->
+    # unfocus -> quit), then wake a parked confirmation with a cancel too —
+    # its tool has the worker blocked, so cancelling the turn alone would look
+    # like nothing happened until the decision was answered. A parked question
+    # means a turn is running, so the escalation's step taken is the cancel.
     #
     # @return [void]
     def interrupt
-      @session.interrupt unless @confirmer.reject_pending!
+      @session.interrupt
+      @confirmer.cancel_pending!
     end
 
     # Build the {Shared::LeaderMenu} for the computer shell: logs, plan mode, switch
@@ -538,9 +537,9 @@ module Computer
     #
     # @return [void]
     def quit
-      # Decline anything parked first: a tool blocked on an answer would
-      # otherwise be abandoned mid-operation rather than told no.
-      @confirmer.reject_pending!
+      # Cancel anything parked first: a tool blocked on an answer would
+      # otherwise be abandoned mid-operation rather than unwound.
+      @confirmer.cancel_pending!
       @screen.event_queue.stop
     end
 

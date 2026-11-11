@@ -897,10 +897,10 @@ RSpec.describe Shared::ConversationTextView do
 
     it 'settles again for an outcome that took two steps' do
       pane.pending_decision = decision('r')
-      pane.settle_pending_decision('rejecting — type a reason')
-      pane.settle_pending_decision('rejected: wrong directory')
-      assert_includes rendered, '· rejected: wrong directory'
-      refute_includes rendered, 'type a reason'
+      pane.settle_pending_decision('redirecting — tell the agent')
+      pane.settle_pending_decision('redirected: wrong directory')
+      assert_includes rendered, '· redirected: wrong directory'
+      refute_includes rendered, 'tell the agent'
     end
 
     it 'raises when settling a decision that was never asked (our bug, not a no-op)' do

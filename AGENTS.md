@@ -43,7 +43,7 @@ Every fact lives in exactly one of these; the others link to it.
 - **Our bugs raise; a library's exceptions are logged and degraded.** An uncaught raise in the event loop tears the screen down and takes the session with it. See `D_tui_degrades_not_crashes`.
 - **The conversation pane is never a log sink.** It is what the user reads; the log pane is what we read when something is wrong.
 - **A confirmation is answered in the transcript, and focus is what arms it.** No grace window, no timer, no text-entry popup. See `D_transcript_confirmer`.
-- **Decline-by-default lives in exactly two places** — `Ctrl+C` and quit, both through `Code::TranscriptConfirmer#reject_pending!`. Skip either and a parked tool leaves `Ctrl+C` looking broken, because the worker is blocked on the answer.
+- **Cancel-a-parked-question lives in exactly two places** — `Ctrl+C` and quit, both through `Code::TranscriptConfirmer#cancel_pending!`, which makes the parked `#ask` raise `Cancellable::Cancelled`. Skip either and a parked tool leaves `Ctrl+C` looking broken, because the worker is blocked on the answer.
 - **A gated skill must not be *listed*.** `Code::SkillActivationListener` builds the palette's skill half from pikuri's activation, not its catalog, and re-lists as the `paths:` gate opens and closes.
 - **`Shared::ConversationTextView#clear` is not a redraw.** It drops every region, a parked confirmer question included; a density toggle re-runs kinded thunks instead. See `D_density_thunks`.
 - **The `edit` / `write` diff blocks are never kinded**, so no density toggle can hide them: a diff is reviewed, not skimmed. See `D_density_thunks`.

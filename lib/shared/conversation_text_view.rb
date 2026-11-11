@@ -439,7 +439,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   # and claim those keys until the decision is settled.
   #
   #   ⏵ OK to run `rm -rf build`?
-  #   (y) approve   (n) reject   (r) reject w/ reason
+  #   (y) approve   (n) reject   (r) redirect
   #
   # Passing +nil+ disarms the keys without touching the block — for a decision
   # whose answer is still being typed elsewhere.
@@ -456,8 +456,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   end
 
   # Rewrite the asked decision's cue line as +text+, the record of how it went,
-  # and disarm its keys. Repeatable: an outcome reached in two steps (reject,
-  # then a typed reason) settles once per step.
+  # and disarm its keys. Repeatable: an outcome reached in two steps (redirect,
+  # then the typed words) settles once per step.
   #
   #   conversation.settle_pending_decision('approved')   # · approved
   #

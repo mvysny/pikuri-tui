@@ -195,13 +195,11 @@ module Code
     #   open — close it (ESC/q) first.
     def register_shortcuts: () -> void
 
-    # +Ctrl+C+: decline a parked confirmation if there is one, else run the
-    # {Shared::AgentSession#interrupt} escalation (cancel turn -> unfocus ->
-    # quit).
-    # 
-    # The decision comes first because a parked tool has the worker blocked, so
-    # cancelling the turn alone would look like nothing happened until the
-    # decision was answered.
+    # +Ctrl+C+: the {Shared::AgentSession#interrupt} escalation (cancel turn ->
+    # unfocus -> quit), then wake a parked confirmation with a cancel too —
+    # its tool has the worker blocked, so cancelling the turn alone would look
+    # like nothing happened until the decision was answered. A parked question
+    # means a turn is running, so the escalation's step taken is the cancel.
     def interrupt: () -> void
 
     # Build the {Shared::LeaderMenu} for the coding shell: logs, git diff, plan
@@ -2013,17 +2011,18 @@ module Code
   #   confirmer = Code::TranscriptConfirmer.new(screen: screen, conversation: conversation,
   #                                             status_rule: status_rule, input: input)
   #   # ... a tool, on the agent worker thread:
-  #   case confirmer.ask(request: request)   # parks here until the human answers
+  #   case decision = confirmer.ask(request: request)   # parks until the human answers
   #   in Pikuri::Workspace::Confirmer::Approved then run_it
-  #   in Pikuri::Workspace::Confirmer::Rejected(reason:) then tell_the_model(reason)
+  #   in Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected
+  #     return decision.observation('the bash command')
   #   end
   # 
   #   ⏵ OK to run this command?
   #   rm -rf build
-  #   (y) approve   (n) reject   (r) reject w/ reason
+  #   (y) approve   (n) reject   (r) redirect
   # 
-  # +y+ approves the payload unchanged, +n+ declines, and +r+ borrows the prompt
-  # for a steering reason the tool folds into the model's next observation. An
+  # +y+ approves the payload unchanged, +n+ rejects (the model stops), and +r+
+  # borrows the prompt for words the model gets as guidance — a redirect. An
   # *editable* request (only the +agent+ tool's delegation sets that) also offers
   # +e+, which borrows the prompt to rewrite the payload the tool then acts on —
   # the "author, not approver" seat. Both typing outcomes go through
@@ -2034,8 +2033,10 @@ module Code
   # is a different focus target and can never reach a decision. The one
   # obligation that puts on a caller: *dismissal is not decline.* Tabbing away
   # leaves the decision parked, and a parked decision holds the agent's worker
-  # thread, so +Ctrl+C+ and quit must both call {#reject_pending!} or they do
-  # nothing visible while a question waits.
+  # thread, so +Ctrl+C+ and quit must both call {#cancel_pending!} or they do
+  # nothing visible while a question waits. That cancels rather than rejects:
+  # the parked {#ask} raises +Cancellable::Cancelled+, so the turn ends there
+  # instead of running on for one more model reply.
   # 
   # == Sanitizing
   # 
@@ -2065,6 +2066,7 @@ module Code
   # keypress that unblocks it.
   class TranscriptConfirmer < Pikuri::Workspace::Confirmer
     CAPTURE_MARKER: String
+    CANCELLED: Object
 
     # _@param_ `screen` — the screen whose +event_queue+ marshals the question onto the UI thread.
     # 
@@ -2072,7 +2074,7 @@ module Code
     # 
     # _@param_ `status_rule` — the rule whose parked-decision badge says a turn is waiting on a human.
     # 
-    # _@param_ `input` — the prompt borrowed for the edit / reason text, and the focus target the answer returns to.
+    # _@param_ `input` — the prompt borrowed for the edit / redirect text, and the focus target the answer returns to.
     def initialize: (
                       screen: Tuile::Screen,
                       conversation: Shared::ConversationTextView,
@@ -2091,18 +2093,20 @@ module Code
     # _@param_ `request` — semantic content composed by the calling tool; sanitized and rendered here.
     # 
     # _@return_ — the resolved decision.
-    def ask: (request: Pikuri::Workspace::Confirmer::Request) -> (Pikuri::Workspace::Confirmer::Approved | Pikuri::Workspace::Confirmer::Rejected)
+    def ask: (request: Pikuri::Workspace::Confirmer::Request) -> (Pikuri::Workspace::Confirmer::Approved | Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected)
 
     # _@return_ — whether a tool is parked waiting for an answer. Read on
     # the UI thread.
     def pending?: () -> bool
 
-    # Reject whatever is parked, so a +Ctrl+C+ or a quit isn't swallowed by a
-    # decision the user never noticed.
+    # Cancel whatever is parked, so a +Ctrl+C+ or a quit isn't swallowed by a
+    # decision the user never noticed: the parked {#ask} raises
+    # +Cancellable::Cancelled+. Pair it with cancelling the agent's
+    # +Cancellable+, so a sub-agent tree stops too.
     # 
-    # _@return_ — +false+ when nothing was parked (the caller should fall
-    # through to its normal handling), +true+ when a decision was declined.
-    def reject_pending!: () -> bool
+    # _@return_ — +false+ when nothing was parked, +true+ when a decision
+    # was cancelled.
+    def cancel_pending!: () -> bool
 
     # Ask the question and light the badge, arming the transcript's keys.
     # 
@@ -2137,7 +2141,7 @@ module Code
     # Act on the picked outcome: resolve it, or borrow the prompt for the text
     # the outcome still needs.
     # 
-    # _@param_ `outcome` — +:approve+, +:edit+, +:reject+, +:reject_reason+.
+    # _@param_ `outcome` — +:approve+, +:edit+, +:reject+, +:redirect+.
     # 
     # _@param_ `payload` — the raw +Request#detail+.
     # 
@@ -2153,18 +2157,18 @@ module Code
     # _@param_ `clean` — whether the sanitizer flagged nothing; a flagged task starts from an empty buffer.
     def capture_task: (payload: String?, clean: bool) -> void
 
-    # Hand the prompt the steering reason. A blank answer or a cancel is a
-    # reasonless decline.
-    def capture_reason: () -> void
+    # Hand the prompt the words a redirect sends the model. A blank answer or
+    # an ESC is a plain reject.
+    def capture_redirect: () -> void
 
     # Settle the transcript block and wake the parked tool. The wake goes last,
     # so the UI is finished before the worker resumes rendering into that same
     # pane.
     # 
-    # _@param_ `decision`
+    # _@param_ `decision` — a decision, or {CANCELLED}.
     # 
     # _@param_ `note` — the outcome as the transcript records it.
-    def finish: ((Pikuri::Workspace::Confirmer::Approved | Pikuri::Workspace::Confirmer::Rejected) decision, String note) -> void
+    def finish: ((Pikuri::Workspace::Confirmer::Approved | Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected | Object) decision, String note) -> void
 
     # Neutralize a change's bytes for display, returning a +Change+ carrying the
     # sanitized old/new text alongside the warnings they raised.
@@ -2739,13 +2743,11 @@ module Computer
     #   open — close it (ESC/q) first.
     def register_shortcuts: () -> void
 
-    # +Ctrl+C+: decline a parked confirmation if there is one, else run the
-    # {Shared::AgentSession#interrupt} escalation (cancel turn -> unfocus ->
-    # quit).
-    # 
-    # The decision comes first because a parked tool has the worker blocked, so
-    # cancelling the turn alone would look like nothing happened until the
-    # decision was answered.
+    # +Ctrl+C+: the {Shared::AgentSession#interrupt} escalation (cancel turn ->
+    # unfocus -> quit), then wake a parked confirmation with a cancel too —
+    # its tool has the worker blocked, so cancelling the turn alone would look
+    # like nothing happened until the decision was answered. A parked question
+    # means a turn is running, so the escalation's step taken is the cancel.
     def interrupt: () -> void
 
     # Build the {Shared::LeaderMenu} for the computer shell: logs, plan mode, switch
@@ -4303,8 +4305,8 @@ module Shared
     def render_notice: (String text) -> void
 
     # Rewrite the asked decision's cue line as +text+, the record of how it went,
-    # and disarm its keys. Repeatable: an outcome reached in two steps (reject,
-    # then a typed reason) settles once per step.
+    # and disarm its keys. Repeatable: an outcome reached in two steps (redirect,
+    # then the typed words) settles once per step.
     # 
     #   conversation.settle_pending_decision('approved')   # · approved
     # 

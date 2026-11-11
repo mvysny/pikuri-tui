@@ -22,7 +22,8 @@ RSpec.describe Code::TranscriptConfirmer do
   after { Tuile::Screen.close }
 
   def approved(detail) = Pikuri::Workspace::Confirmer::Approved.new(new_request_detail: detail)
-  def rejected(reason = nil) = Pikuri::Workspace::Confirmer::Rejected.new(reason: reason)
+  def rejected = Pikuri::Workspace::Confirmer::Rejected.new
+  def redirected(message) = Pikuri::Workspace::Confirmer::Redirected.new(message: message)
 
   def request(question: 'OK to run this?', detail: nil, editable: false, change: nil)
     Pikuri::Workspace::Confirmer::Request.new(question: question, detail: detail,
@@ -37,7 +38,10 @@ RSpec.describe Code::TranscriptConfirmer do
   # via the block (which calls #decide / #type), returning what it produced.
   def run(req, method: :ask, &block)
     result = nil
-    worker = Thread.new { result = confirmer.public_send(method, request: req) }
+    worker = Thread.new do
+      Thread.current.report_on_exception = false # a cancel's raise is joined below
+      result = confirmer.public_send(method, request: req)
+    end
     block&.call
     worker.join(2) || raise("#{method} never returned")
     result
@@ -74,19 +78,19 @@ RSpec.describe Code::TranscriptConfirmer do
       assert_equal approved('ls -la'), run(request(detail: 'ls -la')) { decide('y') }
     end
 
-    it 'rejects with no reason on n' do
+    it 'rejects on n' do
       assert_equal rejected, run(request) { decide('n') }
     end
 
-    it 'rejects with a typed reason on r' do
+    it 'redirects with the typed words on r' do
       result = run(request) do
         decide('r')
         type(text: 'use the other library')
       end
-      assert_equal rejected('use the other library'), result
+      assert_equal redirected('use the other library'), result
     end
 
-    it 'treats a blank reason as no reason' do
+    it 'treats blank redirect words as a plain reject' do
       result = run(request) do
         decide('r')
         type(text: '   ')
@@ -94,7 +98,7 @@ RSpec.describe Code::TranscriptConfirmer do
       assert_equal rejected, result
     end
 
-    it 'skips the reason (a bare decline) when the reason prompt is ESC-cancelled' do
+    it 'rejects when the redirect prompt is ESC-cancelled' do
       result = run(request) do
         decide('r')
         type(key: Tuile::Keys::ESC)
@@ -183,7 +187,7 @@ RSpec.describe Code::TranscriptConfirmer do
     it 'spells out the keys on offer under the question' do
       run(request) do
         wait_until { conversation.pending_decision }
-        assert_equal '(y) approve   (n) reject   (r) reject w/ reason',
+        assert_equal '(y) approve   (n) reject   (r) redirect',
                      conversation.pending_decision.cue
         decide('y')
       end
@@ -196,12 +200,12 @@ RSpec.describe Code::TranscriptConfirmer do
       refute_includes transcript_lines.join("\n"), '(y) approve'
     end
 
-    it 'records the steering reason it sent the model' do
+    it 'records the redirect words it sent the model' do
       run(request) do
         decide('r')
         type(text: 'wrong directory')
       end
-      assert_includes transcript_lines, '· rejected: wrong directory'
+      assert_includes transcript_lines, '· redirected: wrong directory'
     end
 
     it 'diffs a write request so the user sees the change, not just the headline' do
@@ -264,29 +268,47 @@ RSpec.describe Code::TranscriptConfirmer do
     end
   end
 
-  describe 'staying answerable — #pending? / #reject_pending!' do
-    it 'is not pending with nothing parked, and rejects nothing' do
+  describe 'staying answerable — #pending? / #cancel_pending!' do
+    it 'is not pending with nothing parked, and cancels nothing' do
       refute_predicate confirmer, :pending?
-      assert_equal false, confirmer.reject_pending!
+      assert_equal false, confirmer.cancel_pending!
     end
 
-    it 'declines the parked question (what Ctrl+C and quit call)' do
-      result = run(request) do
-        wait_until { confirmer.pending? }
-        assert_equal true, confirmer.reject_pending!
+    it 'makes the parked ask raise Cancelled (what Ctrl+C and quit call)' do
+      assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) do
+        run(request) do
+          wait_until { confirmer.pending? }
+          assert_equal true, confirmer.cancel_pending!
+        end
       end
-      assert_equal rejected, result
       refute_predicate confirmer, :pending?
+      assert_includes transcript_lines, '· cancelled'
     end
 
-    it 'declines a question whose reason is still being typed' do
+    it 'cancels a question whose redirect is still being typed' do
+      assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) do
+        run(request) do
+          decide('r')
+          wait_until { input.capturing? }
+          assert_equal true, confirmer.cancel_pending!
+        end
+      end
+      refute_predicate input, :capturing?
+    end
+
+    it 'still rejects on a later ESC once a cancel has unwound' do
+      assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) do
+        run(request) do
+          decide('r')
+          wait_until { input.capturing? }
+          confirmer.cancel_pending!
+        end
+      end
       result = run(request) do
         decide('r')
-        wait_until { input.capturing? }
-        assert_equal true, confirmer.reject_pending!
+        type(key: Tuile::Keys::ESC)
       end
       assert_equal rejected, result
-      refute_predicate input, :capturing?
     end
   end
 
