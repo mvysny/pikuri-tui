@@ -231,6 +231,10 @@ module Shared
       # take_pending clears it so it's applied at most once.
       transport = @model_picker.take_pending
       @status_rule.start_animation
+      # Here, on the UI thread where {#interrupt} reads @turn_in_progress, not
+      # in the worker: a cancel sent before the worker reaches run_loop then
+      # still ends this turn.
+      @agent.cancellable&.reset!
       Thread.new do
         @agent.run_loop(user_message: message, attachments: attachments, transport: transport)
       rescue Pikuri::Agent::Control::Cancellable::Cancelled

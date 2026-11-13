@@ -13,7 +13,8 @@ RSpec.describe Shared::AgentSession do
   # spec calls {#finish_turn!}, so a spec can hold a turn open and observe
   # the mid-turn paths.
   class TurnAgentStub
-    attr_reader :cancellable, :interloper, :messages, :attachments, :transports, :clear_count, :drained
+    attr_reader :cancellable, :interloper, :messages, :attachments, :transports, :clear_count, :drained,
+                :cancelled_at_end
     attr_accessor :modalities
 
     def transport = Pikuri::Agent::ChatTransport.new(model: 'running', provider: :openai)
@@ -25,6 +26,7 @@ RSpec.describe Shared::AgentSession do
       @attachments = []
       @transports = []
       @drained = []
+      @cancelled_at_end = []
       @clear_count = 0
       @gate = Queue.new
       @blocking = false
@@ -51,6 +53,8 @@ RSpec.describe Shared::AgentSession do
       raise Pikuri::Agent::EmptyTurnError, @empty_turn_provider if @empty_turn_provider
 
       @gate.pop if @blocking
+      # Like the real agent, never clears the flag: resetting is the session's job.
+      @cancelled_at_end << @cancellable.cancelled?
     end
   end
 
@@ -361,6 +365,22 @@ RSpec.describe Shared::AgentSession do
     ensure
       agent.finish_turn!
       wait_until { !session.turn_in_progress? }
+    end
+
+    it 'resets the cancellable for each turn, so a cancel from the last one does not trip the next' do
+      agent.block_turns!
+      session.submit('first')
+      wait_until { agent.messages.size == 1 }
+      session.interrupt
+      agent.finish_turn!
+      wait_until { !session.turn_in_progress? }
+
+      session.submit('second')
+      wait_until { agent.messages.size == 2 }
+      agent.finish_turn!
+      wait_until { !session.turn_in_progress? }
+
+      assert_equal [true, false], agent.cancelled_at_end
     end
 
     it 'drops focus when idle and something is focused (first press)' do
