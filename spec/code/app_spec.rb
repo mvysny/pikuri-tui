@@ -193,17 +193,18 @@ RSpec.describe Code::App do
     # Before an agent runs there is no extension to schedule through; the
     # conversation queues the skill and the message, in order, for the agent.
     it 'queues a skill typed before the agent is up through the conversation' do
-      injected = []
       submitted = []
       booting = Pikuri::Conversations::Status.new(state: :booting, pending: 0, model: nil, next_model: nil)
       app.session.define_singleton_method(:status) { booting }
-      app.session.define_singleton_method(:inject_system) { |text| injected << text }
-      app.session.define_singleton_method(:submit) { |msg, **| submitted << msg }
+      app.session.define_singleton_method(:submit) { |msg, system: [], **| submitted << [msg, system] }
 
       skill_commands.commands.find { |c| c.name == '/writing-rdoc' }.callback.call('')
-      assert_equal 1, injected.size
-      assert_includes injected.first, '<skill name="writing-rdoc"'
-      assert_equal [''], submitted
+      assert_equal 1, submitted.size
+      msg, system = submitted.first
+      assert_equal '', msg
+      assert_equal 1, system.size
+      assert_includes system.first, '<skill name="writing-rdoc"'
+      assert_includes system.first, 'The user loaded this skill.'
     end
 
     describe 'the paths: gate' do
@@ -248,7 +249,7 @@ RSpec.describe Code::App do
       # mechanism (no tool has to actually run).
       def touch(path, some_app = app)
         booted_agent(some_app).instance_variable_get(:@listeners)
-                              .emit(tool_call('read', path, arguments: { 'path' => path }))
+                              .on_event(tool_call('read', path, arguments: { 'path' => path }))
         Tuile::Testing.loop
       end
     end
@@ -379,7 +380,7 @@ RSpec.describe Code::App do
       answer = nil
       worker = Thread.new do
         Thread.current.report_on_exception = false # a cancel's raise is joined below
-        answer = some_app.confirmer.ask(request: request)
+        answer = some_app.confirmer.ask(request: request, cancellable: Pikuri::Agent::Control::Cancellable.new)
       end
       wait_until { some_app.confirmer.pending? }
       yield

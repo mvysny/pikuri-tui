@@ -12,7 +12,7 @@ module Code
   #   confirmer = Code::TranscriptConfirmer.new(screen: screen, conversation: conversation,
   #                                             status_rule: status_rule, input: input)
   #   # ... a tool, on the agent worker thread:
-  #   case decision = confirmer.ask(request: request)   # parks until the human answers
+  #   case decision = confirmer.ask(request: request, cancellable: context.cancellable)   # parks until answered
   #   in Pikuri::Workspace::Confirmer::Approved then run_it
   #   in Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected
   #     return decision.observation('the bash command')
@@ -110,12 +110,15 @@ module Code
     #
     # @param request [Pikuri::Workspace::Confirmer::Request] semantic content
     #   composed by the calling tool; sanitized and rendered here.
+    # @param cancellable [Pikuri::Agent::Control::Cancellable] the asking turn's
+    #   token. Unread: a cancel reaches the parked question through
+    #   {#cancel_pending!}, which also settles its transcript block.
     # @return [Pikuri::Workspace::Confirmer::Approved,
     #   Pikuri::Workspace::Confirmer::Rejected,
     #   Pikuri::Workspace::Confirmer::Redirected] the resolved decision.
     # @raise [Pikuri::Agent::Control::Cancellable::Cancelled] when
     #   {#cancel_pending!} ends the wait.
-    def ask(request:)
+    def ask(request:, cancellable:) # rubocop:disable Lint/UnusedMethodArgument -- the port's signature
       question = Pikuri::Sanitizer.sanitize(request.question)
       detail   = request.detail ? Pikuri::Sanitizer.sanitize(request.detail) : nil
       change, change_warnings = sanitize_change(request.change)

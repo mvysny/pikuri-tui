@@ -242,10 +242,8 @@ module Chat
       system_prompt = Pikuri.prompts(:'pikuri-chat', :'agent-loop')
       system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
       @conversations = Pikuri::Conversations.new(system_prompt: system_prompt, configure: method(:configure_agent))
-      listener = Shared::FanoutListener.new([
-                                              Shared::RateLimitedListener.new(@conversation.listener, fps: 15),
-                                              @status_rule
-                                            ])
+      transcript = Pikuri::Conversations::RateLimitedListener.new(@conversation.listener, fps: 15)
+      listener = Pikuri::Agent::ListenerList.new([transcript, @status_rule])
       @conversations.open(id: 'chat', transport: transport, listener: listener)
     end
 

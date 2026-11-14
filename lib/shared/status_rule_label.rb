@@ -31,7 +31,7 @@ require 'pikuri-conversations'
 #   rule = Shared::StatusRuleLabel.new(names: picker.names, context: project_root.to_s)
 #   rule.current_model = transport   # boot model
 #   rule.plan_active = true          # lights the badge
-#   conversations.open(id: 'main', transport:, listener: Shared::FanoutListener.new([..., rule]))
+#   conversations.open(id: 'main', transport:, listener: Pikuri::Agent::ListenerList.new([..., rule]))
 #
 # The token line is a {Pikuri::Agent::Listener::TokenLog}'s, one per agent: a
 # fresh one at every boot, so a cleared conversation starts from zero.

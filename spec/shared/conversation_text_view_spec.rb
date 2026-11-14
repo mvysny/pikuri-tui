@@ -376,7 +376,7 @@ RSpec.describe Shared::ConversationTextView do
 
     it 'drops the redraw register with the conversation, so a later toggle is inert' do
       call_and_result
-      listener.on_event(Pikuri::Conversations::Event::Booting.new)
+      listener.on_event(Pikuri::Conversations::Event::Cleared.new)
       pane.toggle_tool_detail
       assert_equal '', rendered
     end
@@ -415,20 +415,26 @@ RSpec.describe Shared::ConversationTextView do
     assert_includes rendered, '! cancelled'
   end
 
-  it 'wipes the conversation pane as a new agent boots (a /clear)' do
+  it 'wipes the conversation pane on a /clear' do
     listener.on_event(Pikuri::Agent::Event::UserTurn.new(content: 'hello?'))
     listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'hi there'))
     refute_equal '', rendered
 
-    listener.on_event(Pikuri::Conversations::Event::Booting.new)
+    listener.on_event(Pikuri::Conversations::Event::Cleared.new)
     assert_equal '', rendered
   end
 
-  it 'drops the open streaming buffer as a new agent boots, so the next turn starts clean' do
+  it 'keeps a failed boot on screen while the retry boots' do
+    listener.on_event(Pikuri::Conversations::Event::BootFailed.new(error: RuntimeError.new('no MCP')))
+    listener.on_event(Pikuri::Conversations::Event::Booting.new)
+    assert_includes rendered, 'no MCP'
+  end
+
+  it 'drops the open streaming buffer on a /clear, so the next turn starts clean' do
     # A wipe arriving mid-stream must not leave the buffer extending a
     # now-detached region.
     listener.on_event(Pikuri::Agent::Event::AssistantDelta.new(content: 'partial'))
-    listener.on_event(Pikuri::Conversations::Event::Booting.new)
+    listener.on_event(Pikuri::Conversations::Event::Cleared.new)
     assert_equal '', rendered
 
     # The next turn renders into a fresh region rather than raising on the

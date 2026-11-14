@@ -609,7 +609,7 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #    capped here. The terminal listener's argument dump survives as the
   #    pane's +:verbose+ form.
   #
-  # It hears the conversation's events too: a +Booting+ agent starts the
+  # It hears the conversation's events too: a +Cleared+ conversation starts the
   # transcript over, and a failed boot or turn ends in one error line. +Tokens+
   # and the conversation's bookkeeping (the cap, the pending count) stay silent;
   # they are {Shared::StatusRuleLabel}'s.
@@ -756,9 +756,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
         render_system_injection(content)
       in Pikuri::Agent::Event::Cancelled
         render_cancelled
-      in Pikuri::Conversations::Event::Booting
-        # A new agent is a new conversation — the first boot, a /clear, a retry
-        # after a failed boot — so the transcript starts over with it.
+      in Pikuri::Conversations::Event::Cleared
+        # Not on Booting: a retry after a failed boot boots too, and would
+        # wipe the failure it retries.
         reset_conversation
       in Pikuri::Conversations::Event::BootFailed(error: Pikuri::Agent::Control::Cancellable::Cancelled)
         render_cancelled
@@ -962,7 +962,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # @return [String]
     def cap(text, limit) = text.length <= limit ? text : "#{text[0, limit - 1]}…"
 
-    # Wipe the pane and drop every per-turn render handle as a new agent boots.
+    # Wipe the pane and drop every per-turn render handle as the conversation
+    # is cleared.
     # The pane is cleared (detaching all regions, including any open buffers'), then
     # both blocks are +preserve+d — dropping their now-detached handles without
     # a second +region.remove+ — and the streaming / pairing slots reset to

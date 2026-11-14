@@ -40,7 +40,7 @@ RSpec.describe Code::TranscriptConfirmer do
     result = nil
     worker = Thread.new do
       Thread.current.report_on_exception = false # a cancel's raise is joined below
-      result = confirmer.public_send(method, request: req)
+      result = confirmer.public_send(method, request: req, cancellable: Pikuri::Agent::Control::Cancellable.new)
     end
     block&.call
     worker.join(2) || raise("#{method} never returned")

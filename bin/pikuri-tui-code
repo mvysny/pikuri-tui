@@ -123,9 +123,9 @@ end
 # Climb from the launch directory to the project root (a VCS marker:
 # .git / .hg / .svn), and chdir the whole process to it so the file
 # tools, Bash, Grep, Glob all operate against one anchor — see
-# Pikuri::Workspace::ProjectRoot. Falls back to the launch dir.
+# Pikuri::Code::ProjectRoot. Falls back to the launch dir.
 launch_cwd   = Pathname.new(Dir.pwd)
-project_root = Pikuri::Workspace::ProjectRoot.find(cwd: launch_cwd) || launch_cwd
+project_root = Pikuri::Code::ProjectRoot.find(cwd: launch_cwd) || launch_cwd
 chdir_notice = ("Changing working directory to project root: #{project_root}" if Dir.pwd != project_root.to_s)
 Dir.chdir(project_root.to_s) if chdir_notice
 

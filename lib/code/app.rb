@@ -345,13 +345,9 @@ module Code
     # @return [Pikuri::Conversations::Conversation]
     def open_session(transport)
       @conversations = Pikuri::Conversations.new(system_prompt: @system_prompt, configure: method(:configure_agent))
-      listener = Shared::FanoutListener.new([
-                                              Shared::RateLimitedListener.new(@conversation.listener, fps: 15),
-                                              @status_rule,
-                                              @sidebar.task_listener,
-                                              @plan_mode_listener,
-                                              @skill_activation
-                                            ])
+      transcript = Pikuri::Conversations::RateLimitedListener.new(@conversation.listener, fps: 15)
+      listener = Pikuri::Agent::ListenerList.new([transcript, @status_rule, @sidebar.task_listener,
+                                                  @plan_mode_listener, @skill_activation])
       @conversations.open(id: 'code', transport: transport, listener: listener)
     end
 
@@ -455,7 +451,7 @@ module Code
     # A +/<skill-name>+ from the palette: the skill's body, then +rest+ as the
     # message — a bare load when +rest+ is blank. Once an agent runs, the
     # skill goes in through its extension and lands ahead of the message in one
-    # turn; before that (booting, or after a /clear) the conversation queues
+    # turn; before that (booting, or after a /clear) the conversation carries
     # both, in order, for the agent to come.
     #
     # @param name [String] a skill the palette listed, so in play.
@@ -465,10 +461,10 @@ module Code
       extension = @skill_activation.extension
       if extension && %i[idle running].include?(@session.status.state)
         extension.schedule_load_skill(name)
+        submit(rest)
       else
-        @session.inject_system(Pikuri::Skill::Renderer.format_skill(@skill_catalog.get(name)))
+        submit(rest, system: [Pikuri::Skill::Renderer.format_skill(@skill_catalog.get(name), by_user: true)])
       end
-      submit(rest)
     end
 
     # Enter on the prompt: start a turn, or join the running one. A model known
@@ -476,9 +472,11 @@ module Code
     #
     # @param text [String] the line, +@path+ tokens split out.
     # @param attachments [Array<Pikuri::Attachment>] the images it named.
+    # @param system [Array<String>] reference blocks — a skill the user loaded —
+    #   delivered ahead of +text+.
     # @return [void]
-    def submit(text, attachments: [])
-      @session.submit(text, attachments: attachments)
+    def submit(text, attachments: [], system: [])
+      @session.submit(text, attachments: attachments, system: system)
     rescue Pikuri::Agent::UnsupportedAttachmentError => e
       @input.refuse_attachment(e.message)
     end

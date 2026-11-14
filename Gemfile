@@ -87,8 +87,9 @@ gem 'typemap', '~> 0.1'
 # API (one agent per conversation, the workshop split, the web tools in their
 # own gem), so the released 0.1.0 gems no longer build it. Git rather than
 # `path: '../pikuri/<gem>'` for tuile's reason above: Gemfile.lock pins one
-# revision per repo, and `bundle update pikuri-core` / `bundle update
-# pikuri-conversations` moves it. The workshop pins its own pikuri by commit;
+# revision per repo, and `bundle update --conservative` naming *every* gem from
+# that repo moves it (Bundler 4 leaves the revision alone while one of them
+# stays locked). The workshop pins its own pikuri by commit;
 # keep ours at or past that commit, or a workshop gem may call into a pikuri
 # that lacks what it needs. The cut of pikuri 0.2.0 and the workshop's first
 # release revert these to version requirements.

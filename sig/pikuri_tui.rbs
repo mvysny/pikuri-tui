@@ -188,7 +188,7 @@ module Code
     # A +/<skill-name>+ from the palette: the skill's body, then +rest+ as the
     # message — a bare load when +rest+ is blank. Once an agent runs, the
     # skill goes in through its extension and lands ahead of the message in one
-    # turn; before that (booting, or after a /clear) the conversation queues
+    # turn; before that (booting, or after a /clear) the conversation carries
     # both, in order, for the agent to come.
     # 
     # _@param_ `name` — a skill the palette listed, so in play.
@@ -202,7 +202,9 @@ module Code
     # _@param_ `text` — the line, +@path+ tokens split out.
     # 
     # _@param_ `attachments` — the images it named.
-    def submit: (String text, ?attachments: ::Array[Pikuri::Attachment]) -> void
+    # 
+    # _@param_ `system` — reference blocks — a skill the user loaded — delivered ahead of +text+.
+    def submit: (String text, ?attachments: ::Array[Pikuri::Attachment], ?system: ::Array[String]) -> void
 
     # Why the next turn's model can't see +attachments+, asked before anything
     # is sent; +nil+ when they may go out, unknown modalities included.
@@ -2048,7 +2050,7 @@ module Code
   #   confirmer = Code::TranscriptConfirmer.new(screen: screen, conversation: conversation,
   #                                             status_rule: status_rule, input: input)
   #   # ... a tool, on the agent worker thread:
-  #   case decision = confirmer.ask(request: request)   # parks until the human answers
+  #   case decision = confirmer.ask(request: request, cancellable: context.cancellable)   # parks until answered
   #   in Pikuri::Workspace::Confirmer::Approved then run_it
   #   in Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected
   #     return decision.observation('the bash command')
@@ -2129,8 +2131,10 @@ module Code
     # 
     # _@param_ `request` — semantic content composed by the calling tool; sanitized and rendered here.
     # 
+    # _@param_ `cancellable` — the asking turn's token. Unread: a cancel reaches the parked question through {#cancel_pending!}, which also settles its transcript block.
+    # 
     # _@return_ — the resolved decision.
-    def ask: (request: Pikuri::Workspace::Confirmer::Request) -> (Pikuri::Workspace::Confirmer::Approved | Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected)
+    def ask: (request: Pikuri::Workspace::Confirmer::Request, cancellable: Pikuri::Agent::Control::Cancellable) -> (Pikuri::Workspace::Confirmer::Approved | Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected)
 
     # _@return_ — whether a tool is parked waiting for an answer. Read on
     # the UI thread.
@@ -2973,34 +2977,342 @@ module Computer
   end
 end
 
-# Opened as +module Shared+ rather than +class Shared::FanoutListener+: YARD
+# Opened as +module Shared+ rather than +class Shared::RootLayout+: YARD
 # registers the namespace only from a file that opens it so, and without one
-# sord drops every +Shared::+ class from sig/pikuri_tui.rbs.
+# sord drops every +Shared::+ class from sig/pikuri_tui.rbs. This is the only
+# such file; keep it so, or move the opening to another.
 module Shared
-  # One listener standing for several: a +Pikuri::Conversations#open+ takes a
-  # single +listener:+, which hears both the agent's events and the
-  # conversation's own, and each pane wants its slice of both.
+  # The screen's content component: a shell's pane layout with the
+  # {Shared::StatusBar} on the last row.
   # 
-  #   listener = Shared::FanoutListener.new([transcript_listener, status_rule, task_listener])
-  #   conversations.open(id: 'main', transport:, listener:)
+  #   screen.content = Shared::RootLayout.new(Chat::Layout.new(...), status_bar)
   # 
-  # A spawned sub-agent gets a fan-out of each listener's sub-agent variant, by
-  # +Pikuri::Agent::ListenerList#for_sub_agent+'s rule: a listener without
-  # +for_sub_agent+ is kept by reference, one answering +nil+ is dropped.
+  # Tuile draws no status bar and reserves no row for one (its +DECISIONS.md+
+  # +D-status-bar+), so the bottom line is a component the app has to place
+  # itself — which is all this layout is: the shell takes every row the bar
+  # doesn't, the bar takes exactly one.
   # 
-  # Thread-safe when every listener in it is: it holds no state of its own.
-  class FanoutListener < Pikuri::Agent::Listener::Base
-    # _@param_ `listeners` — the listeners, in the order each event reaches them.
-    def initialize: (::Array[Pikuri::Agent::Listener::Base] listeners) -> void
+  # UI-thread-confined.
+  class RootLayout < Tuile::Component::Layout::Vertical
+    # _@param_ `shell` — the shell's own pane layout.
+    # 
+    # _@param_ `status_bar` — the bottom row.
+    def initialize: (Tuile::Component::Layout shell, Shared::StatusBar status_bar) -> void
 
-    # _@param_ `event` — any agent or conversation event.
-    def on_event: (Object event) -> void
+    # _@return_ — the shell's pane layout.
+    attr_reader shell: Tuile::Component::Layout
 
-    # _@param_ `params` — forwarded to each listener's +for_sub_agent+.
-    def for_sub_agent: (**::Hash[Symbol, Object] params) -> Shared::FanoutListener
+    # _@return_ — the bottom row.
+    attr_reader status_bar: Shared::StatusBar
+  end
 
-    # _@return_ — e.g. +"Fanout[RateLimited(…), StatusRule]"+.
-    def to_s: () -> String
+  # Turns pikuri's on-disk slash commands — the +.md+ prompt templates under
+  # +.pikuri/commands+ / +.claude/commands+ — into {Shared::SlashCommand}s the
+  # palette can list and run:
+  # 
+  #   commands = Shared::FileCommands.build(
+  #     registry: command_registry, reserved: built_ins.map(&:name),
+  #     screen: screen, logger: LOG,
+  #     on_expand: ->(text) { session.submit(text) }
+  #   )
+  #   #=> [#<SlashCommand name="/wh" description="<label> — weekly work log" …>]
+  # 
+  # Running one expands its template (+$ARGUMENTS+, +$1+…+$9+) against the rest
+  # of the typed line and hands the result to +on_expand+ as an ordinary user
+  # turn — the human wrote it, the template just saved the typing. So it is not a
+  # +:system+ block and it is not hidden from the transcript.
+  # 
+  # A command whose file pikuri refuses — it declares +allowed-tools:+, or its
+  # body carries a <code>!`cmd`</code> shell directive — is still listed, marked
+  # +(unavailable)+, and answers with the reason instead of running. A menu entry
+  # that silently vanished would be the worse failure, since the human is looking
+  # straight at the list.
+  # 
+  # +reserved+ is what a built-in already took. A file command may not capture a
+  # built-in verb: a cloned repo shipping +.claude/commands/plan.md+ would
+  # otherwise take over +/plan+, which flips a safety gate. The loser is dropped
+  # with a warn, and dropped is all it is — unlike a shadowed skill, nothing else
+  # reaches it.
+  # 
+  # Requires no pikuri gem: +registry+ is duck-typed, so the lean chat process
+  # (which never loads pikuri-skills) can still eager-load this file.
+  module FileCommands
+    # _@param_ `registry` — the scanned command files.
+    # 
+    # _@param_ `reserved` — command names already taken, leading slash included.
+    # 
+    # _@param_ `screen` — resolves the theme at run time, so a refusal is toned by whatever theme is current rather than the boot one.
+    # 
+    # _@param_ `logger` — takes the shadowing warnings, so they carry the composing shell's subsystem tag.
+    # 
+    # _@param_ `on_expand` — called with the expanded template +String+; drives it as a user turn.
+    # 
+    # _@return_ — in the registry's own precedence
+    # order.
+    def build: (
+                 registry: Pikuri::Command::Registry,
+                 reserved: ::Array[String],
+                 screen: Tuile::Screen,
+                 logger: Logger,
+                 on_expand: Proc
+               ) -> ::Array[Shared::SlashCommand]
+
+    # _@param_ `registry` — the scanned command files.
+    # 
+    # _@param_ `reserved` — command names already taken, leading slash included.
+    # 
+    # _@param_ `screen` — resolves the theme at run time, so a refusal is toned by whatever theme is current rather than the boot one.
+    # 
+    # _@param_ `logger` — takes the shadowing warnings, so they carry the composing shell's subsystem tag.
+    # 
+    # _@param_ `on_expand` — called with the expanded template +String+; drives it as a user turn.
+    # 
+    # _@return_ — in the registry's own precedence
+    # order.
+    def self.build: (
+                      registry: Pikuri::Command::Registry,
+                      reserved: ::Array[String],
+                      screen: Tuile::Screen,
+                      logger: Logger,
+                      on_expand: Proc
+                    ) -> ::Array[Shared::SlashCommand]
+
+    # _@param_ `command`
+    # 
+    # _@return_ — the palette's right column: the argument hint leads when
+    # the file declared one, since that is what you type next.
+    def hint: (Pikuri::Command::Registry::Command command) -> String
+
+    # _@param_ `command`
+    # 
+    # _@return_ — the palette's right column: the argument hint leads when
+    # the file declared one, since that is what you type next.
+    def self.hint: (Pikuri::Command::Registry::Command command) -> String
+
+    # _@param_ `registry`
+    # 
+    # _@param_ `command`
+    # 
+    # _@param_ `screen`
+    # 
+    # _@param_ `on_expand`
+    # 
+    # _@return_ — the +(rest)+ action; +nil+ return for a command that ran (the
+    # turn is its own record), the refusal reason for one that cannot.
+    def callback: (
+                    Pikuri::Command::Registry registry,
+                    Pikuri::Command::Registry::Command command,
+                    Tuile::Screen screen,
+                    Proc on_expand
+                  ) -> Proc
+
+    # _@param_ `registry`
+    # 
+    # _@param_ `command`
+    # 
+    # _@param_ `screen`
+    # 
+    # _@param_ `on_expand`
+    # 
+    # _@return_ — the +(rest)+ action; +nil+ return for a command that ran (the
+    # turn is its own record), the refusal reason for one that cannot.
+    def self.callback: (
+                         Pikuri::Command::Registry registry,
+                         Pikuri::Command::Registry::Command command,
+                         Tuile::Screen screen,
+                         Proc on_expand
+                       ) -> Proc
+  end
+
+  # One slash command: the typed name, the autocomplete hint, and the action.
+  # 
+  #   # an action command ignores the rest of the line:
+  #   Shared::SlashCommand.new('/diff', 'show the git diff',
+  #                            ->(_rest) { sidebar.open_diff; 'Opened the git diff.' })
+  #   # a skill command consumes it as a follow-up message:
+  #   Shared::SlashCommand.new('/writing-rdoc', 'writing rdoc docs',
+  #                            ->(rest) { load_skill('writing-rdoc', rest); nil })
+  # 
+  # The +description+ is the right-column hint in the {Shared::SlashMenuPopup}
+  # list; the +callback+'s *return value* is a separate string — the outcome
+  # shown below the command in the conversation pane once it runs (nil for none,
+  # e.g. a command that drives an agent turn and lets the turn be its own record).
+  # So the hint ("show the git diff") and the effect report ("Opened the git
+  # diff.") are distinct, and a command can report a dynamic result.
+  # 
+  # The +rest+ argument is the text after the command name (+""+ when none) —
+  # {Shared::SlashMenuPopup} splits +"/name rest"+ and passes +rest+ through. An
+  # action command takes-and-ignores it (+->(_rest) { … }+); a skill command
+  # forwards it to the agent as a follow-up message.
+  # 
+  # Sibling of {Shared::LeaderMenu::Action}; each shell registers its own set.
+  # 
+  # @!attribute [r] name
+  #   @return [String] the command as typed, leading slash included (+"/diff"+).
+  # @!attribute [r] description
+  #   @return [String] the autocomplete hint (right column of the popup list).
+  # @!attribute [r] callback
+  #   @return [Proc, Method] one-arg action (the +rest+ String), run one tick
+  #     after Enter; its +String+ (or nil) return is echoed below the command as
+  #     the outcome.
+  class SlashCommand < Data
+    # _@return_ — the command as typed, leading slash included (+"/diff"+).
+    attr_reader name: String
+
+    # _@return_ — the autocomplete hint (right column of the popup list).
+    attr_reader description: String
+
+    # _@return_ — one-arg action (the +rest+ String), run one tick
+    # after Enter; its +String+ (or nil) return is echoed below the command as
+    # the outcome.
+    attr_reader callback: (Proc | Method)
+  end
+
+  # Shell-style recall for the prompt: the messages submitted this session,
+  # oldest first, with the unsent draft pinned one slot *below* the newest — so
+  # browsing away from what you were typing and back is lossless.
+  # 
+  #   history.append('deploy staging')  # the user submits
+  #   history.draft = 'half-typed'      # capture on leaving the draft (the first Up)
+  #   history.older                     # => 'deploy staging'
+  #   history.older                     # => nil — already at the oldest
+  #   history.newer                     # => 'half-typed' — back on the draft
+  # 
+  # Entries are frozen and never rewritten — the arrows always show exactly what
+  # was sent, and the draft is the one mutable slot.
+  class PromptHistory
+    def initialize: () -> void
+
+    # _@return_ — the entries, oldest first; a copy, so mutating it
+    # doesn't reach the store.
+    def entries: () -> ::Array[String]
+
+    # _@return_ — whether the cursor is on the draft, i.e. nothing is
+    # currently recalled.
+    def at_draft?: () -> bool
+
+    # Record a submitted message, then return the cursor to a cleared draft —
+    # so submitting while browsing discards the pending draft, as shells do.
+    # Only *consecutive* duplicates collapse (zsh's +HIST_IGNORE_DUPS+):
+    # 
+    #   history.append('ls'); history.append('ls')    # => one entry
+    #   history.append('pwd'); history.append('ls')   # => ls, pwd, ls
+    # 
+    # _@param_ `text` — the submitted text; kept frozen, so the caller may go on mutating the String it passed.
+    def append: (String text) -> void
+
+    # _@param_ `text` — the unsent buffer to preserve; kept frozen.
+    def draft=: (String text) -> void
+
+    # Step one entry toward the oldest.
+    # 
+    # _@return_ — the entry to show, or +nil+ when the cursor is
+    # already on the oldest entry (or there is no history at all).
+    def older: () -> String?
+
+    # Step one entry toward the newest, stopping on the draft.
+    # 
+    # _@return_ — the entry to show — the draft, once past the newest
+    # entry — or +nil+ when the cursor is already on the draft.
+    def newer: () -> String?
+
+    # Abandon browsing and go straight back to the draft.
+    # 
+    # _@return_ — the preserved draft (+""+ when none was captured).
+    def jump_to_draft: () -> String
+  end
+
+  # A single open streamed block: a {Tuile::Component::TextView::Region} plus the
+  # streaming buffer writing into it, opened lazily on the first {#append} and then
+  # closed one of three ways - {#finalize} (commit the authoritative text),
+  # {#wipe} (drop the region and its content), or {#preserve} (drop the handle,
+  # keep the content on screen). The assistant answer and the reasoning pane are
+  # each one of these; they differ only in which buffer builder opens them, which
+  # is exactly what the +open+ factory captures.
+  # 
+  #   block = Shared::StreamedBlock.new do
+  #     region = view.create_region
+  #     [region, view.build_assistant_buffer(region, indent: 0)]
+  #   end
+  #   block.append(delta)     # opens the region + buffer on the first call
+  #   block.finalize(full)    # commit the final text, then close
+  #   # …or, on an event that interrupts the stream:
+  #   block.wipe              # a ToolCall arrived mid-answer -> remove the preview
+  #   block.preserve          # a cancel -> keep what streamed, drop the handle
+  # 
+  # After any close ({#finalize} / {#wipe} / {#preserve}) the block is reusable: the
+  # next {#append} opens a fresh region + buffer. {#wipe} / {#preserve} / {#finalize}
+  # are no-ops while closed, so a caller can fire them unconditionally on an
+  # interrupting event without first checking {#open?}.
+  # 
+  # UI-thread-confined: every region / buffer mutation it makes must run on the UI
+  # thread (the caller marshals the driving event stream there).
+  class StreamedBlock
+    def initialize: () ?{ () -> [Tuile::Component::TextView::Region, untyped] } -> void
+
+    # _@return_ — whether the block is currently open (holds an unfinalized
+    # buffer).
+    def open?: () -> bool
+
+    # Append a streamed delta, opening the region + buffer on the first call.
+    # 
+    # _@param_ `content` — the delta text.
+    def append: (String content) -> void
+
+    # Commit the authoritative full text (which may replace a truncated preview)
+    # and close. A no-op when not open.
+    # 
+    # _@param_ `content` — the final text.
+    def finalize: (String content) -> void
+
+    # Remove the region and its rendered content, then close - for an event that
+    # interrupts an unfinished stream (e.g. a tool call mid-answer). A no-op when
+    # not open.
+    def wipe: () -> void
+
+    # Drop the region / buffer handles but leave the rendered content on screen -
+    # for a stream that should stay (a cancel, or handing off to a non-streamed
+    # bookend). A no-op when not open.
+    def preserve: () -> void
+
+    def close: () -> void
+  end
+
+  # The transcript-density submenu — a {Shared::LeaderMenu} whose labels carry
+  # live state, lazyvim's +<leader>u+ retargeted at Tuile. Hang it off the
+  # leader menu:
+  # 
+  #   ui = Shared::UIToggleMenu.new(screen: screen, conversation: conversation)
+  #   menu.add('u', 'UI toggles') { ui.open }
+  # 
+  #   Ctrl+K  u
+  #   ┌ UI ─────────────────────┐
+  #   │ t  thinking: shown      │
+  #   │ v  tool lines: short    │
+  #   └─────────────────────────┘
+  # 
+  # Each entry flips one {Shared::ConversationTextView} display flag, a session
+  # override of a +[ui]+ config default that is never written back.
+  # 
+  # A submenu rather than two more top-level keys, and worth the extra keystroke
+  # only because there are two: it keeps the leader menu a list of *actions*
+  # (open the logs, clear the conversation) rather than a mix of actions and
+  # settings, and puts the two preferences where they read against each other.
+  # 
+  # UI-thread-confined.
+  class UIToggleMenu
+    CAPTION: String
+
+    # _@param_ `screen` — the screen the popup mounts on.
+    # 
+    # _@param_ `conversation` — the pane whose display flags these entries flip.
+    def initialize: (screen: Tuile::Screen, conversation: Shared::ConversationTextView) -> void
+
+    def open: () -> void
+
+    # _@return_ — the toggle entries, in display
+    # order. Exposed for tests.
+    def actions: () -> ::Array[Shared::LeaderMenu::Action]
   end
 
   # Installs each +[[server]] max_concurrent_requests+ into the process-wide
@@ -3403,7 +3715,7 @@ module Shared
   #   rule = Shared::StatusRuleLabel.new(names: picker.names, context: project_root.to_s)
   #   rule.current_model = transport   # boot model
   #   rule.plan_active = true          # lights the badge
-  #   conversations.open(id: 'main', transport:, listener: Shared::FanoutListener.new([..., rule]))
+  #   conversations.open(id: 'main', transport:, listener: Pikuri::Agent::ListenerList.new([..., rule]))
   # 
   # The token line is a {Pikuri::Agent::Listener::TokenLog}'s, one per agent: a
   # fresh one at every boot, so a cleared conversation starts from zero.
@@ -3669,62 +3981,6 @@ module Shared
 
     # _@return_ — the pane's name, as set.
     attr_accessor caption: (String | Tuile::StyledString)
-  end
-
-  # Coalesces streaming deltas ({Pikuri::Agent::Event::AssistantDelta},
-  # {Pikuri::Agent::Event::ThinkingDelta}) into at most +fps+ events a second
-  # before they reach +inner+; every other event flows straight through.
-  # 
-  #   listener = Shared::RateLimitedListener.new(view.listener, fps: 15)
-  #   # 60 deltas/s from a fast llama.cpp → 15 Markdown re-renders/s in the pane
-  # 
-  # A buffered delta is dropped when its own bookend (+Assistant+ / +Thinking+)
-  # arrives, since the bookend carries the whole text and the inner listener
-  # re-renders from it; any other event — a tool call, the conversation's
-  # +PendingChanged+ as the user types mid-turn — first flushes what is buffered,
-  # so the stream reaches the pane whole and in order.
-  # 
-  # == Implementation details
-  # 
-  # The tick schedule is anchored at construction, not at the first delta, so
-  # stream-startup latency doesn't leak into the cadence; after a flush it
-  # advances by whole periods, so a long-idle stream doesn't backlog ticks.
-  # Assistant and thinking deltas buffer independently.
-  # 
-  # A conversation reaches its listener from more than one thread — the turn
-  # thread, and the UI thread for a cancel — so every event is handled under one
-  # lock, +inner+'s +on_event+ included. That suits an inner listener which only
-  # marshals onto the UI thread and returns.
-  # 
-  # Thread-safe.
-  class RateLimitedListener < Pikuri::Agent::Listener::Base
-    # _@param_ `inner` — where the coalesced stream goes.
-    # 
-    # _@param_ `fps` — the cap on delta events a second; positive.
-    # 
-    # _@param_ `clock` — zero-arg → monotonic seconds; a spec's seam.
-    def initialize: (Pikuri::Agent::Listener::Base inner, fps: (Integer | Float), ?clock: Proc) -> void
-
-    # _@param_ `event` — any agent or conversation event.
-    def on_event: (Object event) -> void
-
-    # Wraps the inner listener's sub-agent variant in a fresh limiter with the
-    # same knobs; +nil+ when the inner one opts out.
-    # 
-    # _@param_ `params` — forwarded to the inner's +for_sub_agent+.
-    def for_sub_agent: (**::Hash[Symbol, Object] params) -> Shared::RateLimitedListener?
-
-    # _@return_ — e.g. +"RateLimited(15fps, Listener)"+.
-    def to_s: () -> String
-
-    # _@param_ `event`
-    def handle: (Object event) -> void
-
-    def tick: () -> void
-
-    def flush_assistant: () -> void
-
-    def flush_thinking: () -> void
   end
 
   # The conversation transcript as one cohesive Tuile component: a
@@ -4136,7 +4392,7 @@ module Shared
     #    capped here. The terminal listener's argument dump survives as the
     #    pane's +:verbose+ form.
     # 
-    # It hears the conversation's events too: a +Booting+ agent starts the
+    # It hears the conversation's events too: a +Cleared+ conversation starts the
     # transcript over, and a failed boot or turn ends in one error line. +Tokens+
     # and the conversation's bookkeeping (the cap, the pending count) stay silent;
     # they are {Shared::StatusRuleLabel}'s.
@@ -4322,346 +4578,14 @@ module Shared
       # _@param_ `limit`
       def cap: (String text, Integer limit) -> String
 
-      # Wipe the pane and drop every per-turn render handle as a new agent boots.
+      # Wipe the pane and drop every per-turn render handle as the conversation
+      # is cleared.
       # The pane is cleared (detaching all regions, including any open buffers'), then
       # both blocks are +preserve+d — dropping their now-detached handles without
       # a second +region.remove+ — and the streaming / pairing slots reset to
       # construction state.
       def reset_conversation: () -> void
     end
-  end
-
-  # The transcript-density submenu — a {Shared::LeaderMenu} whose labels carry
-  # live state, lazyvim's +<leader>u+ retargeted at Tuile. Hang it off the
-  # leader menu:
-  # 
-  #   ui = Shared::UIToggleMenu.new(screen: screen, conversation: conversation)
-  #   menu.add('u', 'UI toggles') { ui.open }
-  # 
-  #   Ctrl+K  u
-  #   ┌ UI ─────────────────────┐
-  #   │ t  thinking: shown      │
-  #   │ v  tool lines: short    │
-  #   └─────────────────────────┘
-  # 
-  # Each entry flips one {Shared::ConversationTextView} display flag, a session
-  # override of a +[ui]+ config default that is never written back.
-  # 
-  # A submenu rather than two more top-level keys, and worth the extra keystroke
-  # only because there are two: it keeps the leader menu a list of *actions*
-  # (open the logs, clear the conversation) rather than a mix of actions and
-  # settings, and puts the two preferences where they read against each other.
-  # 
-  # UI-thread-confined.
-  class UIToggleMenu
-    CAPTION: String
-
-    # _@param_ `screen` — the screen the popup mounts on.
-    # 
-    # _@param_ `conversation` — the pane whose display flags these entries flip.
-    def initialize: (screen: Tuile::Screen, conversation: Shared::ConversationTextView) -> void
-
-    def open: () -> void
-
-    # _@return_ — the toggle entries, in display
-    # order. Exposed for tests.
-    def actions: () -> ::Array[Shared::LeaderMenu::Action]
-  end
-
-  # A single open streamed block: a {Tuile::Component::TextView::Region} plus the
-  # streaming buffer writing into it, opened lazily on the first {#append} and then
-  # closed one of three ways - {#finalize} (commit the authoritative text),
-  # {#wipe} (drop the region and its content), or {#preserve} (drop the handle,
-  # keep the content on screen). The assistant answer and the reasoning pane are
-  # each one of these; they differ only in which buffer builder opens them, which
-  # is exactly what the +open+ factory captures.
-  # 
-  #   block = Shared::StreamedBlock.new do
-  #     region = view.create_region
-  #     [region, view.build_assistant_buffer(region, indent: 0)]
-  #   end
-  #   block.append(delta)     # opens the region + buffer on the first call
-  #   block.finalize(full)    # commit the final text, then close
-  #   # …or, on an event that interrupts the stream:
-  #   block.wipe              # a ToolCall arrived mid-answer -> remove the preview
-  #   block.preserve          # a cancel -> keep what streamed, drop the handle
-  # 
-  # After any close ({#finalize} / {#wipe} / {#preserve}) the block is reusable: the
-  # next {#append} opens a fresh region + buffer. {#wipe} / {#preserve} / {#finalize}
-  # are no-ops while closed, so a caller can fire them unconditionally on an
-  # interrupting event without first checking {#open?}.
-  # 
-  # UI-thread-confined: every region / buffer mutation it makes must run on the UI
-  # thread (the caller marshals the driving event stream there).
-  class StreamedBlock
-    def initialize: () ?{ () -> [Tuile::Component::TextView::Region, untyped] } -> void
-
-    # _@return_ — whether the block is currently open (holds an unfinalized
-    # buffer).
-    def open?: () -> bool
-
-    # Append a streamed delta, opening the region + buffer on the first call.
-    # 
-    # _@param_ `content` — the delta text.
-    def append: (String content) -> void
-
-    # Commit the authoritative full text (which may replace a truncated preview)
-    # and close. A no-op when not open.
-    # 
-    # _@param_ `content` — the final text.
-    def finalize: (String content) -> void
-
-    # Remove the region and its rendered content, then close - for an event that
-    # interrupts an unfinished stream (e.g. a tool call mid-answer). A no-op when
-    # not open.
-    def wipe: () -> void
-
-    # Drop the region / buffer handles but leave the rendered content on screen -
-    # for a stream that should stay (a cancel, or handing off to a non-streamed
-    # bookend). A no-op when not open.
-    def preserve: () -> void
-
-    def close: () -> void
-  end
-
-  # Shell-style recall for the prompt: the messages submitted this session,
-  # oldest first, with the unsent draft pinned one slot *below* the newest — so
-  # browsing away from what you were typing and back is lossless.
-  # 
-  #   history.append('deploy staging')  # the user submits
-  #   history.draft = 'half-typed'      # capture on leaving the draft (the first Up)
-  #   history.older                     # => 'deploy staging'
-  #   history.older                     # => nil — already at the oldest
-  #   history.newer                     # => 'half-typed' — back on the draft
-  # 
-  # Entries are frozen and never rewritten — the arrows always show exactly what
-  # was sent, and the draft is the one mutable slot.
-  class PromptHistory
-    def initialize: () -> void
-
-    # _@return_ — the entries, oldest first; a copy, so mutating it
-    # doesn't reach the store.
-    def entries: () -> ::Array[String]
-
-    # _@return_ — whether the cursor is on the draft, i.e. nothing is
-    # currently recalled.
-    def at_draft?: () -> bool
-
-    # Record a submitted message, then return the cursor to a cleared draft —
-    # so submitting while browsing discards the pending draft, as shells do.
-    # Only *consecutive* duplicates collapse (zsh's +HIST_IGNORE_DUPS+):
-    # 
-    #   history.append('ls'); history.append('ls')    # => one entry
-    #   history.append('pwd'); history.append('ls')   # => ls, pwd, ls
-    # 
-    # _@param_ `text` — the submitted text; kept frozen, so the caller may go on mutating the String it passed.
-    def append: (String text) -> void
-
-    # _@param_ `text` — the unsent buffer to preserve; kept frozen.
-    def draft=: (String text) -> void
-
-    # Step one entry toward the oldest.
-    # 
-    # _@return_ — the entry to show, or +nil+ when the cursor is
-    # already on the oldest entry (or there is no history at all).
-    def older: () -> String?
-
-    # Step one entry toward the newest, stopping on the draft.
-    # 
-    # _@return_ — the entry to show — the draft, once past the newest
-    # entry — or +nil+ when the cursor is already on the draft.
-    def newer: () -> String?
-
-    # Abandon browsing and go straight back to the draft.
-    # 
-    # _@return_ — the preserved draft (+""+ when none was captured).
-    def jump_to_draft: () -> String
-  end
-
-  # One slash command: the typed name, the autocomplete hint, and the action.
-  # 
-  #   # an action command ignores the rest of the line:
-  #   Shared::SlashCommand.new('/diff', 'show the git diff',
-  #                            ->(_rest) { sidebar.open_diff; 'Opened the git diff.' })
-  #   # a skill command consumes it as a follow-up message:
-  #   Shared::SlashCommand.new('/writing-rdoc', 'writing rdoc docs',
-  #                            ->(rest) { load_skill('writing-rdoc', rest); nil })
-  # 
-  # The +description+ is the right-column hint in the {Shared::SlashMenuPopup}
-  # list; the +callback+'s *return value* is a separate string — the outcome
-  # shown below the command in the conversation pane once it runs (nil for none,
-  # e.g. a command that drives an agent turn and lets the turn be its own record).
-  # So the hint ("show the git diff") and the effect report ("Opened the git
-  # diff.") are distinct, and a command can report a dynamic result.
-  # 
-  # The +rest+ argument is the text after the command name (+""+ when none) —
-  # {Shared::SlashMenuPopup} splits +"/name rest"+ and passes +rest+ through. An
-  # action command takes-and-ignores it (+->(_rest) { … }+); a skill command
-  # forwards it to the agent as a follow-up message.
-  # 
-  # Sibling of {Shared::LeaderMenu::Action}; each shell registers its own set.
-  # 
-  # @!attribute [r] name
-  #   @return [String] the command as typed, leading slash included (+"/diff"+).
-  # @!attribute [r] description
-  #   @return [String] the autocomplete hint (right column of the popup list).
-  # @!attribute [r] callback
-  #   @return [Proc, Method] one-arg action (the +rest+ String), run one tick
-  #     after Enter; its +String+ (or nil) return is echoed below the command as
-  #     the outcome.
-  class SlashCommand < Data
-    # _@return_ — the command as typed, leading slash included (+"/diff"+).
-    attr_reader name: String
-
-    # _@return_ — the autocomplete hint (right column of the popup list).
-    attr_reader description: String
-
-    # _@return_ — one-arg action (the +rest+ String), run one tick
-    # after Enter; its +String+ (or nil) return is echoed below the command as
-    # the outcome.
-    attr_reader callback: (Proc | Method)
-  end
-
-  # Turns pikuri's on-disk slash commands — the +.md+ prompt templates under
-  # +.pikuri/commands+ / +.claude/commands+ — into {Shared::SlashCommand}s the
-  # palette can list and run:
-  # 
-  #   commands = Shared::FileCommands.build(
-  #     registry: command_registry, reserved: built_ins.map(&:name),
-  #     screen: screen, logger: LOG,
-  #     on_expand: ->(text) { session.submit(text) }
-  #   )
-  #   #=> [#<SlashCommand name="/wh" description="<label> — weekly work log" …>]
-  # 
-  # Running one expands its template (+$ARGUMENTS+, +$1+…+$9+) against the rest
-  # of the typed line and hands the result to +on_expand+ as an ordinary user
-  # turn — the human wrote it, the template just saved the typing. So it is not a
-  # +:system+ block and it is not hidden from the transcript.
-  # 
-  # A command whose file pikuri refuses — it declares +allowed-tools:+, or its
-  # body carries a <code>!`cmd`</code> shell directive — is still listed, marked
-  # +(unavailable)+, and answers with the reason instead of running. A menu entry
-  # that silently vanished would be the worse failure, since the human is looking
-  # straight at the list.
-  # 
-  # +reserved+ is what a built-in already took. A file command may not capture a
-  # built-in verb: a cloned repo shipping +.claude/commands/plan.md+ would
-  # otherwise take over +/plan+, which flips a safety gate. The loser is dropped
-  # with a warn, and dropped is all it is — unlike a shadowed skill, nothing else
-  # reaches it.
-  # 
-  # Requires no pikuri gem: +registry+ is duck-typed, so the lean chat process
-  # (which never loads pikuri-skills) can still eager-load this file.
-  module FileCommands
-    # _@param_ `registry` — the scanned command files.
-    # 
-    # _@param_ `reserved` — command names already taken, leading slash included.
-    # 
-    # _@param_ `screen` — resolves the theme at run time, so a refusal is toned by whatever theme is current rather than the boot one.
-    # 
-    # _@param_ `logger` — takes the shadowing warnings, so they carry the composing shell's subsystem tag.
-    # 
-    # _@param_ `on_expand` — called with the expanded template +String+; drives it as a user turn.
-    # 
-    # _@return_ — in the registry's own precedence
-    # order.
-    def build: (
-                 registry: Pikuri::Command::Registry,
-                 reserved: ::Array[String],
-                 screen: Tuile::Screen,
-                 logger: Logger,
-                 on_expand: Proc
-               ) -> ::Array[Shared::SlashCommand]
-
-    # _@param_ `registry` — the scanned command files.
-    # 
-    # _@param_ `reserved` — command names already taken, leading slash included.
-    # 
-    # _@param_ `screen` — resolves the theme at run time, so a refusal is toned by whatever theme is current rather than the boot one.
-    # 
-    # _@param_ `logger` — takes the shadowing warnings, so they carry the composing shell's subsystem tag.
-    # 
-    # _@param_ `on_expand` — called with the expanded template +String+; drives it as a user turn.
-    # 
-    # _@return_ — in the registry's own precedence
-    # order.
-    def self.build: (
-                      registry: Pikuri::Command::Registry,
-                      reserved: ::Array[String],
-                      screen: Tuile::Screen,
-                      logger: Logger,
-                      on_expand: Proc
-                    ) -> ::Array[Shared::SlashCommand]
-
-    # _@param_ `command`
-    # 
-    # _@return_ — the palette's right column: the argument hint leads when
-    # the file declared one, since that is what you type next.
-    def hint: (Pikuri::Command::Registry::Command command) -> String
-
-    # _@param_ `command`
-    # 
-    # _@return_ — the palette's right column: the argument hint leads when
-    # the file declared one, since that is what you type next.
-    def self.hint: (Pikuri::Command::Registry::Command command) -> String
-
-    # _@param_ `registry`
-    # 
-    # _@param_ `command`
-    # 
-    # _@param_ `screen`
-    # 
-    # _@param_ `on_expand`
-    # 
-    # _@return_ — the +(rest)+ action; +nil+ return for a command that ran (the
-    # turn is its own record), the refusal reason for one that cannot.
-    def callback: (
-                    Pikuri::Command::Registry registry,
-                    Pikuri::Command::Registry::Command command,
-                    Tuile::Screen screen,
-                    Proc on_expand
-                  ) -> Proc
-
-    # _@param_ `registry`
-    # 
-    # _@param_ `command`
-    # 
-    # _@param_ `screen`
-    # 
-    # _@param_ `on_expand`
-    # 
-    # _@return_ — the +(rest)+ action; +nil+ return for a command that ran (the
-    # turn is its own record), the refusal reason for one that cannot.
-    def self.callback: (
-                         Pikuri::Command::Registry registry,
-                         Pikuri::Command::Registry::Command command,
-                         Tuile::Screen screen,
-                         Proc on_expand
-                       ) -> Proc
-  end
-
-  # The screen's content component: a shell's pane layout with the
-  # {Shared::StatusBar} on the last row.
-  # 
-  #   screen.content = Shared::RootLayout.new(Chat::Layout.new(...), status_bar)
-  # 
-  # Tuile draws no status bar and reserves no row for one (its +DECISIONS.md+
-  # +D-status-bar+), so the bottom line is a component the app has to place
-  # itself — which is all this layout is: the shell takes every row the bar
-  # doesn't, the bar takes exactly one.
-  # 
-  # UI-thread-confined.
-  class RootLayout < Tuile::Component::Layout::Vertical
-    # _@param_ `shell` — the shell's own pane layout.
-    # 
-    # _@param_ `status_bar` — the bottom row.
-    def initialize: (Tuile::Component::Layout shell, Shared::StatusBar status_bar) -> void
-
-    # _@return_ — the shell's pane layout.
-    attr_reader shell: Tuile::Component::Layout
-
-    # _@return_ — the bottom row.
-    attr_reader status_bar: Shared::StatusBar
   end
 
   # A "leader key" command menu: a modal popup listing app actions, each on
