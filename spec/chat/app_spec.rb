@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Chat::App do
-  # App builds its *real* Pikuri::Agent (real default_build_agent listener /
+  # App boots its *real* Pikuri::Agent (real configure_agent / listener
   # tool wiring) on a fake_transport — a scripted-HTTP backend — so these
   # specs exercise the actual wiring end-to-end without a server. The old
   # per-shell ChatStubAgent (which faked the whole agent and bypassed that
@@ -67,9 +67,10 @@ RSpec.describe Chat::App do
     assert_includes status_bar_text, '^C cancel'
   end
 
-  it 'builds a real Pikuri::Agent (not a stub) with the chat tool set wired' do
-    assert_kind_of Pikuri::Agent, app.agent
-    tool_names = app.agent.tools.map(&:name)
+  it 'boots a real Pikuri::Agent (not a stub) with the chat tool set wired' do
+    agent = booted_agent(app)
+    assert_kind_of Pikuri::Agent, agent
+    tool_names = agent.tools.map(&:name)
     assert_includes tool_names, 'calculator'
     assert_includes tool_names, 'web_search'
   end
@@ -81,7 +82,6 @@ RSpec.describe Chat::App do
   it 'renders a real streamed turn in the conversation pane' do
     turn_app = build_app { |llm| llm.stream('Hello ', 'from ', 'the ', 'fake') }
     turn_app.session.submit('hi')
-    wait_until { !turn_app.session.turn_in_progress? }
     wait_until { turn_app.conversation.text.to_s.include?('Hello from the fake') }
 
     assert_includes turn_app.conversation.text.to_s, 'Hello from the fake'
@@ -104,12 +104,16 @@ RSpec.describe Chat::App do
       assert_equal %w[l u m c q], keys
     end
 
-    it "picking 'c' clears the agent's conversation" do
-      cleared = 0
-      app.agent.define_singleton_method(:clear_conversation) { cleared += 1 }
-      app.screen.key(Tuile::Keys::CTRL_K)
-      app.screen.key('c')
-      assert_equal 1, cleared
+    it "picking 'c' starts over on a fresh agent, the transcript wiped" do
+      turn_app = build_app { |llm| llm.stream('first answer') }
+      turn_app.session.submit('hi')
+      wait_until { turn_app.conversation.text.to_s.include?('first answer') }
+      before = booted_agent(turn_app)
+
+      turn_app.screen.key(Tuile::Keys::CTRL_K)
+      turn_app.screen.key('c')
+      wait_until { !booted_agent(turn_app).equal?(before) }
+      wait_until { turn_app.conversation.text.to_s.empty? }
     end
 
     it 'opens a modal menu popup on Ctrl+K' do
@@ -144,13 +148,13 @@ RSpec.describe Chat::App do
     turn_app = build_app(gate: gate) { |llm| llm.stream('done') }
     gate.block!
     turn_app.session.submit('work')
-    wait_until { turn_app.session.turn_in_progress? }
+    wait_until { turn_app.session.status.state == :running }
 
     press_ctrl_c(turn_app)
-    assert turn_app.agent.cancellable.cancelled?
+    assert turn_app.session.instance_variable_get(:@cancellable).cancelled?
   ensure
     gate.release!
-    wait_until { !turn_app.session.turn_in_progress? }
+    wait_until_idle(turn_app)
   end
 
   it 'leaves Ctrl+C to an open popup (over_modal: false) instead of cancelling/quitting' do
@@ -199,14 +203,8 @@ RSpec.describe Chat::App do
     assert_same app.status_rule, app.layout.status_rule
   end
 
-  it "hands the agent's interloper to the Shared::StatusRuleLabel for the queued-count display" do
-    app
-    assert_same app.agent.interloper, app.status_rule.interloper
-  end
-
-  it 'feeds the Shared::StatusRuleLabel from the App-owned TokenLog' do
-    footer = app.status_rule
-    assert_same app.token_log, footer.instance_variable_get(:@token_log)
+  it "makes the Shared::StatusRuleLabel one of the conversation's listeners" do
+    assert_includes app.session.listener.to_s, 'Shared::StatusRuleLabel'
   end
 
   it 'routes pikuri-side log lines through the LogDialog (Pikuri.log_io rewired at boot)' do
@@ -247,26 +245,25 @@ RSpec.describe Chat::App do
     end
 
     # Integration: a pick made through the app's Shared::Model::Picker reaches
-    # the next run_loop and is consumed once. run_loop is spied (not a network
-    # call) so the picked *real* transport is observed without dialing it; the
-    # picker's own option/marker/keying behavior is unit-tested in
-    # model_picker_spec.
-    it 'applies the picked transport to the next run_loop, then clears it' do
-      agent = picker_app.agent
+    # the next run_loop and stays. run_loop is spied (not a network call) so
+    # the picked *real* transport is observed without dialing it; the picker's
+    # own option/marker/keying behavior is unit-tested in picker_spec.
+    it 'runs the next turns on the picked connection' do
+      agent = booted_agent(picker_app)
       seen = []
       agent.define_singleton_method(:run_loop) { |transport: nil, **| seen << transport }
-      cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
       picker = picker_app.instance_variable_get(:@model_picker)
-      _, block = capture_picker { picker.open(current: agent.transport) }
+      _, block = capture_picker { picker.open(session: picker_app.session) }
       block.call('2') # pick 'Cloud'
 
       picker_app.session.submit('go')
       wait_until { seen.size == 1 }
-      assert_equal cloud_transport, seen[0]
+      assert_equal 'm2', seen[0].model
 
+      wait_until_idle(picker_app)
       picker_app.session.submit('again')
       wait_until { seen.size == 2 }
-      assert_nil seen[1], 'a switch must apply at most once'
+      assert_equal 'm2', seen[1].model
     end
 
     # Regression (integration): two connections running the same model id on
@@ -326,7 +323,7 @@ RSpec.describe Chat::App do
 
   # Dispatch Ctrl+C through the screen's real key handler (private in the
   # release gem) so the test exercises the full chain: global-shortcut
-  # lookup, the +over_modal: false+ gate, then {Shared::AgentSession#interrupt}.
+  # lookup, the +over_modal: false+ gate, then {Chat::App#interrupt}.
   def press_ctrl_c(some_app = app)
     some_app.screen.key(Tuile::Keys::CTRL_C)
   end

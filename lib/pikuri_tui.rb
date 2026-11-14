@@ -37,21 +37,16 @@ loader.inflector.inflect(
 )
 
 # The coding ({Code}) and computer ({Computer}) shells depend on the heavier
-# pikuri gems — pikuri-workspace defines +Pikuri::Workspace::Confirmer+ (the
-# {Code::TranscriptConfirmer} superclass), and pikuri-code backs the rest of the
-# boot wiring. The computer subtree reuses the +Code::*+ adapters (confirmer /
-# diff formatters) and so needs the same gems; it references no +Pikuri::Os::*+
-# or +Pikuri::Thunderbird::*+ constant at load time (only +Code::*+ /
-# +Pikuri::Agent::*+), so it gates on the same +Pikuri::Workspace+ presence
-# rather than on +Pikuri::Os+ / +Pikuri::Thunderbird+. The chat
-# shell runs +Bundler.setup(:default)+ and never loads those gems, so
-# eager-loading either subtree there would raise at class-definition time
-# (NameError on +Pikuri::Workspace+). Gate both on that runtime being present —
-# true iff the bin (or spec_helper) required those gems *before* requiring
-# pikuri_tui. When absent, ignore the subtrees so the lean chat process
-# neither autoloads nor eager-loads them; when present, they participate
-# normally and the fail-fast eager-load guarantee still holds.
-unless defined?(Pikuri::Workspace)
+# pikuri gems — pikuri-code and pikuri-skills, both outside the chat shell's
+# +Bundler.setup(:default)+. The computer subtree reuses the +Code::*+ adapters
+# (confirmer / diff formatters) and so needs the same gems; it references no
+# +Pikuri::Os::*+ or +Pikuri::Thunderbird::*+ constant at load time, so it gates
+# on the same +Pikuri::Code+ presence. Eager-loading either subtree in the chat
+# process would raise at its first +require 'pikuri-code'+. Gate both on that
+# runtime being present — true iff the bin (or spec_helper) required those gems
+# *before* requiring pikuri_tui. Not on +Pikuri::Workspace+: pikuri-web pulls
+# that one into every shell, chat included.
+unless defined?(Pikuri::Code)
   loader.ignore("#{__dir__}/code.rb")
   loader.ignore("#{__dir__}/code")
   loader.ignore("#{__dir__}/computer.rb")

@@ -10,7 +10,7 @@ Three shells:
 - **`pikuri-tui-code`** — in-repo coding agent (sandboxed file/shell tools, git diff view, plan mode).
 - **`pikuri-tui-computer`** — desktop assistant for this machine: the OS helper (file + network-severed sandboxed bash tools) plus local Thunderbird mail + calendar (search/read + human-gated draft hand-offs), with web research quarantined behind an isolated sub-agent.
 
-Pikuri owns the agent loop, tool execution, and LLM transport. This project owns nothing but the TUI shell: a conversation pane, a diagnostic log pane, an input field, and a status bar.
+Pikuri owns the agent loop, tool execution, and LLM transport; pikuri-workshop's `Pikuri::Conversations` hosts the conversation — its threads, injection, cancel, clear and model switch. This project owns nothing but the TUI shell: a conversation pane, a diagnostic log pane, an input field, and a status bar.
 
 ## Prerequisites
 

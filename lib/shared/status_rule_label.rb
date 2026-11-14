@@ -2,12 +2,13 @@
 
 require 'tuile'
 require 'pikuri-core'
+require 'pikuri-conversations'
 
 # The one-row rule separating the conversation pane from the prompt, carrying
 # the agent's status readout. A busy rule reads:
 #
-#   ── ⏸ decision — Tab to answer · ‖ Plan Mode · ⠹ ~/work/pikuri-tui · Qwen 3.6 · 2 queued · 25k/60k ──
-#      <parked decision>            <plan mode>   <spinner> <context>  <model>    <queued>   <token stats>
+#   ── ⏸ decision — Tab to answer · ‖ Plan Mode · ⠹ ~/pikuri-tui · Qwen · 2 queued · msg #3: ctx=25.0k … · cap 60.0k ──
+#      <parked decision>            <plan mode>   <spinner> <context> <model> <queued> <token stats>        <window>
 #
 # Empty segments drop out (chat never lights the badge; an idle agent shows no
 # spinner) and with nothing at all to say the row is a plain hairline. With the
@@ -21,20 +22,19 @@ require 'pikuri-core'
 # instead, e.g. +⤷ researcher  8k/60k+, so the readout doesn't freeze while the
 # main agent blocks in the +agent+ tool.
 #
-# Drive it with the setters and the spinner controls. It also duck-types as an
-# agent listener via {#on_event} — fold it into the agent's +ListenerList+ and
-# it re-points {#current_model} whenever a +run_loop+ model switch lands:
+# Most of it follows the conversation by itself: hand it to
+# +Pikuri::Conversations#open+ as (part of) the listener and it spins while the
+# agent boots or a turn runs, counts the queued messages, keeps the token line
+# and the context window, and re-points {#current_model} when a model switch
+# lands. The rest the host sets:
 #
-#   rule = Shared::StatusRuleLabel.new(token_log: token_log)
-#   rule.current_model = 'Local Qwen 3.6'  # boot model
-#   rule.interloper = agent.interloper     # enables the "N queued" segment
-#   rule.plan_active = true                # lights the badge
-#   rule.start_animation                   # spinner on for a turn; stop_animation after
-#   config.add_listener(rule)              # re-points current_model on a switch
+#   rule = Shared::StatusRuleLabel.new(names: picker.names, context: project_root.to_s)
+#   rule.current_model = transport   # boot model
+#   rule.plan_active = true          # lights the badge
+#   conversations.open(id: 'main', transport:, listener: Shared::FanoutListener.new([..., rule]))
 #
-# +token_log+ must be the *same* {Pikuri::Agent::Listener::TokenLog} instance
-# wired into the agent — the rule reads its cached +status_line+ rather than
-# subscribing to events itself.
+# The token line is a {Pikuri::Agent::Listener::TokenLog}'s, one per agent: a
+# fresh one at every boot, so a cleared conversation starts from zero.
 #
 # The row paints +:pane_bg+, so it reads as the top edge of the tinted block
 # the {Shared::InputPane} continues rather than as a divider on the terminal
@@ -48,8 +48,7 @@ require 'pikuri-core'
 #
 # Shared by all three shells.
 #
-# UI-thread-confined, with exceptions ({#on_event} and the token-log observer
-# both self-marshal).
+# UI-thread-confined, with exceptions.
 class Shared::StatusRuleLabel < Tuile::Component::Label
   # Braille dots: single-column-wide in every font, so the trailing token
   # line doesn't jitter as frames advance — ASCII +|/-\+ would.
@@ -76,11 +75,15 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   # whose line counts are both zero (a mode-only diff) renders bare: +2 files+.
   WorkspaceDigest = Data.define(:files, :added, :deleted, :tasks_done, :tasks_total)
 
-  # The agent's mid-loop input queue; its +#size+ drives the "N queued"
-  # segment. +nil+ until the host wires one.
-  #
-  # @return [Pikuri::Agent::Control::Interloper, nil]
-  attr_reader :interloper
+  # @return [Integer] messages waiting for the agent, shown as "N queued".
+  attr_reader :pending
+
+  # @return [Integer, nil] the context window the conversation runs against, in
+  #   tokens; +nil+ while unknown.
+  attr_reader :context_cap
+
+  # @return [Pikuri::Agent::Listener::TokenLog] the current agent's token log.
+  attr_reader :token_log
 
   # Display name shown as the readout's leading segment (after any badge);
   # +nil+/empty renders no model segment.
@@ -104,10 +107,6 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   #   off-screen panes; +nil+ (the default) renders no segments.
   attr_reader :workspace_digest
 
-  # Claims the +token_log.on_status_line+ observer slot.
-  #
-  # @param token_log [Pikuri::Agent::Listener::TokenLog] the agent's token
-  #   log; must be the *same* instance wired into the agent (see class docs).
   # @param names [Hash{Array(String, String, Hash) => String}]
   #   {Shared::Model::Choice.key} → display name, used to resolve a transport
   #   passed to {#current_model=}; transports absent from the map render as
@@ -116,12 +115,12 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   #   is pointed at — the coding shell passes its project root, the chat and
   #   computer shells nothing. Unlike every other segment it never changes, so
   #   it is a constructor argument rather than a setter.
-  def initialize(token_log:, names: {}, context: nil)
+  def initialize(names: {}, context: nil)
     super()
-    @token_log = token_log
     @names = names
     @context = context
-    @interloper = nil
+    @pending = 0
+    @context_cap = nil
     @current_model = nil
     @plan_active = false
     @decision_pending = false
@@ -136,15 +135,7 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     # re-resolves on every paint, so the tint follows a light/dark flip on its
     # own; the hairline is baked into the text and needs {#handle_theme_changed}.
     self.bg_color = Tuile::Theme.ref(:pane_bg)
-    token_log.on_status_line = method(:on_status_line)
-    refresh
-  end
-
-  # @param interloper [Pikuri::Agent::Control::Interloper, nil] the agent's
-  #   mid-loop input queue, whose size drives the "N queued" segment.
-  # @return [void]
-  def interloper=(interloper)
-    @interloper = interloper
+    @token_log = new_token_log
     refresh
   end
 
@@ -221,23 +212,34 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     refresh
   end
 
-  # Agent-listener entry point (duck-typed — the rule plays the listener role
-  # without subclassing +Pikuri::Agent::Listener::Base+): on a +run_loop+ model
-  # switch ({Pikuri::Agent::Event::ModelSwitched}), re-points {#current_model}
-  # to the switched-to transport; ignores every other event. Fold the rule into
-  # the agent's +ListenerList+ for this.
+  # Listener entry point (duck-typed — the rule plays the listener role without
+  # subclassing +Pikuri::Agent::Listener::Base+), for the agent's events and
+  # the conversation's alike. Safe from any thread: what touches the rule is
+  # marshaled onto the UI thread.
   #
-  # Safe from any thread: invoked on the agent's worker thread, it marshals the
-  # {#current_model=} back onto the UI thread via +screen.event_queue.submit+.
-  #
-  # @param event [Data] any agent event; only
-  #   {Pikuri::Agent::Event::ModelSwitched} is acted on.
+  # @param event [Object] any agent or conversation event; the rest are ignored.
   # @return [void]
   def on_event(event)
-    return unless event.is_a?(Pikuri::Agent::Event::ModelSwitched)
-
-    screen.event_queue.submit { self.current_model = event.to }
+    case event
+    when Pikuri::Agent::Event::Tokens, Pikuri::Agent::Event::HistoryLoaded
+      # On the turn thread, like the log's own observer it fires.
+      @token_log.on_event(event)
+    when Pikuri::Conversations::Event::Booting
+      # A new agent is a new conversation: its token count starts from zero. No
+      # turn runs while one boots, so nothing feeds the old log meanwhile.
+      @token_log = new_token_log
+      ui { start_animation }
+    else
+      ui { apply(event) }
+    end
   end
+
+  # A spawned sub-agent counts its own tokens; its line takes the token slot
+  # while it runs.
+  #
+  # @param params [Hash{Symbol => Object}] +id:+, the sub-agent's id.
+  # @return [Pikuri::Agent::Listener::TokenLog]
+  def for_sub_agent(**params) = @token_log.for_sub_agent(**params)
 
   # @return [String] short label used by +Pikuri::Agent#to_s+ when the rule
   #   is in its +ListenerList+.
@@ -266,6 +268,38 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
   end
 
   private
+
+  # The UI-thread half of {#on_event}.
+  #
+  # @param event [Object]
+  # @return [void]
+  def apply(event)
+    case event
+    in Pikuri::Agent::Event::ModelSwitched(to:) then self.current_model = to
+    in Pikuri::Conversations::Event::TurnStarted then start_animation
+    in Pikuri::Conversations::Event::TurnEnded(restarting: false) | Pikuri::Conversations::Event::Ready |
+       Pikuri::Conversations::Event::BootFailed | Pikuri::Conversations::Event::Closed
+      stop_animation
+    in Pikuri::Conversations::Event::PendingChanged(count:)
+      @pending = count
+      refresh
+    in Pikuri::Conversations::Event::ContextCap(cap:)
+      @context_cap = cap
+      refresh
+    else
+      nil
+    end
+  end
+
+  # @yield the work to run on the UI thread.
+  # @return [void]
+  def ui(&) = screen.event_queue.submit(&)
+
+  # @return [Pikuri::Agent::Listener::TokenLog] a zeroed log whose lines reach
+  #   this rule.
+  def new_token_log
+    Pikuri::Agent::Listener::TokenLog.new.tap { |log| log.on_status_line = method(:on_status_line) }
+  end
 
   # Resolve a transport to its friendly connection name via +names+, falling
   # back to the raw model id when the +[model, api_base]+ pair isn't mapped.
@@ -360,13 +394,13 @@ class Shared::StatusRuleLabel < Tuile::Component::Label
     segments << @context if @context && !@context.empty?
     segments.concat(digest_segments)
     segments << @current_model if @current_model && !@current_model.empty?
-    pending = @interloper ? @interloper.size : 0
-    segments << "#{pending} queued" if pending.positive?
+    segments << "#{@pending} queued" if @pending.positive?
     # A running sub-agent's line takes the token slot (labeled with its id so
     # it reads as the delegate's context, not the conversation's); otherwise
     # the main agent's own snapshot.
     status = @sub_status || @token_log.status_line
     segments << status unless status.empty?
+    segments << "cap #{format('%.1fk', @context_cap / 1024.0)}" if @context_cap && @sub_status.nil?
     tail = segments.join(' · ')
     return tail if @spinner_frame.nil?
 

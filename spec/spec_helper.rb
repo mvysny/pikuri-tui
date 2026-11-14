@@ -20,7 +20,9 @@ require 'rspec/core'
 require 'stringio'
 
 require 'pikuri-core'
-require 'pikuri-pdf'     # default dep; Chat::App#default_build_agent registers Extractors::PDF
+require 'pikuri-pdf'     # default dep; every App registers Extractors::PDF
+require 'pikuri-web'
+require 'pikuri-conversations'
 require 'pikuri/testing' # scripted-HTTP fake LLM (Pikuri::Testing.fake_transport)
 
 # Load the :code-group gems too, BEFORE pikuri_tui, so its loader sees
@@ -57,6 +59,12 @@ require_relative 'support/tool_events'
 # Tuile::Canvas, for the specs that read rows back off the buffer.
 require_relative 'support/paint_one'
 
+# +wait_until_idle+ / +booted_agent+, and the shutdown of every App's
+# conversation after each example.
+require_relative 'support/conversations'
+[Chat::App, Code::App, Computer::App].each { |app| app.prepend(ConversationApps::Tracked) }
+Tuile::Screen.singleton_class.prepend(ConversationApps::ClosesWithScreen)
+
 # Point the construction-time theme default at the app's theme pair so
 # every +Tuile::Screen.fake+ a spec builds resolves pikuri-tui's custom
 # tokens (+theme[:tool]+, +theme.error(…)+, …); without this a component
@@ -81,14 +89,29 @@ RSpec.configure do |config|
 
   # Shared::RequestPermits.install writes a process-global registry, and an App
   # spec calls it on every build — so one example's [[server]] ceiling would
-  # ration another's server. (pikuri's own request_throttle_spec.rb does this.)
-  config.after { Pikuri::Agent::ServerPermits.reset! }
+  # ration another's server. The probe's answers are process-global too.
+  config.after do
+    Pikuri::Conversations::Throttle.reset!
+    Pikuri::Conversations::Probe.reset!
+  end
+
+  # A conversation asks its server about the model — /v1/models at boot, /props
+  # at a turn's start — and a fake transport's server does not exist. Every
+  # example gets "the server told nothing", which leaves a fake transport's
+  # stated cap and modalities in charge. A spec about the probe stubs over this.
+  config.before do
+    detector = Pikuri::Conversations::Probe::Detector
+    detector.define_singleton_method(:detect) { |*, **| detector::Props::NONE }
+    detector.define_singleton_method(:detect_modalities) { |*, **| nil }
+  end
 
   # Minitest's assert_* in every example, with the assertion counter they need.
   config.expect_with :minitest
   config.include ThreadedUi
   config.include ToolEvents
   config.include PaintOne
+  config.include ConversationApps
+  config.after { ConversationApps.close_all }
 
   # Capture pikuri log output for the duration of the block and return it as
   # a String. pikuri-tui logs through per-class LOG constants

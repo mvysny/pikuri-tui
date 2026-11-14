@@ -82,12 +82,6 @@ RSpec.describe Shared::ConversationTextView do
       assert_equal false, plain.instance_variable_get(:@markdown)
     end
 
-    it 'renders a caught turn error as an error-themed transcript line' do
-      pane.render_turn_error(RuntimeError.new('boom'))
-      assert_includes rendered, 'RuntimeError'
-      assert_includes rendered, 'boom'
-    end
-
     it 'renders a notice as a plain dim transcript line (no error marker)' do
       pane.render_notice('type a message to start the turn')
       assert_includes rendered, 'type a message to start the turn'
@@ -382,7 +376,7 @@ RSpec.describe Shared::ConversationTextView do
 
     it 'drops the redraw register with the conversation, so a later toggle is inert' do
       call_and_result
-      listener.on_event(Pikuri::Agent::Event::Reset.new)
+      listener.on_event(Pikuri::Conversations::Event::Booting.new)
       pane.toggle_tool_detail
       assert_equal '', rendered
     end
@@ -421,20 +415,20 @@ RSpec.describe Shared::ConversationTextView do
     assert_includes rendered, '! cancelled'
   end
 
-  it 'wipes the conversation pane on Reset (clear_conversation)' do
+  it 'wipes the conversation pane as a new agent boots (a /clear)' do
     listener.on_event(Pikuri::Agent::Event::UserTurn.new(content: 'hello?'))
     listener.on_event(Pikuri::Agent::Event::Assistant.new(content: 'hi there'))
     refute_equal '', rendered
 
-    listener.on_event(Pikuri::Agent::Event::Reset.new)
+    listener.on_event(Pikuri::Conversations::Event::Booting.new)
     assert_equal '', rendered
   end
 
-  it 'drops the open streaming buffer on Reset so the next turn starts clean' do
-    # A Reset arriving mid-stream (e.g. clear while a preview region is open)
-    # must not leave the buffer extending a now-detached region.
+  it 'drops the open streaming buffer as a new agent boots, so the next turn starts clean' do
+    # A wipe arriving mid-stream must not leave the buffer extending a
+    # now-detached region.
     listener.on_event(Pikuri::Agent::Event::AssistantDelta.new(content: 'partial'))
-    listener.on_event(Pikuri::Agent::Event::Reset.new)
+    listener.on_event(Pikuri::Conversations::Event::Booting.new)
     assert_equal '', rendered
 
     # The next turn renders into a fresh region rather than raising on the
@@ -450,9 +444,47 @@ RSpec.describe Shared::ConversationTextView do
     assert_equal '', rendered
   end
 
-  it 'is silent for ContextCap (its consumer is TokenLog)' do
-    listener.on_event(Pikuri::Agent::Event::ContextCap.new(cap: 32_768))
+  it "is silent for the conversation's bookkeeping (the status rule's)" do
+    listener.on_event(Pikuri::Conversations::Event::ContextCap.new(cap: 32_768))
+    listener.on_event(Pikuri::Conversations::Event::PendingChanged.new(count: 1))
+    listener.on_event(Pikuri::Conversations::Event::TurnStarted.new(user_message: 'hi', attachments: []))
+    listener.on_event(Pikuri::Conversations::Event::TurnEnded.new(outcome: :completed, error: nil, restarting: false))
     assert_equal '', rendered
+  end
+
+  describe 'a turn or a boot that fails' do
+    def turn_failed(error)
+      Pikuri::Conversations::Event::TurnEnded.new(outcome: :failed, error: error, restarting: false)
+    end
+
+    it 'ends a failed turn in one error line, the backtrace in the log' do
+      log = capture_log do
+        listener.on_event(turn_failed(RuntimeError.new('boom')))
+        Tuile::Testing.loop
+      end
+      assert_includes rendered, '! RuntimeError: boom'
+      assert_includes log, 'turn failed: RuntimeError: boom'
+    end
+
+    it 'nudges rather than errs on a bare turn with nothing to send' do
+      listener.on_event(turn_failed(Pikuri::Agent::EmptyTurnError.new('empty')))
+      assert_includes rendered, 'Nothing to send yet'
+      refute_includes rendered, '!'
+    end
+
+    it 'shows a failed boot as an error line' do
+      capture_log do
+        listener.on_event(Pikuri::Conversations::Event::BootFailed.new(error: RuntimeError.new('no bwrap')))
+        Tuile::Testing.loop
+      end
+      assert_includes rendered, '! RuntimeError: no bwrap'
+    end
+
+    it 'shows a boot cut short by Ctrl+C as cancelled, not as a failure' do
+      cancelled = Pikuri::Agent::Control::Cancellable::Cancelled.new
+      listener.on_event(Pikuri::Conversations::Event::BootFailed.new(error: cancelled))
+      assert_includes rendered, '! cancelled'
+    end
   end
 
   it 'logs and falls back to raw text when the Markdown renderer raises' do

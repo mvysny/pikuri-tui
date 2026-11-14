@@ -8,7 +8,7 @@ Terminal UI front-ends for [pikuri](https://codeberg.org/mvysny/pikuri) — a Ru
 - **`pikuri-tui-code`** — in-repo coding agent (sandboxed file/shell tools, git diff view, plan mode).
 - **`pikuri-tui-computer`** — desktop assistant for this machine: the OS helper (file + network-severed sandboxed bash tools) plus local Thunderbird mail + calendar (search/read + human-gated draft hand-offs), with web research quarantined behind an isolated sub-agent.
 
-Pikuri owns the agent loop, tool execution, and LLM transport. This project owns nothing but the TUI shell: a conversation pane, a diagnostic log pane, an input field, and a status bar.
+Pikuri owns the agent loop, tool execution, and LLM transport; pikuri-workshop's `Pikuri::Conversations` hosts the conversation — its threads, injection, cancel, clear and model switch. This project owns nothing but the TUI shell: a conversation pane, a diagnostic log pane, an input field, and a status bar.
 
 ## Promises
 
@@ -43,7 +43,8 @@ Every fact lives in exactly one of these; the others link to it.
 - **Our bugs raise; a library's exceptions are logged and degraded.** An uncaught raise in the event loop tears the screen down and takes the session with it. See `D_tui_degrades_not_crashes`.
 - **The conversation pane is never a log sink.** It is what the user reads; the log pane is what we read when something is wrong.
 - **A confirmation is answered in the transcript, and focus is what arms it.** No grace window, no timer, no text-entry popup. See `D_transcript_confirmer`.
-- **Cancel-a-parked-question lives in exactly two places** — `Ctrl+C` and quit, both through `Code::TranscriptConfirmer#cancel_pending!`, which makes the parked `#ask` raise `Cancellable::Cancelled`. Skip either and a parked tool leaves `Ctrl+C` looking broken, because the worker is blocked on the answer.
+- **Cancel-a-parked-question lives in exactly two places** — `Ctrl+C` and `App#close`, which every way out of the event loop reaches, both through `Code::TranscriptConfirmer#cancel_pending!`, which makes the parked `#ask` raise `Cancellable::Cancelled`. Skip either and a parked tool leaves `Ctrl+C` looking broken, or the shutdown waiting, because the turn is blocked on the answer.
+- **An agent is one conversation, and pikuri-workshop's `Pikuri::Conversations` hosts it.** No turn thread, injection queue or cancel token of our own; each `App` opens one conversation, and a `/clear` boots a new agent through its `configure_agent`. So per-agent state — an extension, a `TokenLog`, a skill activation — is built there or reset on `Booting`, never once in `App.new`. See `D_pikuri_owns_the_runtime`.
 - **A gated skill must not be *listed*.** `Code::SkillActivationListener` builds the palette's skill half from pikuri's activation, not its catalog, and re-lists as the `paths:` gate opens and closes.
 - **`Shared::ConversationTextView#clear` is not a redraw.** It drops every region, a parked confirmer question included; a density toggle re-runs kinded thunks instead. See `D_density_thunks`.
 - **The `edit` / `write` diff blocks are never kinded**, so no density toggle can hide them: a diff is reviewed, not skimmed. See `D_density_thunks`.

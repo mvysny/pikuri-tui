@@ -5,7 +5,7 @@
 #
 # +Tuile::FakeEventQueue+ queues every +submit+, from any thread, and runs
 # nothing until the spec plays a loop turn with +Tuile::Testing.loop+ — so a
-# worker's UI hand-off (+Shared::AgentSession+'s per-turn thread, the tool
+# worker's UI hand-off (a conversation's turn thread, the tool
 # thread parked in +Code::TranscriptConfirmer#ask+) lands on the example thread,
 # as it would on the event loop's. What a spec cannot know is *when* the worker
 # has submitted; +wait_until+ keeps playing turns until the effect shows.

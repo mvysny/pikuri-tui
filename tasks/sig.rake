@@ -22,9 +22,9 @@ def sig_outside_constant?(line)
 
   @sig_app_loaded ||= begin
     # The same set spec_helper loads: pikuri_tui eager-loads Code / Computer only when
-    # Pikuri::Workspace is already defined, so the :code and :computer gems come first.
-    %w[pikuri-core pikuri-pdf pikuri-workspace pikuri-code pikuri-tasks pikuri-skills pikuri-mcp
-       pikuri-subagents pikuri-os pikuri-thunderbird].each { |gem| require gem }
+    # Pikuri::Code is already defined, so the :code and :computer gems come first.
+    %w[pikuri-core pikuri-conversations pikuri-pdf pikuri-web pikuri-workspace pikuri-code pikuri-tasks
+       pikuri-skills pikuri-mcp pikuri-subagents pikuri-os pikuri-thunderbird].each { |gem| require gem }
     $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
     require 'pikuri_tui'
     true

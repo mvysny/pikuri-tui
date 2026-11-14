@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'pikuri-core'
+require 'pikuri-conversations'
 require 'tuile'
 
 module Code
@@ -207,13 +208,16 @@ module Code
         @screen = screen
       end
 
-      # @param event [Data] any agent event; only
-      #   {Pikuri::Tasks::ListChanged} is acted on.
+      # @param event [Object] any agent or conversation event; only
+      #   {Pikuri::Tasks::ListChanged} and a +Booting+ agent — whose list
+      #   starts empty — are acted on.
       # @return [void]
       def on_event(event)
-        return unless event.is_a?(Pikuri::Tasks::ListChanged)
-
-        items = event.items
+        items = case event
+                when Pikuri::Tasks::ListChanged then event.items
+                when Pikuri::Conversations::Event::Booting then []
+                else return
+                end
         @screen.event_queue.submit { @pane.items = items }
       end
 

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Code::App do
-  # App builds its *real* Pikuri::Agent (real default_build_agent listener /
+  # App boots its *real* Pikuri::Agent (real configure_agent / listener
   # tool / extension wiring — workspace, sandbox, MCP, sub-agents, tasks,
   # skills) on a fake_transport, so these specs exercise the actual wiring
   # without a server. The old whole-agent CodeStubAgent is gone; see
@@ -131,12 +131,13 @@ RSpec.describe Code::App do
 
   describe '/trifecta' do
     def trifecta_output(target = app)
+      wait_until_idle(target)
       target.send(:build_slash_commands).find { |c| c.name == '/trifecta' }.callback.call('')
     end
 
     it 'echoes the real agent\'s own report — advisory first, then the wired tool map' do
       output = trifecta_output
-      assert_includes output, app.agent.trifecta.advisory
+      assert_includes output, app.session.trifecta.advisory
       assert_includes output.lines(chomp: true), '  bash [:untrusted_hard, :egress]'
     end
 
@@ -176,20 +177,33 @@ RSpec.describe Code::App do
       assert_equal 1, names.count('/plan'), 'the /plan skill must not shadow or duplicate the built-in'
     end
 
-    it 'drives a turn from a skill command: schedules the skill, then submits the rest of the line' do
+    it "drives a turn from a skill command: the agent's extension schedules the skill, then the rest is sent" do
+      wait_until_idle(app)
       loaded = []
       submitted = []
-      app.instance_variable_set(:@skill_ext, Class.new do
-        define_method(:schedule_load_skill) { |name| loaded << name }
-      end.new)
-      app.instance_variable_set(:@session, Class.new do
-        define_method(:submit) { |msg| submitted << msg }
-      end.new)
+      skill_commands.extension.define_singleton_method(:schedule_load_skill) { |name| loaded << name }
+      app.session.define_singleton_method(:submit) { |msg, **| submitted << msg }
 
       rdoc = skill_commands.commands.find { |c| c.name == '/writing-rdoc' }
       assert_nil rdoc.callback.call('polish the docs') # no echo; the turn is the record
       assert_equal ['writing-rdoc'], loaded
       assert_equal ['polish the docs'], submitted
+    end
+
+    # Before an agent runs there is no extension to schedule through; the
+    # conversation queues the skill and the message, in order, for the agent.
+    it 'queues a skill typed before the agent is up through the conversation' do
+      injected = []
+      submitted = []
+      booting = Pikuri::Conversations::Status.new(state: :booting, pending: 0, model: nil, next_model: nil)
+      app.session.define_singleton_method(:status) { booting }
+      app.session.define_singleton_method(:inject_system) { |text| injected << text }
+      app.session.define_singleton_method(:submit) { |msg, **| submitted << msg }
+
+      skill_commands.commands.find { |c| c.name == '/writing-rdoc' }.callback.call('')
+      assert_equal 1, injected.size
+      assert_includes injected.first, '<skill name="writing-rdoc"'
+      assert_equal [''], submitted
     end
 
     describe 'the paths: gate' do
@@ -217,21 +231,24 @@ RSpec.describe Code::App do
 
       it 'hides it again when the conversation is cleared' do
         touch('lib/code/app.rb')
+        before = booted_agent(app)
         app.send(:clear_conversation)
-        refute_includes skill_commands.commands.map(&:name), '/writing-rdoc'
+        wait_until { !booted_agent(app).equal?(before) }
+        wait_until { !skill_commands.commands.map(&:name).include?('/writing-rdoc') }
       end
 
       it 'never lists a skill schedule_load_skill would refuse' do
+        wait_until_idle(app)
         refute_includes skill_commands.commands.map(&:name), '/writing-rdoc'
-        assert_raises(KeyError) { app.instance_variable_get(:@skill_ext).schedule_load_skill('writing-rdoc') }
+        assert_raises(KeyError) { skill_commands.extension.schedule_load_skill('writing-rdoc') }
       end
 
       # Drive the promotion the way the agent does: the listener watches
       # ToolCall arguments at before_tool_call, so a bare emit is the whole
       # mechanism (no tool has to actually run).
       def touch(path, some_app = app)
-        some_app.agent.instance_variable_get(:@listeners)
-                .emit(tool_call('read', path, arguments: { 'path' => path }))
+        booted_agent(some_app).instance_variable_get(:@listeners)
+                              .emit(tool_call('read', path, arguments: { 'path' => path }))
         Tuile::Testing.loop
       end
     end
@@ -281,7 +298,8 @@ RSpec.describe Code::App do
     end
 
     it 'declares the command surface to /trifecta, so its untrusted leg is counted' do
-      assert app.agent.trifecta.render.include?('(commands)'),
+      wait_until_idle(app)
+      assert app.session.trifecta.render.include?('(commands)'),
              'an unvouched command base contributes an untrusted row'
     end
   end
@@ -324,9 +342,10 @@ RSpec.describe Code::App do
     assert_includes status_bar_text, '^C cancel'
   end
 
-  it 'builds a real Pikuri::Agent (not a stub) with the coding tool set wired' do
-    assert_kind_of Pikuri::Agent, app.agent
-    tool_names = app.agent.tools.map(&:name)
+  it 'boots a real Pikuri::Agent (not a stub) with the coding tool set wired' do
+    agent = booted_agent(app)
+    assert_kind_of Pikuri::Agent, agent
+    tool_names = agent.tools.map(&:name)
     assert_includes tool_names, 'bash'  # Code::Extension
     assert_includes tool_names, 'read'  # Workspace::Extension
     assert_includes tool_names, 'calculator'
@@ -339,7 +358,6 @@ RSpec.describe Code::App do
   it 'renders a real streamed turn in the conversation pane' do
     turn_app = code_app { |llm| llm.stream('Patch ', 'applied.') }
     turn_app.session.submit('do it')
-    wait_until { !turn_app.session.turn_in_progress? }
     wait_until { turn_app.conversation.text.to_s.include?('Patch applied.') }
 
     assert_includes turn_app.conversation.text.to_s, 'Patch applied.'
@@ -393,13 +411,13 @@ RSpec.describe Code::App do
     turn_app = code_app(gate: gate) { |llm| llm.stream('done') }
     gate.block!
     turn_app.session.submit('work')
-    wait_until { turn_app.session.turn_in_progress? }
+    wait_until { turn_app.session.status.state == :running }
 
     press_ctrl_c(turn_app)
-    assert turn_app.agent.cancellable.cancelled?
+    assert turn_app.session.instance_variable_get(:@cancellable).cancelled?
   ensure
     gate.release!
-    wait_until { !turn_app.session.turn_in_progress? }
+    wait_until_idle(turn_app)
   end
 
   it 'leaves Ctrl+C to an open popup (over_modal: false) instead of cancelling/quitting' do
@@ -446,9 +464,11 @@ RSpec.describe Code::App do
     assert_same app.status_rule, app.layout.status_rule
   end
 
-  it "hands the agent's interloper to the Shared::StatusRuleLabel for the queued-count display" do
-    app
-    assert_same app.agent.interloper, app.status_rule.interloper
+  it "makes the status rule, the task pane, the plan badge and the skill palette the conversation's listeners" do
+    listeners = app.session.listener.to_s
+    %w[Shared::StatusRuleLabel TaskListener PlanModeListener SkillActivationListener].each do |name|
+      assert_includes listeners, name
+    end
   end
 
   it 'routes pikuri-side log lines through the LogDialog (Pikuri.log_io rewired at boot)' do
@@ -476,25 +496,25 @@ RSpec.describe Code::App do
       assert_equal 'Local', footer.current_model
     end
 
-    # Integration: a pick made through the app's Shared::Model::Picker reaches the next
-    # run_loop and is consumed once. The picker's own option/marker/keying
-    # behavior is unit-tested in model_picker_spec.
-    it 'applies the picked transport to the next run_loop, then clears it' do
-      agent = picker_app.agent
+    # Integration: a pick made through the app's Shared::Model::Picker reaches
+    # the next run_loop and stays. The picker's own option/marker/keying
+    # behavior is unit-tested in picker_spec.
+    it 'runs the next turns on the picked connection' do
+      agent = booted_agent(picker_app)
       seen = []
       agent.define_singleton_method(:run_loop) { |transport: nil, **| seen << transport }
-      cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
       picker = picker_app.instance_variable_get(:@model_picker)
-      _, block = capture_picker { picker.open(current: agent.transport) }
+      _, block = capture_picker { picker.open(session: picker_app.session) }
       block.call('2') # pick 'Cloud'
 
       picker_app.session.submit('go')
       wait_until { seen.size == 1 }
-      assert_equal cloud_transport, seen[0]
+      assert_equal 'm2', seen[0].model
 
+      wait_until_idle(picker_app)
       picker_app.session.submit('again')
       wait_until { seen.size == 2 }
-      assert_nil seen[1], 'a switch must apply at most once'
+      assert_equal 'm2', seen[1].model
     end
   end
 
@@ -528,12 +548,11 @@ RSpec.describe Code::App do
       assert_equal %w[l d s p u m c q], keys
     end
 
-    it "picking 'c' clears the agent's conversation" do
-      cleared = 0
-      app.agent.define_singleton_method(:clear_conversation) { cleared += 1 }
+    it "picking 'c' starts over on a fresh agent" do
+      before = booted_agent(app)
       app.screen.key(Tuile::Keys::CTRL_K)
       app.screen.key('c')
-      assert_equal 1, cleared
+      wait_until { !booted_agent(app).equal?(before) }
     end
 
     it "picking 'd' opens the git diff popup" do
@@ -660,7 +679,7 @@ RSpec.describe Code::App do
 
   # Dispatch Ctrl+C through the screen's real key handler (private in the
   # release gem) so the test exercises the full chain: global-shortcut
-  # lookup, the +over_modal: false+ gate, then {Shared::AgentSession#interrupt}.
+  # lookup, the +over_modal: false+ gate, then {Code::App#interrupt}.
   def press_ctrl_c(some_app = app)
     some_app.screen.key(Tuile::Keys::CTRL_C)
   end

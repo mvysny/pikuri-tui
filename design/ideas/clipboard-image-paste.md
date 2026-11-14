@@ -28,7 +28,7 @@ the image-attachments idea. The sibling idea is pikuri-web's `design/ideas/image
   reachable here (over ssh?) — attach with @path"; no tool → "install wl-clipboard / xclip"; no
   image → "no image on the clipboard".
 - **Refuse before writing anything** when the model can't see images: ask
-  `AgentSession#attachment_refusal` before the temp file, as `/image` does before the token.
+  the `App`'s `attachment_refusal` before the temp file, as `/image` does before the token.
 - **A pasted image becomes an ordinary `@path` token.** Write the bytes to
   `$XDG_RUNTIME_DIR/pikuri-tui/paste-<n>.<ext>` and insert the `@path` at the caret (quoted through
   `Shared::AttachmentTokens.token`). There is no `XDG_*_TEMP`; `XDG_RUNTIME_DIR`

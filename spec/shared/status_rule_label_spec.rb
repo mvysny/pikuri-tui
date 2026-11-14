@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 RSpec.describe Shared::StatusRuleLabel do
-  let(:token_log)   { Pikuri::Agent::Listener::TokenLog.new }
+  # The rule's own log, fed directly where an example is about rendering a line
+  # rather than about which event reaches it.
+  let(:token_log)   { label.token_log }
   let(:event_queue) { Tuile::Screen.instance.event_queue }
   let(:label) do
-    described_class.new(token_log: token_log).tap { |l| Tuile::Testing.place(l, Tuile::Rect.new(0, 0, WIDTH, 1)) }
+    described_class.new.tap { |l| Tuile::Testing.place(l, Tuile::Rect.new(0, 0, WIDTH, 1)) }
   end
 
   # Wide enough that the readout never runs into the fill.
@@ -65,7 +67,7 @@ RSpec.describe Shared::StatusRuleLabel do
     # resolution rather than about the key's current shape.
     let(:names) { { Shared::Model::Choice.key(transport('big-model')) => 'Big Cloud' } }
     let(:label) do
-      described_class.new(token_log: token_log, names: names)
+      described_class.new(names: names)
     end
 
     def transport(model, api_base: 'http://cloud/v1', params: {})
@@ -156,12 +158,8 @@ RSpec.describe Shared::StatusRuleLabel do
     assert_equal ' Local Qwen ', footer_text.to_s
   end
 
-  it "reflects the TokenLog's status_line once an event has been processed" do
-    # Event fired before the label exists (the lazy let hasn't constructed
-    # it, so the on_status_line observer isn't installed yet) — asserts
-    # the poll path: refresh reads TokenLog#status_line directly.
-    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
-    label.send(:refresh)
+  it 'counts the tokens a Tokens event carries, as a listener' do
+    label.on_event(tokens(input: 1024, cached: 9216, output: 1024))
     assert_includes footer_text.to_s, 'msg #1: ctx=11.0k'
   end
 
@@ -240,10 +238,10 @@ RSpec.describe Shared::StatusRuleLabel do
     label.stop_animation
   end
 
-  it 'appends an "N queued" segment while the interloper holds pending injections' do
-    interloper = Pikuri::Agent::Control::Interloper.new
-    label.interloper = interloper
-    interloper.inject_user_message('hold this')
+  def pending(count) = Pikuri::Conversations::Event::PendingChanged.new(count: count)
+
+  it 'appends an "N queued" segment while messages wait for the agent' do
+    label.on_event(pending(1))
     label.start_animation
     event_queue.tick_once
     assert_match(/\A [#{described_class::SPINNER.join}] 1 queued \z/, footer_text.to_s)
@@ -253,30 +251,76 @@ RSpec.describe Shared::StatusRuleLabel do
 
   it 'joins the queued count and the token status with a separator' do
     token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
-    interloper = Pikuri::Agent::Control::Interloper.new
-    label.interloper = interloper
-    interloper.inject_user_message('one')
-    interloper.inject_user_message('two')
-    label.send(:refresh)
+    label.on_event(pending(2))
     assert_includes footer_text.to_s, '2 queued · msg #1: ctx=11.0k'
   end
 
-  it 'drops the queued segment once the interloper is drained' do
-    interloper = Pikuri::Agent::Control::Interloper.new
-    label.interloper = interloper
-    interloper.inject_user_message('soon gone')
-    label.send(:refresh)
+  it 'drops the queued segment once nothing waits' do
+    label.on_event(pending(1))
     assert_includes footer_text.to_s, '1 queued'
 
-    interloper.drain!
-    label.send(:refresh)
+    label.on_event(pending(0))
     assert_equal '', footer_text.to_s
   end
 
-  it 'renders no queued segment when no interloper was installed (host wired none)' do
-    token_log.on_event(tokens(input: 1024, cached: 9216, output: 1024))
-    label.send(:refresh)
-    refute_includes footer_text.to_s, 'queued'
+  describe 'following the conversation' do
+    def turn_ended(restarting: false)
+      Pikuri::Conversations::Event::TurnEnded.new(outcome: :completed, error: nil, restarting: restarting)
+    end
+
+    def spinning? = footer_text.to_s.match?(/[#{described_class::SPINNER.join}]/)
+
+    it 'spins from a turn start to its end' do
+      label.on_event(Pikuri::Conversations::Event::TurnStarted.new(user_message: 'hi', attachments: []))
+      Tuile::Testing.loop
+      event_queue.tick_once
+      assert spinning?
+
+      label.on_event(turn_ended)
+      refute spinning?
+    end
+
+    it 'keeps spinning across a turn that restarts to deliver a late message' do
+      label.on_event(Pikuri::Conversations::Event::TurnStarted.new(user_message: 'hi', attachments: []))
+      label.on_event(turn_ended(restarting: true))
+      Tuile::Testing.loop
+      event_queue.tick_once
+      assert spinning?
+    ensure
+      label.stop_animation
+    end
+
+    it 'spins while the agent boots, and stops once it is ready' do
+      label.on_event(Pikuri::Conversations::Event::Booting.new)
+      Tuile::Testing.loop
+      event_queue.tick_once
+      assert spinning?
+
+      label.on_event(Pikuri::Conversations::Event::Ready.new(trifecta: nil))
+      refute spinning?
+    end
+
+    it 'starts a booting agent from a zeroed token count — a cleared conversation counts afresh' do
+      label.on_event(tokens(input: 1024, cached: 9216, output: 1024))
+      label.on_event(Pikuri::Conversations::Event::Booting.new)
+      label.on_event(Pikuri::Conversations::Event::Ready.new(trifecta: nil))
+      refute_includes footer_text.to_s, 'ctx=11.0k'
+
+      label.on_event(tokens(input: 1024, output: 1024))
+      assert_includes footer_text.to_s, 'msg #1: ctx=2.0k'
+    end
+
+    it 'shows the context window once the conversation learns it' do
+      label.on_event(Pikuri::Conversations::Event::ContextCap.new(cap: 65_536))
+      assert_includes footer_text.to_s, 'cap 64.0k'
+    end
+
+    it 'hands a sub-agent a token log of its own, whose line takes the token slot' do
+      sub = label.for_sub_agent(id: 'researcher 0')
+      refute_same label.token_log, sub
+      sub.on_event(tokens(input: 1024, cached: 3072, output: 1024))
+      assert_includes footer_text.to_s, '⤷ researcher 0  msg #1: ctx=5.0k'
+    end
   end
 
   it 'is idempotent: start_animation while already running keeps the same ticker' do
@@ -404,7 +448,7 @@ RSpec.describe Shared::StatusRuleLabel do
     end
 
     it 'sits between the context and the model, where the workspace facts group' do
-      rule = described_class.new(token_log: token_log, context: '~/work/x')
+      rule = described_class.new(context: '~/work/x')
       Tuile::Testing.place(rule, Tuile::Rect.new(0, 0, WIDTH, 1))
       rule.current_model = 'Qwen'
       rule.workspace_digest = digest(files: 3, added: 1, tasks_done: 1, tasks_total: 2)

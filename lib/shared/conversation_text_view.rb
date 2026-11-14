@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'pikuri-core'
+require 'pikuri-conversations'
 require 'tuile'
 
 # The conversation transcript as one cohesive Tuile component: a
@@ -95,7 +96,7 @@ require 'tuile'
 # renders through a recolor-only function, so the gray tint survives.
 #
 # UI-thread-confined, with exceptions (the nested {Listener} marshals the event
-# stream onto the UI thread before driving these verbs; {#render_turn_error} is
+# stream onto the UI thread before driving these verbs; {#render_notice} is
 # safe off-thread and self-marshals).
 class Shared::ConversationTextView < Tuile::Component::TextView
   # The tool-line forms {#tool_detail=} switches between, in toggle order.
@@ -409,22 +410,9 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     Shared::Markdown::Grayscale.recolor(render_markdown(content), fg: screen.theme[:thinking])
   end
 
-  # Append a one-line, error-themed turn-failure notice to the transcript.
-  # Safe to call from the agent worker thread; marshals its own append onto
-  # the event-loop thread.
-  #
-  # @param exception [StandardError] the caught library exception.
-  # @return [void]
-  def render_turn_error(exception)
-    screen.event_queue.submit do
-      add_line(screen.theme.error("! #{exception.class}: #{exception.message}"))
-    end
-  end
-
-  # Append a one-line, muted informational notice to the transcript — the dim
-  # sibling of {#render_turn_error}, same self-marshaling shape but the detail
-  # tone, so a non-failure (e.g. a bare skill-load with nothing to send yet)
-  # never reads as an error. Safe to call from the agent worker thread.
+  # Append a one-line, muted informational notice to the transcript, in the
+  # detail tone so it never reads as an error. Safe to call from the agent
+  # worker thread.
   #
   # @param text [String] the notice, plain; this applies the tone.
   # @return [void]
@@ -621,8 +609,10 @@ class Shared::ConversationTextView < Tuile::Component::TextView
   #    capped here. The terminal listener's argument dump survives as the
   #    pane's +:verbose+ form.
   #
-  # +Tokens+ / +ContextCap+ stay silent (their consumer is
-  # +Pikuri::Agent::Listener::TokenLog+).
+  # It hears the conversation's events too: a +Booting+ agent starts the
+  # transcript over, and a failed boot or turn ends in one error line. +Tokens+
+  # and the conversation's bookkeeping (the cap, the pending count) stay silent;
+  # they are {Shared::StatusRuleLabel}'s.
   #
   # {#on_event} fires on the agent's worker thread and wraps the whole dispatch
   # in +screen.event_queue.submit+, so every region mutation runs on the
@@ -765,15 +755,48 @@ class Shared::ConversationTextView < Tuile::Component::TextView
         @thinking.preserve
         render_system_injection(content)
       in Pikuri::Agent::Event::Cancelled
-        @assistant.preserve
-        @thinking.preserve
-        @view.add_block(@view.theme.error('! cancelled'), indent: @indent)
-      in Pikuri::Agent::Event::Reset
+        render_cancelled
+      in Pikuri::Conversations::Event::Booting
+        # A new agent is a new conversation — the first boot, a /clear, a retry
+        # after a failed boot — so the transcript starts over with it.
         reset_conversation
+      in Pikuri::Conversations::Event::BootFailed(error: Pikuri::Agent::Control::Cancellable::Cancelled)
+        render_cancelled
+      in Pikuri::Conversations::Event::BootFailed(error:)
+        render_failure('agent failed to boot', error)
+      in Pikuri::Conversations::Event::TurnEnded(outcome: :failed, error: Pikuri::Agent::EmptyTurnError)
+        # A bare skill load on a system-hoisting provider has nothing to send;
+        # the skill already rendered its own block, so a nudge, not an error.
+        @view.add_block(@view.theme.detail('· Nothing to send yet — type a message to start the turn.'),
+                        indent: @indent)
+      in Pikuri::Conversations::Event::TurnEnded(outcome: :failed, error:)
+        render_failure('turn failed', error)
       else
-        # Tokens / ContextCap: silent here. TokenLog handles them if the host
-        # registered one.
+        # Tokens, the cap, the pending count, a turn's start: the status rule's.
       end
+    end
+
+    # The +! cancelled+ line, closing whatever was streaming.
+    #
+    # @return [void]
+    def render_cancelled
+      @assistant.preserve
+      @thinking.preserve
+      @view.add_block(@view.theme.error('! cancelled'), indent: @indent)
+    end
+
+    # One error line in the transcript; the backtrace goes to the log pane.
+    #
+    #   ! RubyLLM::ServerError: connection refused
+    #
+    # @param what [String] what failed, for the log line.
+    # @param error [StandardError]
+    # @return [void]
+    def render_failure(what, error)
+      LOG.error("#{what}: #{error.class}: #{error.message}\n#{(error.backtrace || []).join("\n")}")
+      @assistant.preserve
+      @thinking.preserve
+      @view.add_block(@view.theme.error("! #{error.class}: #{error.message}"), indent: @indent)
     end
 
     # Render a {Pikuri::Agent::Event::SystemInjected} body — dim, with a ⊕
@@ -939,9 +962,8 @@ class Shared::ConversationTextView < Tuile::Component::TextView
     # @return [String]
     def cap(text, limit) = text.length <= limit ? text : "#{text[0, limit - 1]}…"
 
-    # Wipe the pane and drop every per-turn render handle on
-    # {Pikuri::Agent::Event::Reset} (the host cleared the conversation). The
-    # pane is cleared (detaching all regions, including any open buffers'), then
+    # Wipe the pane and drop every per-turn render handle as a new agent boots.
+    # The pane is cleared (detaching all regions, including any open buffers'), then
     # both blocks are +preserve+d — dropping their now-detached handles without
     # a second +region.remove+ — and the streaming / pairing slots reset to
     # construction state.

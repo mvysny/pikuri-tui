@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-# Specs for the [[server]] max_concurrent_requests → ServerPermits wiring.
+# Specs for the [[server]] max_concurrent_requests → Pikuri::Conversations::Throttle wiring.
 # The registry is process-global; spec_helper resets it after every example.
 describe Shared::RequestPermits do
   def server(id, url, max)
@@ -11,14 +11,14 @@ describe Shared::RequestPermits do
 
   it 'sizes a server that states a ceiling' do
     described_class.install([server('local', 'http://localhost:8080', 2)])
-    assert_equal 2, Pikuri::Agent::ServerPermits.for('http://localhost:8080').permits
+    assert_equal 2, Pikuri::Conversations::Throttle.for('http://localhost:8080').permits
   end
 
   # Omitted means "let the /props probe decide", so the server must stay
   # *unknown* — recording it would suppress the probe that sizes it.
   it 'leaves a server that states none unsized' do
     described_class.install([server('local', 'http://localhost:8080', nil)])
-    refute Pikuri::Agent::ServerPermits.sized?('http://localhost:8080')
+    refute Pikuri::Conversations::Throttle.sized?('http://localhost:8080')
   end
 
   # The [[llm]] server is the [[server]] url after resolution, and pikuri
@@ -26,7 +26,7 @@ describe Shared::RequestPermits do
   # so a /v1 spelling difference cannot leave the throttle keyed elsewhere.
   it 'keys a /v1 url the same server the transport dials' do
     described_class.install([server('grok', 'https://api.x.ai/v1', 4)])
-    assert_equal 4, Pikuri::Agent::ServerPermits.for('https://api.x.ai').permits
+    assert_equal 4, Pikuri::Conversations::Throttle.for('https://api.x.ai').permits
   end
 
   it 'logs each server it sized' do

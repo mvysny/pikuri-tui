@@ -2,7 +2,7 @@
 
 RSpec.describe Shared::Model::Picker do
   # Stated +modalities+ (+{}+, "reports nothing") keep a pick from looking
-  # them up over HTTP; pass +nil+ to have it look.
+  # them up; pass +nil+ to have it look.
   def model_choice(name, model, api_base: 'http://x/v1', params: {}, modalities: {})
     Shared::Model::Choice.new(
       name: name,
@@ -13,19 +13,17 @@ RSpec.describe Shared::Model::Picker do
     )
   end
 
-  # Swap +ChatTransport#with_detected_modalities+ for one answering
-  # +modalities+ without HTTP once +gate+ is fed (restored after).
-  def stub_detection(modalities, gate)
-    klass = Pikuri::Agent::ChatTransport
-    original = klass.instance_method(:with_detected_modalities)
-    klass.define_method(:with_detected_modalities) do
-      gate.pop
-      with(modalities: modalities)
-    end
-    yield
-  ensure
-    klass.define_method(:with_detected_modalities, original)
+  # A real conversation, never booted: a pick lands in +switch_model+, and
+  # +status.next_model+ reads it back.
+  let(:conversations) { Pikuri::Conversations.new(system_prompt: 'You are terse.') }
+  let(:session) do
+    conversations.open(id: 'c', transport: choices[0].transport, listener: Pikuri::Agent::Listener::Base.new,
+                       boot: false)
   end
+
+  after { conversations.shutdown(timeout: 1) }
+
+  def next_model = session.status.next_model
 
   # Swap +PickerDialog.new+ for a recorder whose popup never opens (restored
   # after) and return the captured +[options, callback]+ so a spec can assert
@@ -76,63 +74,54 @@ RSpec.describe Shared::Model::Picker do
   end
 
   describe '#open' do
-    it 'numbers entries and flags the active one with a marker' do
-      options, = capture_picker { picker.open(current: choices[0].transport) }
+    it 'numbers entries and flags the one the next turn runs on' do
+      options, = capture_picker { picker.open(session: session) }
 
       assert_equal '1', options[0][0]
       assert_match(/●\s*Local/, options[0][1])
       refute_match(/●/, options[1][1])
     end
 
-    it 'stashes the picked connection transport as pending' do
-      _, block = capture_picker { picker.open(current: choices[0].transport) }
+    it "switches the conversation's next turn to the picked connection" do
+      _, block = capture_picker { picker.open(session: session) }
       block.call('2')
-      assert_equal choices[1].transport, picker.take_pending
+      assert_equal 'm2', next_model.model
     end
 
-    it 'cancels a pending switch when the running model is picked' do
-      _, block = capture_picker { picker.open(current: choices[0].transport) }
+    it 'flags a pending pick when reopened' do
+      _, block = capture_picker { picker.open(session: session) }
       block.call('2')
-      _, block = capture_picker { picker.open(current: choices[0].transport) }
+      options, = capture_picker { picker.open(session: session) }
+      assert_match(/●\s*Cloud/, options[1][1])
+    end
+
+    it 'undoes a pending switch when the running model is picked' do
+      _, block = capture_picker { picker.open(session: session) }
+      block.call('2')
+      _, block = capture_picker { picker.open(session: session) }
       block.call('1')
-      assert_nil picker.pending
+      assert_equal 'm1', next_model.model
     end
 
-    describe 'modalities lookup' do
-      let(:choices) { [model_choice('Local', 'm1'), model_choice('Blind', 'm2', modalities: nil)] }
-      let(:gate) { Queue.new }
-
-      before { Tuile::Screen.fake }
-      after  { Tuile::Screen.close }
-
-      it 'makes the detected transport the pending one once the server answers' do
-        stub_detection({ vision: false }, gate) do
-          _, block = capture_picker { picker.open(current: choices[0].transport) }
-          block.call('2')
-          assert_nil picker.pending.modalities
-          gate << :go
-          wait_until { picker.pending.modalities }
-          assert_equal({ vision: false }, picker.pending.modalities)
-          assert_equal 'm2', picker.pending.model
-        end
-      end
-
-      it 'drops an answer for a pick no longer pending' do
-        stub_detection({ vision: false }, gate) do
-          _, block = capture_picker { picker.open(current: choices[0].transport) }
-          block.call('2')
-          picker.take_pending
-          gate << :go
-          sleep 0.05
-          Tuile::Testing.loop
-          assert_nil picker.pending
-        end
-      end
+    it 'leaves the model alone when the popup is dismissed (block never called)' do
+      capture_picker { picker.open(session: session) }
+      assert_equal 'm1', next_model.model
     end
 
-    it 'leaves nothing pending when the popup is dismissed (block never called)' do
-      capture_picker { picker.open(current: choices[0].transport) }
-      assert_nil picker.take_pending
+    it 'ignores an out-of-range pick' do
+      _, block = capture_picker { picker.open(session: session) }
+      block.call('9')
+      assert_equal 'm1', next_model.model
+    end
+
+    it 'looks up which inputs a picked model takes, so a refusal is known before its turn' do
+      blind = [model_choice('Local', 'm1'), model_choice('Blind', 'm2', modalities: nil)]
+      picker = described_class.new(models: blind)
+      Pikuri::Conversations::Probe::Detector.define_singleton_method(:detect_modalities) { |*, **| { vision: false } }
+      _, block = capture_picker { picker.open(session: session) }
+      block.call('2')
+      wait_until { next_model.modalities }
+      assert_equal({ vision: false }, next_model.modalities)
     end
 
     # Regression: two connections on the same model id but different servers
@@ -141,29 +130,12 @@ RSpec.describe Shared::Model::Picker do
       pair = [model_choice('Local Qwen', 'qwen3', api_base: 'http://localhost:8080/v1'),
               model_choice('Remote Qwen', 'qwen3', api_base: 'http://mavi-fw:8080/v1')]
       picker = described_class.new(models: pair)
-      options, = capture_picker { picker.open(current: pair[1].transport) }
+      session = conversations.open(id: 'pair', transport: pair[1].transport,
+                                   listener: Pikuri::Agent::Listener::Base.new, boot: false)
+      options, = capture_picker { picker.open(session: session) }
 
       refute_match(/●/, options[0][1], 'the inactive same-model connection must not flag')
       assert_match(/●\s*Remote Qwen/, options[1][1])
-    end
-  end
-
-  describe '#take_pending' do
-    it 'returns nil when nothing is pending' do
-      assert_nil picker.take_pending
-    end
-
-    it 'returns the pending transport once, then clears it' do
-      _, block = capture_picker { picker.open(current: choices[0].transport) }
-      block.call('2')
-      assert_equal choices[1].transport, picker.take_pending
-      assert_nil picker.take_pending, 'a pick applies at most once'
-    end
-
-    it 'ignores an out-of-range pick' do
-      _, block = capture_picker { picker.open(current: choices[0].transport) }
-      block.call('9')
-      assert_nil picker.take_pending
     end
   end
 end

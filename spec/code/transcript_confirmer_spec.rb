@@ -3,7 +3,7 @@
 RSpec.describe Code::TranscriptConfirmer do
   let(:screen)       { Tuile::Screen.instance }
   let(:conversation) { Shared::ConversationTextView.new }
-  let(:status_rule)  { Shared::StatusRuleLabel.new(token_log: Pikuri::Agent::Listener::TokenLog.new) }
+  let(:status_rule)  { Shared::StatusRuleLabel.new }
   let(:input)        { Shared::InputPane.new(on_submit: ->(_text) {}) }
 
   let(:confirmer) do
@@ -274,7 +274,7 @@ RSpec.describe Code::TranscriptConfirmer do
       assert_equal false, confirmer.cancel_pending!
     end
 
-    it 'makes the parked ask raise Cancelled (what Ctrl+C and quit call)' do
+    it 'makes the parked ask raise Cancelled (what Ctrl+C and App#close call)' do
       assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) do
         run(request) do
           wait_until { confirmer.pending? }

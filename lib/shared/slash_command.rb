@@ -7,7 +7,7 @@
 #                            ->(_rest) { sidebar.open_diff; 'Opened the git diff.' })
 #   # a skill command consumes it as a follow-up message:
 #   Shared::SlashCommand.new('/writing-rdoc', 'writing rdoc docs',
-#                            ->(rest) { skill_ext.schedule_load_skill('writing-rdoc'); session.submit(rest); nil })
+#                            ->(rest) { load_skill('writing-rdoc', rest); nil })
 #
 # The +description+ is the right-column hint in the {Shared::SlashMenuPopup}
 # list; the +callback+'s *return value* is a separate string — the outcome

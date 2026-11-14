@@ -43,6 +43,8 @@ require 'pikuri-tasks'
 require 'pikuri-skills'
 require 'pikuri-mcp'
 require 'pikuri-subagents'
+require 'pikuri-web'
+require 'pikuri-conversations'
 require 'pikuri_tui'
 
 # Boot-time logging goes to stderr until the screen is up. A Shared::Log::BufferingIO
@@ -140,7 +142,7 @@ begin
   # engine list and knows which of them need a key. Asked here so an unusable
   # [search] selection is the same plain warn + exit as any other config
   # error, not an ArgumentError from inside the agent wiring.
-  Pikuri::Tool::Search::Engines.resolve(**config.search.to_h)
+  Pikuri::Web::Search::Engines.resolve(**config.search.to_h)
 rescue Shared::Config::Error, ArgumentError => e
   warn "config error: #{e.message}"
   exit 2
@@ -314,16 +316,17 @@ Tuile::Screen.new
 # stock Tuile theme.
 Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 
-# Hand off: App owns the whole agent object graph — from config it derives the
-# model list, builds the MCP registry, wires the six file/shell tools + the
-# task/skill/sub-agent extensions + the confirmer/plan-mode/diff surface, and
-# constructs the streaming Pikuri::Agent on the bin-assembled system prompt +
-# the passed workspace/sandbox/trust. Tuile::Screen.new has NOT yet entered
-# raw mode / the alternate buffer (that is run_event_loop's job), so a raise
-# during App.new — e.g. Mcp::Extension's boot-time verify, or a transport
-# probe — still reaches a normal terminal; the begin/ensure tears the screen
-# down on any escape, construction OR loop, which is why Code::App#run no
-# longer closes it itself. The boot diagnostics sit inside the begin so they
+# Hand off: App owns the conversation and the agent's whole object graph —
+# from config it derives the model list and the MCP registry, and boots, on a
+# thread of its own, an agent with the six file/shell tools + the
+# task/skill/sub-agent/MCP extensions + the confirmer/plan-mode/diff surface
+# on the bin-assembled system prompt + the passed workspace/sandbox/trust. A
+# failed boot (an MCP server flagged by the verifier, say) shows in the
+# transcript. Tuile::Screen.new has NOT yet entered raw mode / the alternate
+# buffer (that is run_event_loop's job), so a raise during App.new still
+# reaches a normal terminal; the begin/ensure tears the screen down on any
+# escape, construction OR loop, which is why Code::App#run doesn't close it
+# itself. The boot diagnostics sit inside the begin so they
 # land in the log dialog (App.new has rewired Pikuri.log_io to it by then),
 # never in the conversation pane (AGENTS.md).
 begin

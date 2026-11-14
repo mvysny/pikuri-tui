@@ -348,10 +348,10 @@ class Shared::Config
   # flag visible in +ps+), outside the workspace the coding agent reads,
   # and flagged by a logged warning when the file has loose permissions.
   #
-  # Field names match +Pikuri::Tool::WebSearch.build+'s keyword arguments
+  # Field names match +Pikuri::Web::Search.build+'s keyword arguments
   # 1:1, and both the bins and the shells rely on that: they splat
   # +search.to_h+ straight into +build+ (and into
-  # +Pikuri::Tool::Search::Engines.resolve+ for the boot-time check). Keep the
+  # +Pikuri::Web::Search::Engines.resolve+ for the boot-time check). Keep the
   # mirror exact — a field pikuri does not take is an unknown-keyword crash at
   # wiring time (see the "Pikuri seam" note).
   #

@@ -2,6 +2,8 @@
 
 require 'logger'
 require 'pikuri-core'
+require 'pikuri-conversations'
+require 'pikuri-web'
 require 'tuile'
 
 module Code
@@ -9,7 +11,8 @@ module Code
   # pane, the status rule, the tinted full-width prompt, the tasks + git sidebar
   # ({WorkspaceSidebar}), the eager diagnostic {Shared::Log::Dialog} (popup-visible via
   # the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+ menu / +Ctrl+C+ cancel
-  # status-bar hints, and the agent loop on a worker thread.
+  # status-bar hints, and the agent on one +Pikuri::Conversations+
+  # conversation.
   #
   # A parallel copy of {Chat::App} (see {Code} for the duplicate-don't-share
   # rationale), plus the coding-shell surface: a {TranscriptConfirmer} gating
@@ -17,9 +20,9 @@ module Code
   # popup), plan mode (a status-rule badge via {PlanModeListener} + a leader-menu
   # +p+ toggle), and +edit+ / +write+ diffs.
   #
-  # == Construction: App owns the agent
+  # == Construction: App owns the conversation
   #
-  # App builds its own +Pikuri::Agent+ (see {#default_build_agent}) from the
+  # App opens its own conversation (see {#configure_agent}) from the
   # {Shared::Config} handed to it plus the pre-built workspace objects the bin
   # assembles — see "What the bin still owns" below. The bin's job ends at CLI
   # + config + workspace/sandbox/trust + screen; the agent, its tools, and its
@@ -27,13 +30,8 @@ module Code
   #
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#default_build_agent} listener/tool/extension wiring — on
-  # a scripted-HTTP backend, skipping the network / RubyLLM / MCP-verify cost.
-  # Production omits it and boots on the config's first connection. Only the
-  # transport is injectable because the agent's collaborators (the conversation
-  # listener, the confirmer, the task listener, the status rule, the plan-mode
-  # listener) are App's own objects, reached through the
-  # {Shared::ConversationTextView} / {WorkspaceSidebar} and App ivars directly.
+  # agent — the real {#configure_agent} tool/extension wiring and listeners —
+  # on a scripted-HTTP backend, skipping the network / RubyLLM cost.
   #
   # == What the bin still owns (why this isn't just +config:+)
   #
@@ -46,7 +44,7 @@ module Code
   # all depend on CLI flags absent from config (+--yolo+ / +--readable+ /
   # +--writable+). The bin builds those and passes them; App owns everything
   # derivable from +config+ (models, plan-mode flag, tool formatters, the MCP
-  # registry) plus the agent graph.
+  # registry) plus the agent graph, rebuilt for every agent.
   #
   # == Screen ownership
   #
@@ -58,12 +56,11 @@ module Code
   #
   # Per AGENTS.md's threading invariant, Tuile is single-threaded and the agent loop must not run on
   # the UI thread. App runs {Tuile::Screen#run_event_loop} on the caller's
-  # thread and delegates the off-thread turn lifecycle — worker thread,
-  # mid-turn injection, concurrency guard, spinner, Ctrl+C escalation — to a
-  # composed {Shared::AgentSession} (see its threading contract). Enter routes
-  # to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
-  # +session.clear_conversation+. The {TranscriptConfirmer} bridges the other
-  # way: a tool on the worker thread calls +confirm?+, which submits the
+  # thread; the conversation ({#session}) builds the agent and runs each turn
+  # on threads of its own, and every call into it returns at once. Enter
+  # routes to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
+  # {#clear_conversation}. The {TranscriptConfirmer} bridges the other
+  # way: a tool on the turn thread calls +confirm?+, which submits the
   # question to the UI thread and parks the worker until the user answers (see
   # its docs).
   #
@@ -72,6 +69,12 @@ module Code
     # @return [Logger]
     LOG = Pikuri.logger_for('code')
     private_constant :LOG
+
+    # Seconds {#close} waits for the agent to unwind a cancelled turn.
+    #
+    # @return [Integer]
+    CLOSE_TIMEOUT_S = 5
+    private_constant :CLOSE_TIMEOUT_S
 
     # The +/sidebar+ arguments, onto {Layout::SIDEBAR_MODES}. +off+ is an alias
     # for +hidden+ because that is what a hand reaches for; a blank argument
@@ -95,17 +98,11 @@ module Code
 
     # @return [Shared::Config] the resolved configuration the bin loaded;
     #   drives the model list, the sandbox/confirm posture, the web-search
-    #   provider keys, and the MCP registry {#default_build_agent} builds.
+    #   provider keys, and the MCP registry {#configure_agent} wires.
     attr_reader :config
 
-    # @return [Pikuri::Agent] the agent {#default_build_agent} built. Exposed
-    #   so callers (and tests) can inspect tools/listeners/transport after
-    #   wiring.
-    attr_reader :agent
-
-    # @return [Shared::AgentSession] the turn-lifecycle engine this shell
-    #   composes; Enter / Ctrl+C / leader +c+ delegate into it. Exposed for
-    #   tests.
+    # @return [Pikuri::Conversations::Conversation] the one conversation this
+    #   shell runs; Enter, Ctrl+C, the model picker and leader +c+ drive it.
     attr_reader :session
 
     # @return [Tuile::Component::TextView] the conversation transcript
@@ -120,8 +117,7 @@ module Code
     def project_root = @filesystem.project_root
 
     # @return [TaskListPane::Listener] the task-pane listener (owned by
-    #   the {WorkspaceSidebar}'s task pane); {#default_build_agent} wires it
-    #   into the agent's +ListenerList+.
+    #   the {WorkspaceSidebar}'s task pane), in the conversation's listener.
     def task_listener = @sidebar.task_listener
 
     # @return [WorkspaceSidebar] the tasks + git sidebar; owns the
@@ -133,18 +129,12 @@ module Code
     #   diagnostic log (owned by the {Shared::Log::UI}).
     def log_dialog = @log_ui.log_dialog
 
-    # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
-    #   log, App-owned and fed into the {Shared::StatusRuleLabel}. {#default_build_agent} registers this
-    #   same instance in the agent's +ListenerList+.
-    attr_reader :token_log
-
-    # @return [Shared::StatusRuleLabel] the status rule, which doubles as the
-    #   model-name listener. {#default_build_agent} registers it in the
-    #   agent's +ListenerList+ so +ModelSwitched+ events reach it.
+    # @return [Shared::StatusRuleLabel] the status rule; it follows the
+    #   conversation as a listener.
     attr_reader :status_rule
 
     # @return [PlanModeListener] the status rule's plan-mode-badge listener,
-    #   registered by {#default_build_agent} so +Pikuri::Code::PlanModeChanged+
+    #   in the conversation's listener so +Pikuri::Code::PlanModeChanged+
     #   events reach the status rule. Dormant until a plan-mode transition fires
     #   (via {#toggle_plan_mode} or the model's enter/exit tools).
     attr_reader :plan_mode_listener
@@ -168,8 +158,8 @@ module Code
     #   bin so its bwrap probe raises to a normal terminal pre-screen, next to
     #   the filesystem it wraps.
     # @param skill_catalog [Pikuri::Skill::Catalog] the skill catalog whose
-    #   roots the bin already folded into +filesystem.readable+; wired into the
-    #   +Skill+ extension.
+    #   roots the bin already folded into +filesystem.readable+; wired into
+    #   every agent's +Skill+ extension.
     # @param command_registry [Pikuri::Command::Registry] the on-disk slash
     #   commands, whose roots the bin folded into +filesystem.readable+ for the
     #   same reason. Becomes one palette entry each, and one +Command+ extension
@@ -186,8 +176,7 @@ module Code
     #   backend to build the real agent on. Omit in production (boots on the
     #   config's first connection); a spec passes a
     #   +Pikuri::Testing.fake_transport+ to run real turns against scripted
-    #   HTTP — skipping the network / RubyLLM / MCP-verify cost. See the class
-    #   header.
+    #   HTTP. See the class header.
     def initialize(config:, filesystem:, sandbox:, skill_catalog:, command_registry:, system_prompt:,
                    trusted_repo: false, markdown: true, transport: nil)
       @screen = Tuile::Screen.instance
@@ -199,10 +188,9 @@ module Code
       @system_prompt = system_prompt
       @trusted_repo = trusted_repo
       @markdown = markdown
-      @token_log = Pikuri::Agent::Listener::TokenLog.new
       # The shared plan-mode (read-only) flag: the leader menu's +p+ toggle and
-      # the model's enter/exit tools flip this one instance (threaded into the
-      # Workspace + Code extensions' read_only: by default_build_agent). The
+      # the model's enter/exit tools flip this one instance (threaded into every
+      # agent's Workspace + Code extensions by configure_agent). The
       # message: is the plan-mode-specific refusal wording Edit/Write splice
       # into their "cannot write …" observation.
       @plan_mode = Pikuri::Workspace::ReadOnly.new(
@@ -210,28 +198,18 @@ module Code
       )
       @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
       Shared::RequestPermits.install(config.servers)
+      Pikuri::Extractors::PDF.register
       @model_picker = Shared::Model::Picker.new(models: @models)
-      # Test seam: the backend the agent boots on. Production uses the config's
-      # first connection; a spec injects a fake_transport (see class header).
-      # Detected now, blocking boot on the server, so an image is checked
-      # before the first turn rather than refused by it.
-      @boot_transport = transport || @models.first.transport.with_detected_modalities
-      # Built here, not in the agent block: the palette's
-      # SkillActivationListener needs its gate before the agent exists.
-      # +root:+ is what a `paths:` skill's globs are matched against.
-      @skill_ext = Pikuri::Skill::Extension.new(catalog: @skill_catalog, root: project_root)
+      @mcp_registry = build_mcp_registry
+      @mcp_catalog = nil
 
       build_components
       @log_ui.wire!
-      @agent = default_build_agent
-      @session.agent = @agent
-      # Seeds the /<skill-name> palette entries. After the agent build, because
-      # Skill::Extension#configure decides there whether the gate is armed.
+      # Seeds the /<skill-name> palette entries; each agent's extension re-lists them.
       @skill_activation.refresh
-      @status_rule.interloper = @agent.interloper
-      # Seed the status rule with the boot model (resolved from its transport);
+      @session = open_session(transport || @models.first.transport)
       # Shared::StatusRuleLabel#on_event takes over on every later switch.
-      @status_rule.current_model = @agent.transport
+      @status_rule.current_model = @session.status.model
 
       @leader_menu = build_leader_menu
       @screen.on_error << method(:on_screen_error)
@@ -241,12 +219,10 @@ module Code
     end
 
     # Runs the Tuile event loop, blocking the calling thread until the user
-    # quits or the loop is otherwise stopped. Starts the {WorkspaceSidebar}'s
-    # git poll before the loop and stops it in the +ensure+. Does NOT close the
-    # screen: the bin owns teardown via +begin/ensure Tuile::Screen.close+
-    # around both +App.new+ and this call, so the screen is torn down whether
-    # the failure is in construction (an MCP verify / transport probe) or in
-    # the loop.
+    # quits or the loop is otherwise stopped, then {#close}s the conversation.
+    # Starts the {WorkspaceSidebar}'s git poll before the loop and stops it in
+    # the +ensure+. Does NOT close the screen: the bin owns teardown via
+    # +begin/ensure Tuile::Screen.close+ around both +App.new+ and this call.
     #
     # @return [void]
     def run
@@ -254,6 +230,21 @@ module Code
       @screen.run_event_loop
     ensure
       @sidebar.stop_git_watching
+      close
+    end
+
+    # Close the conversation, cancelling a running turn — and a question parked
+    # on the human, which would otherwise hold the turn: every way out of the
+    # event loop ends here, so a tool blocked on an answer is unwound rather
+    # than abandoned mid-operation — then wait a moment
+    # for its agent (and the MCP servers it started) to be released.
+    # Idempotent.
+    #
+    # @return [void]
+    def close
+      @confirmer.cancel_pending!
+      @conversations.shutdown(timeout: CLOSE_TIMEOUT_S)
+      nil
     end
 
     private
@@ -282,13 +273,7 @@ module Code
       # segment, and it is the one thing about this shell a glance should
       # answer first.
       @status_rule = Shared::StatusRuleLabel.new(
-        token_log: @token_log, names: @model_picker.names,
-        context: @filesystem.project_root.to_s
-      )
-
-      @session = Shared::AgentSession.new(
-        screen: @screen, conversation: @conversation, status_rule: @status_rule,
-        model_picker: @model_picker, logger: LOG
+        names: @model_picker.names, context: @filesystem.project_root.to_s
       )
 
       # Precedence: built-in > file command > skill. Match built-ins first or a
@@ -298,22 +283,21 @@ module Code
       base_commands = built_ins + Shared::FileCommands.build(
         registry: @command_registry, reserved: built_ins.map(&:name),
         screen: @screen, logger: LOG,
-        on_expand: ->(text) { @session.submit(text) }
+        on_expand: ->(text) { submit(text) }
       )
       @slash_menu = Shared::SlashMenuPopup.new(
         screen: @screen, commands: base_commands, conversation: @conversation
       )
       @skill_activation = SkillActivationListener.new(
-        skill_extension: @skill_ext, slash_menu: @slash_menu,
+        catalog: @skill_catalog, slash_menu: @slash_menu,
         conversation: @conversation, screen: @screen,
         base: base_commands,
-        on_load: ->(name, rest) { @skill_ext.schedule_load_skill(name); @session.submit(rest) }
+        on_load: method(:load_skill)
       )
       @input = Shared::InputPane.new(
-        on_submit: @session.method(:submit), slash_menu: @slash_menu,
-        conversation: @conversation, attachment_refusal: @session.method(:attachment_refusal)
+        on_submit: method(:submit), slash_menu: @slash_menu,
+        conversation: @conversation, attachment_refusal: method(:attachment_refusal)
       )
-      @session.on_attachment_refused { |reason| @input.refuse_attachment(reason) }
 
       # The tasks + git sidebar as one box: it owns its tasks-over-git split,
       # the GitWatcher poll (started/stopped in #run), and the diff popup the
@@ -351,14 +335,28 @@ module Code
       end
     end
 
-    # Build the coding shell's +Pikuri::Agent+: a streaming agent on the boot
-    # connection (+@boot_transport+, the config's first connection unless a
-    # test injected a fake), the bin-assembled +system_prompt+, and the full
-    # coding tool surface. Wires the conversation listener
-    # (rate-limited to 15 fps), {#token_log}, the sidebar {#task_listener},
-    # {#status_rule}, and {#plan_mode_listener} into the agent's
-    # +ListenerList+ — all reached through App's own objects, so nothing has to
-    # be passed in.
+    # Open the shell's one conversation on +transport+, which boots its agent
+    # on a thread of its own: the bin-assembled system prompt, the coding tool
+    # surface {#configure_agent} adds, and the panes' listeners — the transcript
+    # rate-limited to 15 fps (see {Chat::App} for why), the status rule, the
+    # sidebar's task pane, the plan-mode badge and the skill palette.
+    #
+    # @param transport [Pikuri::Agent::ChatTransport] the model it starts on.
+    # @return [Pikuri::Conversations::Conversation]
+    def open_session(transport)
+      @conversations = Pikuri::Conversations.new(system_prompt: @system_prompt, configure: method(:configure_agent))
+      listener = Shared::FanoutListener.new([
+                                              Shared::RateLimitedListener.new(@conversation.listener, fps: 15),
+                                              @status_rule,
+                                              @sidebar.task_listener,
+                                              @plan_mode_listener,
+                                              @skill_activation
+                                            ])
+      @conversations.open(id: 'code', transport: transport, listener: listener)
+    end
+
+    # The coding tool surface, built fresh for each agent — at boot and after
+    # every clear — on the boot thread.
     #
     # File/shell tools first (declaration order biases some models toward
     # earlier tools); calculator as auxiliary. Network tools go on the
@@ -370,108 +368,143 @@ module Code
     # +Code::Extension+. Both take the shared plan-mode flag so Edit/Write
     # refuse while it's active.
     #
-    # == The MCP registry + verify
-    #
-    # Translates +config.mcp+'s Pikuri-free +McpServer+ value objects into
-    # +Registry+ entries here (a wiring layer where +Pikuri::*+ is allowed).
-    # Empty by default — an empty registry makes +Mcp::Extension+'s boot-time
-    # synthesize/verify LLM calls no-ops, so a no-MCP agent stays offline.
-    #
-    # @return [Pikuri::Agent] the wired agent.
-    def default_build_agent
-      listener = @conversation.listener
-      task_listener = @sidebar.task_listener
-
-      Pikuri::Extractors::PDF.register
-
+    # @param configurator [Pikuri::Agent::Configurator]
+    # @param _conversation [Pikuri::Conversations::Conversation]
+    # @return [void]
+    def configure_agent(configurator, _conversation)
       # The in-transcript confirmer for writes + bash, unless confirmations are
       # disabled (--no-confirm / --yolo), in which case approve everything.
       confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
 
       # Bash auto-gates provably passive commands on top of the human
       # confirmer: the frequent harmless inspections (ls, cat, grep, `cd x &&
-      # ls`) stop popping the modal, while every mutation still reaches the y/n
-      # popup. The gate is asymmetric — only Code::Extension (Bash) gets a
+      # ls`) stop popping the question, while every mutation still reaches it.
+      # The gate is asymmetric — only Code::Extension (Bash) gets a
       # passive_detector; Write/Edit keep the bare confirmer. allow_git tracks
       # the persisted trust grant. Under --no-confirm/--yolo there is nothing
       # to skip, so no detector is built.
-      code_passive_detector =
+      passive_detector =
         @config.confirm ? Pikuri::Code::Bash::PassiveCommandDetector.new(allow_git: @trusted_repo) : nil
 
-      # MCP servers declared in [[code.mcp]]. Empty by default (see the "MCP
-      # registry" note above).
-      mcp_entries = @config.mcp.map do |m|
+      configurator.add_extension Pikuri::Workspace::Extension.new(filesystem: @filesystem, confirmer: confirmer,
+                                                                  read_only: @plan_mode)
+      configurator.add_tool Pikuri::Tool::CALCULATOR
+      configurator.add_sub_agent_tool Pikuri::Web::Search.build(**@config.search.to_h)
+      configurator.add_sub_agent_tool Pikuri::Web::SCRAPE
+      configurator.add_sub_agent_tool Pikuri::Web::FETCH
+      configurator.add_extension Pikuri::Code::Extension.new(
+        filesystem: @filesystem,
+        confirmer: confirmer,
+        passive_detector: passive_detector,
+        sandbox: @sandbox,
+        read_only: @plan_mode
+      )
+      # +root:+ is what a `paths:` skill's globs are matched against.
+      skills = Pikuri::Skill::Extension.new(catalog: @skill_catalog, root: project_root)
+      configurator.add_extension skills
+      @skill_activation.extension = skills
+      # Declaration only — commands register no tool and render no prompt, so
+      # without this /trifecta would miss their untrusted leg entirely.
+      configurator.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
+      configurator.add_extension Pikuri::Tasks::Extension.new
+      configurator.add_extension Pikuri::Mcp::Extension.new(catalog: mcp_catalog(configurator.agent))
+      # Privilege-separated read-only sub-agents: FILE_MINER (read/grep/glob)
+      # for code/fs lookups, RESEARCHER (web_search/scrape/fetch) for
+      # external docs, GIT_REPO_RESEARCHER for cloning + mining other repos.
+      configurator.add_extension Pikuri::SubAgent::Extension.new(
+        personas: [
+          Pikuri::SubAgent::FILE_MINER,
+          Pikuri::SubAgent::RESEARCHER,
+          Pikuri::Code::GIT_REPO_RESEARCHER
+        ]
+      )
+    end
+
+    # The +[[code.mcp]]+ servers, translated from the config's Pikuri-free
+    # +McpServer+ value objects (a wiring layer, where +Pikuri::*+ is allowed).
+    #
+    # @return [Pikuri::Mcp::Registry]
+    def build_mcp_registry
+      Pikuri::Mcp::Registry.new(entries: @config.mcp.map do |m|
         if m.stdio?
           Pikuri::Mcp::Registry::StdioEntry.new(id: m.id, command: m.command, env: m.env)
         else
           Pikuri::Mcp::Registry::HttpEntry.new(id: m.id, url: m.url, headers: m.headers)
         end
-      end
-      mcp_registry = Pikuri::Mcp::Registry.new(entries: mcp_entries)
+      end)
+    end
 
-      # Coalesce streaming delta chunks at 15 fps before they reach the
-      # Markdown-rendering Shared::ConversationTextView (see Chat::App for the
-      # rationale). flush_pending_on_non_delta: false because the bookend
-      # Assistant / Thinking events re-render the authoritative final content.
-      rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
-        listener, fps: 15, flush_pending_on_non_delta: false
+    # The verified MCP servers, built on the first agent's boot thread and kept
+    # for every agent after: building one spawns each server and asks the
+    # model to describe and vet it, which a /clear should not repeat. An empty
+    # registry makes this a no-op, so a no-MCP shell stays offline. Only ever
+    # called from the one boot thread a conversation runs at a time.
+    #
+    # @param agent [Pikuri::Agent] the agent being built, whose model, cancel
+    #   token and throttle the build's own requests use — so Ctrl+C aborts it.
+    # @return [Pikuri::Mcp::Catalog]
+    # @raise [Pikuri::Mcp::Verifier::InjectionDetected] when a server is flagged;
+    #   the boot fails, and the next message tries again.
+    def mcp_catalog(agent)
+      @mcp_catalog ||= Pikuri::Mcp::Catalog.build(
+        @mcp_registry, transport: agent.transport, cancellable: agent.cancellable,
+                       around_request: agent.around_request
       )
+    end
 
-      Pikuri::Agent.new(
-        transport: @boot_transport,
-        system_prompt: @system_prompt,
-        cancellable: Pikuri::Agent::Control::Cancellable.new,
-        interloper: Pikuri::Agent::Control::Interloper.new,
-        streaming: true
-      ) do |c|
-        c.add_listener rate_limited_listener
-        c.add_listener @token_log
-        # Renders the Pikuri::Tasks::Extension list into the sidebar task pane.
-        # Not rate-limited — task mutations are rare and each snapshot is
-        # authoritative.
-        c.add_listener task_listener
-        # Keeps the status rule's model name in step with leader-menu model switches.
-        c.add_listener @status_rule
-        # Keeps the status rule's plan-mode badge in step with the shared flag
-        # (the leader menu's 'p' toggle or the model's enter/exit tools).
-        c.add_listener @plan_mode_listener
-        # Lists a `paths:`-gated skill's /<name> the moment a touched file
-        # brings it into play.
-        c.add_listener @skill_activation
-        c.add_extension Pikuri::Workspace::Extension.new(filesystem: @filesystem, confirmer: confirmer,
-                                                         read_only: @plan_mode)
-        c.add_tool Pikuri::Tool::CALCULATOR
-        c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(**@config.search.to_h)
-        c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
-        c.add_sub_agent_tool Pikuri::Tool::FETCH
-        c.add_extension Pikuri::Code::Extension.new(
-          filesystem: @filesystem,
-          confirmer: confirmer,
-          passive_detector: code_passive_detector,
-          sandbox: @sandbox,
-          read_only: @plan_mode
-        )
-        c.add_extension @skill_ext
-        # Declaration only — commands register no tool and render no prompt, so
-        # without this /trifecta would miss their untrusted leg entirely.
-        c.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
-        c.add_extension Pikuri::Tasks::Extension.new
-        c.add_extension Pikuri::Mcp::Extension.new(
-          registry: mcp_registry,
-          synthesize_descriptions: true,
-          verify_mcp_servers: true
-        )
-        # Privilege-separated read-only sub-agents: FILE_MINER (read/grep/glob)
-        # for code/fs lookups, RESEARCHER (web_search/scrape/fetch) for
-        # external docs, GIT_REPO_RESEARCHER for cloning + mining other repos.
-        c.add_extension Pikuri::SubAgent::Extension.new(
-          personas: [
-            Pikuri::SubAgent::FILE_MINER,
-            Pikuri::SubAgent::RESEARCHER,
-            Pikuri::Code::GIT_REPO_RESEARCHER
-          ]
-        )
+    # A +/<skill-name>+ from the palette: the skill's body, then +rest+ as the
+    # message — a bare load when +rest+ is blank. Once an agent runs, the
+    # skill goes in through its extension and lands ahead of the message in one
+    # turn; before that (booting, or after a /clear) the conversation queues
+    # both, in order, for the agent to come.
+    #
+    # @param name [String] a skill the palette listed, so in play.
+    # @param rest [String] the rest of the typed line.
+    # @return [void]
+    def load_skill(name, rest)
+      extension = @skill_activation.extension
+      if extension && %i[idle running].include?(@session.status.state)
+        extension.schedule_load_skill(name)
+      else
+        @session.inject_system(Pikuri::Skill::Renderer.format_skill(@skill_catalog.get(name)))
       end
+      submit(rest)
+    end
+
+    # Enter on the prompt: start a turn, or join the running one. A model known
+    # to refuse the images gets nothing, and the line comes back for a fix.
+    #
+    # @param text [String] the line, +@path+ tokens split out.
+    # @param attachments [Array<Pikuri::Attachment>] the images it named.
+    # @return [void]
+    def submit(text, attachments: [])
+      @session.submit(text, attachments: attachments)
+    rescue Pikuri::Agent::UnsupportedAttachmentError => e
+      @input.refuse_attachment(e.message)
+    end
+
+    # Why the next turn's model can't see +attachments+, asked before anything
+    # is sent; +nil+ when they may go out, unknown modalities included.
+    #
+    #   attachment_refusal([png])   # => "shot.png (image/png): model m takes no vision input"
+    #
+    # @param attachments [Array<Pikuri::Attachment>]
+    # @return [String, nil] the reason, worded as +run_loop+'s own refusal.
+    def attachment_refusal(attachments)
+      image = attachments.find { |a| a.mime.start_with?('image/') }
+      transport = @session.status.next_model
+      return nil unless image && transport.modalities&.[](:vision) == false
+
+      Pikuri::Agent::UnsupportedAttachmentError.new(image, "model #{transport.model} takes no vision input").message
+    end
+
+    # @return [String] the +/trifecta+ answer: the report, or a note while the
+    #   agent it describes is still being built.
+    def trifecta_report
+      report = @session.trifecta
+      return 'The agent is still starting — ask again in a moment.' if report.nil?
+
+      Shared::TrifectaRenderer.render(report, theme: @screen.theme)
     end
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
@@ -501,16 +534,23 @@ module Code
       @log_ui.install_shortcut { @leader_menu.open }
     end
 
-    # +Ctrl+C+: the {Shared::AgentSession#interrupt} escalation (cancel turn ->
-    # unfocus -> quit), then wake a parked confirmation with a cancel too —
-    # its tool has the worker blocked, so cancelling the turn alone would look
-    # like nothing happened until the decision was answered. A parked question
-    # means a turn is running, so the escalation's step taken is the cancel.
+    # +Ctrl+C+, three states in priority order: a running turn (or boot) is
+    # cancelled; else a focused pane drops focus, as ESC does; else the event
+    # loop stops, which quits. A parked confirmation is woken with a cancel too
+    # — its tool has the turn blocked, so cancelling alone would look like
+    # nothing happened until the decision was answered. A parked question means
+    # a turn is running, so the step taken is then always the cancel.
     #
     # @return [void]
     def interrupt
-      @session.interrupt
       @confirmer.cancel_pending!
+      return if @session.cancel == :cancelled
+
+      if @screen.focused
+        @screen.focused = nil
+      else
+        @screen.event_queue.stop
+      end
     end
 
     # Build the {Shared::LeaderMenu} for the coding shell: logs, git diff, plan
@@ -526,7 +566,7 @@ module Code
       menu.add('s', 'sidebar width') { @layout.cycle_sidebar_mode }
       menu.add('p', 'plan mode') { toggle_plan_mode }
       menu.add('u', 'UI toggles') { @ui_toggles.open }
-      menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
+      menu.add('m', 'switch model') { @model_picker.open(session: @session) } if @model_picker.multiple?
       menu.add('c', 'clear conversation + context') { clear_conversation }
       menu.add('q', 'quit') { quit }
       menu
@@ -546,8 +586,8 @@ module Code
     # appends the +/<skill-name>+ half and re-lists it as the path gate opens.
     #
     # Callbacks are lazy (they resolve +@log_ui+ / +@sidebar+ / +@plan_mode+ /
-    # +@session+ / +@agent+ / +quit+ at run time), so this is safe to build
-    # before the agent/sidebar; only the +/model+ *presence* is decided now,
+    # +@session+ / +quit+ at run time), so this is safe to build before the
+    # conversation/sidebar; only the +/model+ *presence* is decided now,
     # from {Shared::Model::Picker#multiple?}.
     #
     # @return [Array<Shared::SlashCommand>]
@@ -557,7 +597,7 @@ module Code
         Shared::SlashCommand.new('/logs', 'open the diagnostic log',
                                  ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
         Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
-                                 ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
+                                 ->(_rest) { trifecta_report }),
         Shared::SlashCommand.new('/diff', 'show the git diff',
                                  ->(_rest) { @sidebar.open_diff; 'Opened the git diff.' }),
         Shared::SlashCommand.new('/sidebar', 'sidebar full / narrow / off (blank cycles)',
@@ -573,7 +613,7 @@ module Code
       ]
       if @model_picker.multiple?
         commands << Shared::SlashCommand.new('/model', 'switch model',
-                                             ->(_rest) { @model_picker.open(current: @agent.transport); nil })
+                                             ->(_rest) { @model_picker.open(session: @session); nil })
       end
       commands.push(
         Shared::SlashCommand.new('/clear', 'clear conversation + context', ->(_rest) { clear_conversation; nil }),
@@ -582,26 +622,25 @@ module Code
       )
     end
 
-    # Clear the conversation, then re-list the palette — the clear re-hides
-    # every +paths:+-gated skill, so their +/<name>+ entries have to go with it.
+    # Start over on a fresh agent — the transcript and the task pane wipe as
+    # it boots, and its new skill extension re-hides every +paths:+-gated
+    # skill's palette entry. Refused while a turn runs, which is what Ctrl+C is
+    # for.
     #
     # @return [void]
     def clear_conversation
-      @session.clear_conversation
-      @skill_activation.refresh
+      LOG.warn('clear conversation ignored: a turn is in progress') if @session.clear == :busy
     end
 
-    # Stop the event loop, unwinding {#run} back to the bin's +ensure+ (which
+    # Stop the event loop, unwinding {#run} into {#close} — which cancels a
+    # parked question and the turn — and back to the bin's +ensure+ (which
     # calls +Screen#close+). The leader menu's +q+ action — a hard quit,
-    # distinct from {Shared::AgentSession#interrupt}'s escalation (no
-    # turn-cancel / unfocus steps). Runs on the event-loop thread (deferred by
-    # {Shared::LeaderMenu}), so +stop+ is safe to call.
+    # distinct from {#interrupt}'s escalation (no unfocus step). Runs on the
+    # event-loop thread (deferred by {Shared::LeaderMenu}), so +stop+ is safe to
+    # call.
     #
     # @return [void]
     def quit
-      # Cancel anything parked first: a tool blocked on an answer would
-      # otherwise be abandoned mid-operation rather than unwound.
-      @confirmer.cancel_pending!
       @screen.event_queue.stop
     end
 

@@ -11,13 +11,17 @@ module Code
   #   · skills available: writing-rdoc (matched lib/code/app.rb)
   #
   #   skill_activation = Code::SkillActivationListener.new(
-  #     skill_extension: skill_ext, slash_menu: slash_menu,
+  #     catalog: skill_catalog, slash_menu: slash_menu,
   #     conversation: conversation_window, screen: screen,
   #     base: built_in_commands,
-  #     on_load: ->(name, rest) { skill_ext.schedule_load_skill(name); session.submit(rest) }
+  #     on_load: ->(name, rest) { load_skill(name, rest) }
   #   )
-  #   agent = Pikuri::Agent.new(...) { |c| c.add_listener skill_activation }
-  #   skill_activation.refresh        # seed the palette, and again after every /clear
+  #   # in the Conversations' configure:, once per agent
+  #   ext = Pikuri::Skill::Extension.new(catalog: skill_catalog, root: project_root)
+  #   c.add_extension ext
+  #   skill_activation.extension = ext   # re-lists the palette for the new agent
+  #
+  # It must hear the agent's events — put it in the conversation's listener.
   #
   # A skill declaring +paths:+ is not in play until the model touches a matching
   # file, so it is not listed until then — and the moment it fires it appears
@@ -39,16 +43,10 @@ module Code
   # deliberately over-fires, so a skill *will* appear for no visible reason, and
   # without the trigger, diagnosing it means guessing which glob matched.
   #
-  # {#refresh} is the reset half rather than a +Event::Reset+ arm:
-  # +Agent#clear_conversation+ emits that event *before* it clears the
-  # activation, so the host refreshes once that call has returned.
-  #
-  # The extension is held rather than its +activation+, because
-  # +Skill::Extension#configure+ may swap that object out for an
-  # +Activation::Open+ (an agent with no interloper has no channel a promotion
-  # could land on, so the gate comes off wholesale). Reading it per call follows
-  # the swap; a captured reference would keep gating a palette nothing can
-  # un-gate.
+  # Which skills are in play is the current agent's {Pikuri::Skill::Activation},
+  # and every agent — a /clear builds a new one — starts with the gated ones
+  # hidden; {#extension=} is how the palette follows. Before the first agent is
+  # built, a fresh activation of the catalog's own answers the same.
   #
   # UI-thread-confined, with exceptions.
   class SkillActivationListener < Pikuri::Agent::Listener::Base
@@ -56,8 +54,8 @@ module Code
     LOG = Pikuri.logger_for('code')
     private_constant :LOG
 
-    # @param skill_extension [Pikuri::Skill::Extension] source of both the
-    #   catalog and the activation gate deciding what is in play right now.
+    # @param catalog [Pikuri::Skill::Catalog] the skills a palette entry may
+    #   load, those gated on +paths:+ included.
     # @param slash_menu [Shared::SlashMenuPopup] the palette to keep current.
     # @param conversation [Shared::ConversationTextView] where a promotion is
     #   announced.
@@ -67,9 +65,11 @@ module Code
     #   palette and reserve their names against the skills.
     # @param on_load [Proc] called as +(name, rest)+ when a +/<skill-name>+
     #   runs: the catalog name, and the rest of the typed line.
-    def initialize(skill_extension:, slash_menu:, conversation:, screen:, base:, on_load:)
+    def initialize(catalog:, slash_menu:, conversation:, screen:, base:, on_load:)
       super()
-      @skill_extension = skill_extension
+      @catalog = catalog
+      @extension = nil
+      @unbooted = Pikuri::Skill::Activation.new(catalog: catalog)
       @slash_menu = slash_menu
       @conversation = conversation
       @screen = screen
@@ -84,17 +84,31 @@ module Code
     #
     # @return [Array<Shared::SlashCommand>]
     def commands
-      activation = @skill_extension.activation
-      @base + @skill_extension.catalog.list.filter_map do |skill|
+      activation = @extension&.activation || @unbooted
+      @base + @catalog.list.filter_map do |skill|
         next unless activation.in_play?(skill.name)
 
         skill_command(skill)
       end
     end
 
-    # Push {#commands} onto the palette. Call it once the agent is built (to
-    # seed), and after every +clear_conversation+ (which re-hides every gated
-    # skill).
+    # @return [Pikuri::Skill::Extension, nil] the extension the current agent
+    #   was built with; +nil+ before the first is.
+    attr_reader :extension
+
+    # Follow a new agent's extension and re-list the palette for it. Safe from
+    # any thread — the Conversations' +configure:+ runs on the boot thread — and
+    # set before that agent goes idle, so a host that sees the conversation idle
+    # reads the extension of the agent that runs its turn.
+    #
+    # @param extension [Pikuri::Skill::Extension]
+    # @return [void]
+    def extension=(extension)
+      @extension = extension
+      @screen.event_queue.submit { refresh }
+    end
+
+    # Push {#commands} onto the palette.
     #
     # @return [void]
     def refresh

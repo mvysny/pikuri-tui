@@ -50,6 +50,8 @@ require 'pikuri-thunderbird' # local mail + calendar tools + outbound hand-offs
 require 'pikuri-subagents' # the `agent` tool + RESEARCHER persona (web research)
 require 'pikuri-skills' # Command::Registry — the /name prompt templates (no skill catalog here)
 require 'pikuri-pdf' # PDF text extraction for the RESEARCHER's web_scrape + file read
+require 'pikuri-web' # the RESEARCHER's web tools
+require 'pikuri-conversations' # the conversation the agent runs on
 require 'pikuri_tui'
 
 # Boot-time logging goes to stderr until the screen is up. A Shared::Log::BufferingIO
@@ -126,7 +128,7 @@ begin
   # engine list and knows which of them need a key. Asked here so an unusable
   # [search] selection is the same plain warn + exit as any other config
   # error, not an ArgumentError from inside the agent wiring.
-  Pikuri::Tool::Search::Engines.resolve(**config.search.to_h)
+  Pikuri::Web::Search::Engines.resolve(**config.search.to_h)
 rescue Shared::Config::Error, ArgumentError => e
   warn "config error: #{e.message}"
   exit 2
@@ -152,10 +154,11 @@ Tuile::Screen.new
 # stock Tuile theme.
 Tuile::Screen.instance.theme_def = Shared::AppTheme::THEME_DEF
 
-# Hand off: App owns the whole agent object graph — from config it derives the
-# model list, assembles the OS-assistant prompt, builds the FullFsNoNet sandbox
-# (whose bwrap probe may raise) and the Os + Thunderbird + RESEARCHER
-# extensions. Tuile::Screen.new has NOT yet entered raw mode / the alternate
+# Hand off: App owns the conversation and the agent's whole object graph — from
+# config it derives the model list, assembles the OS-assistant prompt, builds
+# the FullFsNoNet sandbox (whose bwrap probe may raise) and boots an agent with
+# the Os + Thunderbird + RESEARCHER extensions on a thread of its own.
+# Tuile::Screen.new has NOT yet entered raw mode / the alternate
 # buffer (that is run_event_loop's job), so a raise during App.new still
 # reaches a normal terminal; the begin/ensure below tears the screen down on
 # any escape — construction OR loop — which is why Computer::App#run no longer

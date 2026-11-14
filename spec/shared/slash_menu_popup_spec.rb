@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 RSpec.describe Shared::SlashMenuPopup do
-  let(:token_log)    { Pikuri::Agent::Listener::TokenLog.new }
   let(:conversation) { Shared::ConversationTextView.new }
   let(:ran)          { [] } # [symbol, rest] pairs, so tests assert the forwarded arg too
   let(:commands) do

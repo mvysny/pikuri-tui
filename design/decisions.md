@@ -21,8 +21,10 @@ pikuri ships its agent wirings as plain stdin/stdout REPL demos in its own `bin/
 they are unreadable the moment a turn streams, a tool asks for confirmation, or the user wants to
 see what changed on disk. So this project replaces the REPL with a Tuile component tree and reuses
 pikuri otherwise untouched: `Pikuri::Agent` is the loop, `Pikuri::Tool::*` are the tools,
-`Pikuri::Agent::Event` is the stream we render, and this side adds a listener, a confirmer, and
-the layout / focus / input wiring around them — nothing else. Why not fork the demos into a TUI
+`Pikuri::Agent::Event` is the stream we render, pikuri-workshop's `Pikuri::Conversations` runs the
+conversation around it — boot and turns on threads of its own, mid-turn messages, cancel, clear,
+the model switch — and this side adds listeners, a confirmer, and the layout / focus / input
+wiring around them — nothing else. Why not fork the demos into a TUI
 app that owns its own loop: it buys the freedom to render whatever is convenient and costs a
 second implementation of tool routing and cancellation that drifts from pikuri's within the week,
 so the two front ends would answer differently for the same input with no way to tell which is
@@ -43,8 +45,9 @@ names — the hooks multiply with each divergence, and a reader of `Chat::App` c
 what the chat shell does without also reading a base class and a decision table. The
 readable-not-DRY ceiling this project sets itself does not ask for that win. A triplicated field
 or method across the three `App`s is the signal that a block is waiting to be pulled out — that is
-how {Shared::AgentSession}, {Shared::Log::UI} and {Shared::StatusRuleLabel} arrived. The cost is
-real and accepted: a genuinely cross-shell change is edited three times.
+how {Shared::Log::UI} and {Shared::StatusRuleLabel} arrived — or that pikuri is missing a
+primitive, as the turn loop the shells once shared turned out to be. The cost is real and
+accepted: a genuinely cross-shell change is edited three times.
 
 ## D_bundler_groups — Why three Bundler groups rather than one?
 
@@ -85,8 +88,7 @@ capturing Tuile's own internal noise into the same dialog. Why not `Tuile.logger
 it defaults to `IO::NULL`, so everything logged before it is wired is dropped outright, and it is
 a single untagged logger — the diagnostic pane would lose the per-subsystem tag that makes it
 readable. The boot window this leaves open is {Shared::Log::BufferingIO}'s problem, and its rdoc
-has it. {Shared::AgentSession} is the one class that takes an injected `logger:` rather than
-owning a constant, so its warnings carry the composing shell's tag.
+has it.
 
 ## D_borderless_panes — Why is nothing in the running UI framed?
 
@@ -216,15 +218,15 @@ the primitive, an `attachments` field on `ToolResult`, is pikuri's to add.
 ## D_attachment_refusal — Why refuse a whole line when the model can't see its image, rather than send the text alone?
 
 The text alone asks about a picture the model never saw. So a line whose image the model can't
-take is refused whole and stays in the prompt for a fix, as early as pikuri's `Agent#modalities`
-can tell: at `/image`, and at Enter before the prompt clears, mid-turn included. Only a reported
-`false` for `:vision` refuses; unknown — a hosted server that reports nothing — lets the image
-out, and `run_loop`'s own `UnsupportedAttachmentError` is the backstop (mid-turn, pikuri's
-withhold-with-a-note). Both paths, and a missing or oversized file, end in one "Can't attach"
-alert worded alike, so the user can't tell which refused. Why a modal, against
-`D_transcript_confirmer`: that rules out a question opening unbidden mid-typing; this answers the
-user's own keystroke and asks nothing — dismissing it decides nothing. What we carry: to know
-before the first turn, each `App` detects the boot model's modalities blocking
-(`ChatTransport#with_detected_modalities`, at most two requests to a server we already talk to,
-so no new egress). A server that accepts and then hangs costs about 14 s of blank boot screen —
-accepted, since a local one answers in milliseconds and a refused connection fails at once.
+take is refused whole and stays in the prompt for a fix, as early as the conversation knows the
+next turn's model's inputs: at `/image`, and at Enter before the prompt clears, mid-turn included.
+Only a reported `false` for `:vision` refuses; unknown — a hosted server that reports nothing —
+lets the image out, and `Conversation#submit`'s and `run_loop`'s own `UnsupportedAttachmentError`
+are the backstop (mid-turn, pikuri's withhold-with-a-note). Both paths, and a missing or oversized
+file, end in one "Can't attach" alert worded alike, so the user can't tell which refused. Why a
+modal, against `D_transcript_confirmer`: that rules out a question opening unbidden mid-typing;
+this answers the user's own keystroke and asks nothing — dismissing it decides nothing. What we
+carry: the knowing is pikuri-workshop's probe, which asks the server — never loading a model — as
+the agent boots and as a model is picked, at most two requests to a server we already talk to, so
+no new egress. Until it answers the image goes out, and a turn the model then refuses ends in an
+error line rather than the draft coming back.

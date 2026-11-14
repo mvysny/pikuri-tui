@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Computer::App do
-  # App builds its *real* Pikuri::Agent (real default_build_agent listener /
+  # App boots its *real* Pikuri::Agent (real configure_agent / listener
   # tool / extension wiring — Os, Thunderbird, sub-agent research) on a
   # fake_transport, so these specs exercise the actual wiring without a
   # server. Computer's agent is streaming: true, so scripted turns use
@@ -91,15 +91,16 @@ RSpec.describe Computer::App do
     end
 
     it 'runs one as an expanded user turn' do
-      seen = spy_on_run_loop(app.agent)
+      seen = spy_on_run_loop(booted_agent(app))
       app.instance_variable_get(:@slash_menu).submit('/wh swingai')
       wait_until { seen.map(&:first) == ['Weekly log for swingai.'] }
     end
   end
 
-  it 'builds a real Pikuri::Agent (not a stub) with the OS and Thunderbird tools wired' do
-    assert_kind_of Pikuri::Agent, app.agent
-    tool_names = app.agent.tools.map(&:name)
+  it 'boots a real Pikuri::Agent (not a stub) with the OS and Thunderbird tools wired' do
+    agent = booted_agent(app)
+    assert_kind_of Pikuri::Agent, agent
+    tool_names = agent.tools.map(&:name)
     assert_includes tool_names, 'calculator'
     assert_includes tool_names, 'bash'
     assert_includes tool_names, 'thunderbird_mail_compose'
@@ -109,7 +110,6 @@ RSpec.describe Computer::App do
   it 'renders a real streamed turn in the conversation pane' do
     turn_app = build_app { |llm| llm.stream('Hello ', 'from ', 'the ', 'fake') }
     turn_app.session.submit('hi')
-    wait_until { !turn_app.session.turn_in_progress? }
     wait_until { turn_app.conversation.text.to_s.include?('Hello from the fake') }
 
     assert_includes turn_app.conversation.text.to_s, 'Hello from the fake'
@@ -149,13 +149,13 @@ RSpec.describe Computer::App do
     turn_app = build_app(gate: gate) { |llm| llm.stream('done') }
     gate.block!
     turn_app.session.submit('work')
-    wait_until { turn_app.session.turn_in_progress? }
+    wait_until { turn_app.session.status.state == :running }
 
     turn_app.screen.key(Tuile::Keys::CTRL_C)
-    assert turn_app.agent.cancellable.cancelled?
+    assert turn_app.session.instance_variable_get(:@cancellable).cancelled?
   ensure
     gate.release!
-    wait_until { !turn_app.session.turn_in_progress? }
+    wait_until_idle(turn_app)
   end
 
   it 'leaves Ctrl+C to an open popup (over_modal: false) instead of cancelling/quitting' do
@@ -193,9 +193,9 @@ RSpec.describe Computer::App do
     assert_same app.status_rule, app.layout.status_rule
   end
 
-  it "hands the agent's interloper to the Shared::StatusRuleLabel for the queued-count display" do
-    app
-    assert_same app.agent.interloper, app.status_rule.interloper
+  it "makes the status rule and the plan badge the conversation's listeners" do
+    listeners = app.session.listener.to_s
+    %w[Shared::StatusRuleLabel PlanModeListener].each { |name| assert_includes listeners, name }
   end
 
   it 'routes pikuri-side log lines through the LogDialog (Pikuri.log_io rewired at boot)' do
@@ -224,25 +224,23 @@ RSpec.describe Computer::App do
     end
 
     # Integration: a pick made through the app's Shared::Model::Picker reaches
-    # the next run_loop and is consumed once. run_loop is spied (not a network
-    # call) so the picked *real* transport is observed without dialing it; the
-    # picker's own option/marker/keying behavior is unit-tested in
-    # model_picker_spec.
-    it 'applies the picked transport to the next run_loop, then clears it' do
-      agent = picker_app.agent
-      seen = spy_on_run_loop(agent)
-      cloud_transport = picker_app.instance_variable_get(:@models)[1].transport
+    # the next run_loop and stays. run_loop is spied (not a network call) so
+    # the picked *real* transport is observed without dialing it; the picker's
+    # own option/marker/keying behavior is unit-tested in picker_spec.
+    it 'runs the next turns on the picked connection' do
+      seen = spy_on_run_loop(booted_agent(picker_app))
       picker = picker_app.instance_variable_get(:@model_picker)
-      _, block = capture_picker { picker.open(current: agent.transport) }
+      _, block = capture_picker { picker.open(session: picker_app.session) }
       block.call('2') # pick 'Cloud'
 
       picker_app.session.submit('go')
       wait_until { seen.size == 1 }
-      assert_equal cloud_transport, seen[0][1]
+      assert_equal 'm2', seen[0][1].model
 
+      wait_until_idle(picker_app)
       picker_app.session.submit('again')
       wait_until { seen.size == 2 }
-      assert_nil seen[1][1], 'a switch must apply at most once'
+      assert_equal 'm2', seen[1][1].model
     end
   end
 
@@ -276,12 +274,11 @@ RSpec.describe Computer::App do
       assert_equal %w[l p u m c q], keys
     end
 
-    it "picking 'c' clears the agent's conversation" do
-      cleared = 0
-      app.agent.define_singleton_method(:clear_conversation) { cleared += 1 }
+    it "picking 'c' starts over on a fresh agent" do
+      before = booted_agent(app)
       app.screen.key(Tuile::Keys::CTRL_K)
       app.screen.key('c')
-      assert_equal 1, cleared
+      wait_until { !booted_agent(app).equal?(before) }
     end
 
     it "picking 'p' toggles plan mode" do
@@ -353,7 +350,7 @@ RSpec.describe Computer::App do
 
   # Dispatch Ctrl+C through the screen's real key handler (private in the
   # release gem) so the test exercises the full chain: global-shortcut
-  # lookup, the +over_modal: false+ gate, then {Shared::AgentSession#interrupt}.
+  # lookup, the +over_modal: false+ gate, then {Computer::App#interrupt}.
   def press_ctrl_c
     app.screen.key(Tuile::Keys::CTRL_C)
   end

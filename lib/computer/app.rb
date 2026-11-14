@@ -2,14 +2,16 @@
 
 require 'logger'
 require 'pikuri-core'
+require 'pikuri-conversations'
+require 'pikuri-web'
 require 'tuile'
 
 module Computer
   # The Tuile shell behind +bin/pikuri-tui-computer+: the borderless
   # conversation pane, the status rule, the tinted prompt, the eager diagnostic {Shared::Log::Dialog}
   # (popup-visible via the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+
-  # menu / +Ctrl+C+ cancel status-bar hints, and the agent loop on a worker
-  # thread.
+  # menu / +Ctrl+C+ cancel status-bar hints, and the agent on one
+  # +Pikuri::Conversations+ conversation.
   #
   # Laid out like {Chat::App} — one conversation pane over an input strip,
   # NO sidebar — but it carries the coding shell's safety machinery because
@@ -20,33 +22,32 @@ module Computer
   # re-copying them (see {Computer} for the duplicate-only-the-shell
   # rationale).
   #
-  # == Construction: App owns the agent
+  # == Construction: App owns the conversation
   #
-  # App builds its own +Pikuri::Agent+ from the {Shared::Config} handed to it —
+  # App opens its own conversation from the {Shared::Config} handed to it —
   # the OS-assistant prompt (with a network-posture block keyed to
   # +internet_enabled+), the boot connection (+config.llms+'s first entry), a
   # whole-host {Pikuri::Os::Extension} (five file tools + a network-severed
   # sandboxed bash), local mail + calendar via
   # {Pikuri::Thunderbird::Extension}, and — unless +internet_enabled+ is false
-  # — a quarantined web RESEARCHER sub-agent (see {#default_build_agent}). The
+  # — a quarantined web RESEARCHER sub-agent (see {#configure_agent}). The
   # bin only parses CLI + config, probes the Thunderbird profile, and mounts
   # the screen.
   #
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#default_build_agent} listener/tool/extension wiring — on
-  # a scripted-HTTP backend instead of a live server. Production omits it and
-  # boots on the config's first connection. Only the transport is injectable
-  # because the agent's collaborators (the conversation listener, the status
-  # rule, the confirmer, the plan-mode listener) are App's own objects; the
-  # host probes the extensions make are steered through +profile_dir:+ and
-  # +config.sandbox+, which production sets anyway.
+  # agent — the real {#configure_agent} tool/extension wiring and listeners —
+  # on a scripted-HTTP backend instead of a live server. The host probes the
+  # extensions make are steered through +profile_dir:+ and +config.sandbox+,
+  # which production sets anyway.
   #
   # == The bwrap probe runs here, on the production path
   #
-  # {#default_build_agent} builds the +FullFsNoNet+ sandbox, whose constructor
-  # probes +bwrap+ + user/net namespaces and raises if they're unavailable.
-  # That raise happens during +App.new+ — but +Tuile::Screen.new+ has not yet
+  # The constructor builds the +FullFsNoNet+ sandbox, whose constructor
+  # probes +bwrap+ + user/net namespaces and raises if they're unavailable —
+  # here rather than with the agent, which boots on a thread of its own and
+  # would turn the raise into a line in the transcript. That raise happens
+  # during +App.new+ — but +Tuile::Screen.new+ has not yet
   # entered raw mode / the alternate buffer (that is +run_event_loop+'s job),
   # so the backtrace still reaches a normal terminal. The bin wraps
   # +App.new+/+run+ in +begin/ensure Tuile::Screen.close+ to tear the screen
@@ -63,12 +64,11 @@ module Computer
   #
   # Per AGENTS.md's threading invariant, Tuile is single-threaded and the agent loop must not run on
   # the UI thread. App runs {Tuile::Screen#run_event_loop} on the caller's
-  # thread and delegates the off-thread turn lifecycle — worker thread,
-  # mid-turn injection, concurrency guard, spinner, Ctrl+C escalation — to a
-  # composed {Shared::AgentSession} (see its threading contract). Enter routes
-  # to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
-  # +session.clear_conversation+. The {Code::TranscriptConfirmer} bridges the
-  # other way: a tool on the worker thread calls +confirm?+, which submits the
+  # thread; the conversation ({#session}) builds the agent and runs each turn
+  # on threads of its own, and every call into it returns at once. Enter
+  # routes to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
+  # {#clear_conversation}. The {Code::TranscriptConfirmer} bridges the
+  # other way: a tool on the turn thread calls +confirm?+, which submits the
   # question to the UI thread and parks the worker until the user answers (see
   # its docs).
   #
@@ -77,6 +77,12 @@ module Computer
     # @return [Logger]
     LOG = Pikuri.logger_for('computer')
     private_constant :LOG
+
+    # Seconds {#close} waits for the agent to unwind a cancelled turn.
+    #
+    # @return [Integer]
+    CLOSE_TIMEOUT_S = 5
+    private_constant :CLOSE_TIMEOUT_S
 
     # @return [Tuile::Screen] the (already-installed) screen this app
     #   runs on.
@@ -93,17 +99,11 @@ module Computer
 
     # @return [Shared::Config] the resolved configuration the bin loaded;
     #   drives the model list, the boot connection, the sandbox/confirm
-    #   posture, and the web-search provider keys {#default_build_agent} reads.
+    #   posture, and the web-search provider keys {#configure_agent} reads.
     attr_reader :config
 
-    # @return [Pikuri::Agent] the agent {#default_build_agent} built. Exposed
-    #   so callers (and tests) can inspect tools/listeners/transport after
-    #   wiring.
-    attr_reader :agent
-
-    # @return [Shared::AgentSession] the turn-lifecycle engine this shell
-    #   composes; Enter / Ctrl+C / leader +c+ delegate into it. Exposed for
-    #   tests.
+    # @return [Pikuri::Conversations::Conversation] the one conversation this
+    #   shell runs; Enter, Ctrl+C, the model picker and leader +c+ drive it.
     attr_reader :session
 
     # @return [Tuile::Component::TextView] the conversation transcript
@@ -121,18 +121,12 @@ module Computer
     #   diagnostic log (owned by the {Shared::Log::UI}).
     def log_dialog = @log_ui.log_dialog
 
-    # @return [Pikuri::Agent::Listener::TokenLog] the main agent's token
-    #   log, App-owned and fed into the {Shared::StatusRuleLabel}. {#default_build_agent} registers this
-    #   same instance in the agent's +ListenerList+.
-    attr_reader :token_log
-
-    # @return [Shared::StatusRuleLabel] the status rule, which doubles as the
-    #   model-name listener. {#default_build_agent} registers it in the
-    #   agent's +ListenerList+ so +ModelSwitched+ events reach it.
+    # @return [Shared::StatusRuleLabel] the status rule; it follows the
+    #   conversation as a listener.
     attr_reader :status_rule
 
     # @return [Code::PlanModeListener] the status rule's plan-mode-badge listener,
-    #   registered by {#default_build_agent} so +Pikuri::Code::PlanModeChanged+
+    #   in the conversation's listener so +Pikuri::Code::PlanModeChanged+
     #   events reach the status rule. Dormant until a plan-mode transition fires
     #   (via {#toggle_plan_mode} or the model's enter/exit tools).
     attr_reader :plan_mode_listener
@@ -149,7 +143,7 @@ module Computer
     # @param config [Shared::Config] the resolved configuration; App derives
     #   the model list (one {Shared::Model::Choice} per +config.llms+ entry,
     #   the first the boot connection), reads the sandbox/confirm posture, and
-    #   reads the web-search provider keys when building the agent.
+    #   reads the web-search provider keys when building an agent.
     # @param internet_enabled [Boolean] whether to wire the quarantined web
     #   RESEARCHER sub-agent (the +--no-internet+ flag forces +false+). Also
     #   selects the online/offline network-posture prompt block. Mail +
@@ -184,10 +178,9 @@ module Computer
       @project_root = project_root
       @markdown = markdown
       @command_registry = command_registry
-      @token_log = Pikuri::Agent::Listener::TokenLog.new
       # The shared plan-mode (read-only) flag: the leader menu's +p+ toggle
       # and the model's enter/exit tools flip this one instance (threaded into
-      # Pikuri::Os::Extension's read_only: by default_build_agent). The
+      # every agent's Pikuri::Os::Extension by configure_agent). The
       # message: is the plan-mode-specific refusal wording Edit/Write splice
       # into their "cannot write …" observation.
       @plan_mode = Pikuri::Workspace::ReadOnly.new(
@@ -195,21 +188,15 @@ module Computer
       )
       @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
       Shared::RequestPermits.install(config.servers)
+      Pikuri::Extractors::PDF.register
       @model_picker = Shared::Model::Picker.new(models: @models)
-      # Test seam: the backend the agent boots on. Production uses the config's
-      # first connection; a spec injects a fake_transport (see class header).
-      # Detected now, blocking boot on the server, so an image is checked
-      # before the first turn rather than refused by it.
-      @boot_transport = transport || @models.first.transport.with_detected_modalities
 
       build_components
+      @sandbox = build_sandbox
       @log_ui.wire!
-      @agent = default_build_agent
-      @session.agent = @agent
-      @status_rule.interloper = @agent.interloper
-      # Seed the status rule with the boot model (resolved from its transport);
+      @session = open_session(transport || @models.first.transport)
       # Shared::StatusRuleLabel#on_event takes over on every later switch.
-      @status_rule.current_model = @agent.transport
+      @status_rule.current_model = @session.status.model
 
       @leader_menu = build_leader_menu
       @screen.on_error << method(:on_screen_error)
@@ -219,15 +206,30 @@ module Computer
     end
 
     # Runs the Tuile event loop, blocking the calling thread until the user
-    # quits or the loop is otherwise stopped. Does NOT close the screen: the
-    # bin owns teardown via +begin/ensure Tuile::Screen.close+ around both
-    # +App.new+ and this call, so the screen is torn down whether the failure
-    # is in construction (the +FullFsNoNet+ bwrap probe) or in the loop. See
-    # the "bwrap probe" note in the class docs.
+    # quits or the loop is otherwise stopped, then {#close}s the conversation.
+    # Does NOT close the screen: the bin owns teardown via +begin/ensure
+    # Tuile::Screen.close+ around both +App.new+ and this call, so the screen is
+    # torn down whether the failure is in construction (the +FullFsNoNet+ bwrap
+    # probe) or in the loop. See the "bwrap probe" note in the class docs.
     #
     # @return [void]
     def run
       @screen.run_event_loop
+    ensure
+      close
+    end
+
+    # Close the conversation, cancelling a running turn — and a question parked
+    # on the human, which would otherwise hold the turn: every way out of the
+    # event loop ends here, so a tool blocked on an answer is unwound rather
+    # than abandoned mid-operation — then wait a moment
+    # for its agent to be released. Idempotent.
+    #
+    # @return [void]
+    def close
+      @confirmer.cancel_pending!
+      @conversations.shutdown(timeout: CLOSE_TIMEOUT_S)
+      nil
     end
 
     private
@@ -261,13 +263,7 @@ module Computer
       # The filesystem root was the conversation window's border caption before
       # the frames went away; the rule's leading segment reads it just as well.
       @status_rule = Shared::StatusRuleLabel.new(
-        token_log: @token_log, names: @model_picker.names,
-        context: "Computer — #{@filesystem.project_root}"
-      )
-
-      @session = Shared::AgentSession.new(
-        screen: @screen, conversation: @conversation, status_rule: @status_rule,
-        model_picker: @model_picker, logger: LOG
+        names: @model_picker.names, context: "Computer — #{@filesystem.project_root}"
       )
 
       # Precedence: built-in > file command. Match built-ins first or a command
@@ -279,14 +275,13 @@ module Computer
         commands: built_ins + Shared::FileCommands.build(
           registry: @command_registry, reserved: built_ins.map(&:name),
           screen: @screen, logger: LOG,
-          on_expand: ->(text) { @session.submit(text) }
+          on_expand: ->(text) { submit(text) }
         )
       )
       @input = Shared::InputPane.new(
-        on_submit: @session.method(:submit), slash_menu: @slash_menu,
-        conversation: @conversation, attachment_refusal: @session.method(:attachment_refusal)
+        on_submit: method(:submit), slash_menu: @slash_menu,
+        conversation: @conversation, attachment_refusal: method(:attachment_refusal)
       )
-      @session.on_attachment_refused { |reason| @input.refuse_attachment(reason) }
 
       @confirmer = Code::TranscriptConfirmer.new(
         screen: @screen, conversation: @conversation,
@@ -305,43 +300,58 @@ module Computer
       )
     end
 
-    # Build the computer shell's +Pikuri::Agent+: a streaming agent on the boot
-    # connection (+@boot_transport+, the config's first connection unless a
-    # test injected a fake), the OS-assistant prompt (plus a network
-    # online/offline posture block keyed to +internet_enabled+), and the
-    # desktop tool surface. Wires the conversation listener
-    # (rate-limited to 15 fps), {#token_log}, {#status_rule}, and
-    # {#plan_mode_listener} into the agent's +ListenerList+ — all reached
-    # through App's own objects, so nothing has to be passed in.
+    # The bash sandbox every agent shares: +FullFsNoNet+, or +NONE+ under
+    # +--no-sandbox+ / +--yolo+ (+config.sandbox+ false), which re-opens the
+    # network. Built here, not per agent: the bwrap probe in its constructor
+    # raises (no silent fallback), and see the class docs for why that raise
+    # belongs in +App.new+.
     #
-    # Composes two pikuri surfaces onto one agent: {Pikuri::Os::Extension} (the
-    # five file tools + a network-severed +FullFsNoNet+-sandboxed bash + the
-    # machine facts / MACHINE.md prompt sections) and
-    # {Pikuri::Thunderbird::Extension} (mail + calendar search/read + two
-    # human-gated outbound hand-offs). Web research, on unless
+    # @return [Pikuri::Code::Bash::Sandbox]
+    # @raise [RuntimeError] if bwrap or a user/net namespace is unavailable.
+    def build_sandbox
+      return Pikuri::Code::Bash::Sandbox::NONE unless @config.sandbox
+
+      Pikuri::Code::Bash::Sandbox::FullFsNoNet.new(filesystem: @filesystem)
+    end
+
+    # Open the shell's one conversation on +transport+, which boots its agent
+    # on a thread of its own: the OS-assistant prompt (plus the online
+    # network-posture block when +internet_enabled+ — offline adds nothing), the
+    # desktop tool surface {#configure_agent} adds, and the panes' listeners —
+    # the transcript rate-limited to 15 fps (see {Chat::App} for why), the
+    # status rule and the plan-mode badge.
+    #
+    # @param transport [Pikuri::Agent::ChatTransport] the model it starts on.
+    # @return [Pikuri::Conversations::Conversation]
+    def open_session(transport)
+      prompt_names = [:'os-assistant']
+      prompt_names << :'os-network-online' if @internet_enabled
+      prompt_names << :'agent-loop'
+      system_prompt = Pikuri.prompts(*prompt_names)
+      system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
+      @conversations = Pikuri::Conversations.new(system_prompt: system_prompt, configure: method(:configure_agent))
+      listener = Shared::FanoutListener.new([
+                                              Shared::RateLimitedListener.new(@conversation.listener, fps: 15),
+                                              @status_rule,
+                                              @plan_mode_listener
+                                            ])
+      @conversations.open(id: 'computer', transport: transport, listener: listener)
+    end
+
+    # The computer agent's desktop tool surface, built fresh for each agent —
+    # at boot and after every clear — on the boot thread. Composes two pikuri
+    # surfaces onto one agent: {Pikuri::Os::Extension} (the five file tools + a
+    # network-severed sandboxed bash + the machine facts / MACHINE.md prompt
+    # sections) and {Pikuri::Thunderbird::Extension} (mail + calendar
+    # search/read + two human-gated outbound hand-offs). Web research, on unless
     # +internet_enabled+ is false, is quarantined: the web tools go on
     # sub-agent-only, so the main agent holds no direct egress and delegates to
     # an isolated RESEARCHER (web tools, no filesystem) gated by the confirmer.
     #
-    # == The sandbox probe raises here
-    #
-    # +FullFsNoNet.new+ probes +bwrap+ + user/net namespaces at construction
-    # and raises (no silent fallback) if unavailable — see the class docs for
-    # why that raise is safe on this path. +--no-sandbox+ / +--yolo+
-    # (+config.sandbox+ false) swap in +Sandbox::NONE+ and re-open the network.
-    #
-    # @return [Pikuri::Agent] the wired agent.
-    def default_build_agent
-      listener = @conversation.listener
-
-      Pikuri::Extractors::PDF.register
-
-      sandbox = if @config.sandbox
-                  Pikuri::Code::Bash::Sandbox::FullFsNoNet.new(filesystem: @filesystem)
-                else
-                  Pikuri::Code::Bash::Sandbox::NONE
-                end
-
+    # @param configurator [Pikuri::Agent::Configurator]
+    # @param _conversation [Pikuri::Conversations::Conversation]
+    # @return [void]
+    def configure_agent(configurator, _conversation)
       # The in-transcript confirmer for writes + bash, unless confirmations are
       # disabled (--no-confirm / --yolo), in which case approve everything.
       # Pikuri::Os::Extension pairs this human confirmer with a
@@ -350,84 +360,75 @@ module Computer
       # still reaches it.
       confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
 
-      # Base OS prompt (which states the constant no-network posture) + the
-      # online network-posture block only when internet is enabled (you may
-      # delegate a web lookup, the user approves what leaves the machine —
-      # offline adds nothing, so nothing is appended) + the shared tool-loop
-      # hygiene (agent-loop) + date. The mail/calendar guidance
-      # (Thunderbird::Extension) and the machine facts (Os::Extension) are
-      # contributed by the extensions' own system_prompt_snippets.
-      prompt_names = [:'os-assistant']
-      prompt_names << :'os-network-online' if @internet_enabled
-      prompt_names << :'agent-loop'
-      system_prompt = Pikuri.prompts(*prompt_names)
-      system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
-
-      # Coalesce streaming delta chunks at 15 fps before they reach the
-      # Markdown-rendering Shared::ConversationTextView (see Chat::App for the
-      # rationale). flush_pending_on_non_delta: false because the bookend
-      # Assistant / Thinking events re-render the authoritative final content.
-      rate_limited_listener = Pikuri::Agent::Listener::RateLimited.new(
-        listener, fps: 15, flush_pending_on_non_delta: false
+      configurator.add_tool Pikuri::Tool::CALCULATOR
+      configurator.add_extension Pikuri::Os::Extension.new(
+        filesystem: @filesystem,
+        confirmer: confirmer,
+        sandbox: @sandbox,
+        # Threaded into both sub-extensions (Workspace gates Edit/Write, Code
+        # wires the plan-mode tools + the PlanModeChanged event the status rule
+        # badge tracks), the same flag the leader-menu 'p' toggle flips.
+        read_only: @plan_mode
       )
+      # No confirmer wired — the gate is Thunderbird's own compose window /
+      # import wizard, where the user reviews and Sends/confirms.
+      configurator.add_extension Pikuri::Thunderbird::Extension.new(
+        profile_dir: @profile_dir,
+        allow_compose_mail: true,
+        allow_create_calendar_event: true
+      )
+      # Declaration only — commands register no tool and render no prompt, so
+      # without this /trifecta would miss their untrusted leg entirely.
+      configurator.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
+      return unless @internet_enabled
 
-      Pikuri::Agent.new(
-        transport: @boot_transport,
-        system_prompt: system_prompt,
-        cancellable: Pikuri::Agent::Control::Cancellable.new,
-        interloper: Pikuri::Agent::Control::Interloper.new,
-        streaming: true
-      ) do |c|
-        c.add_listener rate_limited_listener
-        c.add_listener @token_log
-        # Keeps the status rule's model name in step with leader-menu model switches.
-        c.add_listener @status_rule
-        # Keeps the status rule's plan-mode badge in step with the shared flag
-        # (the leader menu's 'p' toggle or the model's enter/exit tools).
-        c.add_listener @plan_mode_listener
-        c.add_tool Pikuri::Tool::CALCULATOR
-        # One extension wires the whole OS-helper surface: the five file tools,
-        # bash (gated by the read-only auto-confirmer + the sandbox above), the
-        # file-index tools, and the machine facts + MACHINE.md memory folded
-        # into the system prompt.
-        c.add_extension Pikuri::Os::Extension.new(
-          filesystem: @filesystem,
-          confirmer: confirmer,
-          sandbox: sandbox,
-          # Threaded into both sub-extensions (Workspace gates Edit/Write, Code
-          # wires the plan-mode tools + the PlanModeChanged event the status rule
-          # badge tracks), the same flag the leader-menu 'p' toggle flips.
-          read_only: @plan_mode
-        )
-        # The local mail + calendar surface: read-only inbound tools plus both
-        # human-gated outbound hand-offs (compose a message, create an event).
-        # No confirmer wired — the gate is Thunderbird's own compose window /
-        # import wizard, where the user reviews and Sends/confirms.
-        c.add_extension Pikuri::Thunderbird::Extension.new(
-          profile_dir: @profile_dir,
-          allow_compose_mail: true,
-          allow_create_calendar_event: true
-        )
-        # Declaration only — commands register no tool and render no prompt, so
-        # without this /trifecta would miss their untrusted leg entirely.
-        c.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
-        # Web research, on by default, but quarantined: the web tools go on as
-        # sub-agent-only (add_sub_agent_tool), so the main agent never holds
-        # them and keeps zero direct egress — it delegates via the `agent` tool
-        # to an isolated RESEARCHER (web tools, no filesystem). The confirmer
-        # gates each delegation's task prompt, so the human approves what leaves
-        # this machine. The add_sub_agent_tool calls must precede the SubAgent
-        # extension, whose configure validates the persona's tool_names.
-        if @internet_enabled
-          c.add_sub_agent_tool Pikuri::Tool::WebSearch.build(**@config.search.to_h)
-          c.add_sub_agent_tool Pikuri::Tool::WEB_SCRAPE
-          c.add_sub_agent_tool Pikuri::Tool::FETCH
-          c.add_extension Pikuri::SubAgent::Extension.new(
-            personas: [Pikuri::SubAgent::RESEARCHER],
-            confirmer: confirmer
-          )
-        end
-      end
+      # The confirmer gates each delegation's task prompt, so the human
+      # approves what leaves this machine. The add_sub_agent_tool calls must
+      # precede the SubAgent extension, whose configure validates the persona's
+      # tool_names.
+      configurator.add_sub_agent_tool Pikuri::Web::Search.build(**@config.search.to_h)
+      configurator.add_sub_agent_tool Pikuri::Web::SCRAPE
+      configurator.add_sub_agent_tool Pikuri::Web::FETCH
+      configurator.add_extension Pikuri::SubAgent::Extension.new(
+        personas: [Pikuri::SubAgent::RESEARCHER],
+        confirmer: confirmer
+      )
+    end
+
+    # Enter on the prompt: start a turn, or join the running one. A model known
+    # to refuse the images gets nothing, and the line comes back for a fix.
+    #
+    # @param text [String] the line, +@path+ tokens split out.
+    # @param attachments [Array<Pikuri::Attachment>] the images it named.
+    # @return [void]
+    def submit(text, attachments: [])
+      @session.submit(text, attachments: attachments)
+    rescue Pikuri::Agent::UnsupportedAttachmentError => e
+      @input.refuse_attachment(e.message)
+    end
+
+    # Why the next turn's model can't see +attachments+, asked before anything
+    # is sent; +nil+ when they may go out, unknown modalities included.
+    #
+    #   attachment_refusal([png])   # => "shot.png (image/png): model m takes no vision input"
+    #
+    # @param attachments [Array<Pikuri::Attachment>]
+    # @return [String, nil] the reason, worded as +run_loop+'s own refusal.
+    def attachment_refusal(attachments)
+      image = attachments.find { |a| a.mime.start_with?('image/') }
+      transport = @session.status.next_model
+      return nil unless image && transport.modalities&.[](:vision) == false
+
+      Pikuri::Agent::UnsupportedAttachmentError.new(image, "model #{transport.model} takes no vision input").message
+    end
+
+    # @return [String] the +/trifecta+ answer: the report, or a note while the
+    #   agent it describes is still being built.
+    def trifecta_report
+      report = @session.trifecta
+      return 'The agent is still starting — ask again in a moment.' if report.nil?
+
+      Shared::TrifectaRenderer.render(report, theme: @screen.theme)
     end
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
@@ -456,16 +457,31 @@ module Computer
       @log_ui.install_shortcut { @leader_menu.open }
     end
 
-    # +Ctrl+C+: the {Shared::AgentSession#interrupt} escalation (cancel turn ->
-    # unfocus -> quit), then wake a parked confirmation with a cancel too —
-    # its tool has the worker blocked, so cancelling the turn alone would look
-    # like nothing happened until the decision was answered. A parked question
-    # means a turn is running, so the escalation's step taken is the cancel.
+    # +Ctrl+C+, three states in priority order: a running turn (or boot) is
+    # cancelled; else a focused pane drops focus, as ESC does; else the event
+    # loop stops, which quits. A parked confirmation is woken with a cancel too
+    # — its tool has the turn blocked, so cancelling alone would look like
+    # nothing happened until the decision was answered. A parked question means
+    # a turn is running, so the step taken is then always the cancel.
     #
     # @return [void]
     def interrupt
-      @session.interrupt
       @confirmer.cancel_pending!
+      return if @session.cancel == :cancelled
+
+      if @screen.focused
+        @screen.focused = nil
+      else
+        @screen.event_queue.stop
+      end
+    end
+
+    # Start over on a fresh agent — the transcript wipes as it boots. Refused
+    # while a turn runs, which is what Ctrl+C is for.
+    #
+    # @return [void]
+    def clear_conversation
+      LOG.warn('clear conversation ignored: a turn is in progress') if @session.clear == :busy
     end
 
     # Build the {Shared::LeaderMenu} for the computer shell: logs, plan mode, switch
@@ -481,8 +497,8 @@ module Computer
       menu.add('l', 'logs') { @log_ui.open }
       menu.add('p', 'plan mode') { toggle_plan_mode }
       menu.add('u', 'UI toggles') { @ui_toggles.open }
-      menu.add('m', 'switch model') { @model_picker.open(current: @agent.transport) } if @model_picker.multiple?
-      menu.add('c', 'clear conversation + context') { @session.clear_conversation }
+      menu.add('m', 'switch model') { @model_picker.open(session: @session) } if @model_picker.multiple?
+      menu.add('c', 'clear conversation + context') { clear_conversation }
       menu.add('q', 'quit') { quit }
       menu
     end
@@ -496,8 +512,8 @@ module Computer
     # the reassembled trifecta is the one where it is worth reading.
     # +/image <path>+ has none either: it fills the prompt
     # ({Shared::InputPane#attach}) rather than acting. Callbacks
-    # are lazy (they resolve +@log_ui+ / +@plan_mode+ / +@session+ / +@agent+ /
-    # +quit+ at run time), so this is safe to build before the agent; only the
+    # are lazy (they resolve +@log_ui+ / +@plan_mode+ / +@session+ /
+    # +quit+ at run time), so this is safe to build before the conversation; only the
     # +/model+ *presence* is decided now, from {Shared::Model::Picker#multiple?}.
     #
     # @return [Array<Shared::SlashCommand>]
@@ -507,7 +523,7 @@ module Computer
         Shared::SlashCommand.new('/logs', 'open the diagnostic log',
                                  ->(_rest) { @log_ui.open; 'Opened the diagnostic log.' }),
         Shared::SlashCommand.new('/trifecta', 'lethal-trifecta report for this agent',
-                                 ->(_rest) { Shared::TrifectaRenderer.render(@agent.trifecta, theme: @screen.theme) }),
+                                 ->(_rest) { trifecta_report }),
         Shared::SlashCommand.new('/plan', 'toggle plan mode',
                                  ->(_rest) { toggle_plan_mode; "Plan mode #{@plan_mode.active? ? 'on' : 'off'}." }),
         Shared::SlashCommand.new('/thinking', 'show / hide reasoning (blank toggles)',
@@ -519,27 +535,25 @@ module Computer
       ]
       if @model_picker.multiple?
         commands << Shared::SlashCommand.new('/model', 'switch model',
-                                             ->(_rest) { @model_picker.open(current: @agent.transport); nil })
+                                             ->(_rest) { @model_picker.open(session: @session); nil })
       end
       commands.push(
         Shared::SlashCommand.new('/clear', 'clear conversation + context',
-                                 ->(_rest) { @session.clear_conversation; nil }),
+                                 ->(_rest) { clear_conversation; nil }),
         Shared::SlashCommand.new('/exit', 'quits the app', quit_action),
         Shared::SlashCommand.new('/quit', 'quits the app', quit_action)
       )
     end
 
-    # Stop the event loop, unwinding {#run} back to the bin's +ensure+ (which
+    # Stop the event loop, unwinding {#run} into {#close} — which cancels a
+    # parked question and the turn — and back to the bin's +ensure+ (which
     # calls +Screen#close+). The leader menu's +q+ action — a hard quit,
-    # distinct from {Shared::AgentSession#interrupt}'s escalation (no
-    # turn-cancel / unfocus steps). Runs on the event-loop thread (deferred by
-    # {Shared::LeaderMenu}), so +stop+ is safe to call.
+    # distinct from {#interrupt}'s escalation (no unfocus step). Runs on the
+    # event-loop thread (deferred by {Shared::LeaderMenu}), so +stop+ is safe to
+    # call.
     #
     # @return [void]
     def quit
-      # Cancel anything parked first: a tool blocked on an answer would
-      # otherwise be abandoned mid-operation rather than unwound.
-      @confirmer.cancel_pending!
       @screen.event_queue.stop
     end
 

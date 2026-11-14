@@ -8,9 +8,9 @@
 #   choice.name       # → "Local Qwen 3.6", shown in the picker and status rule
 #   choice.transport  # → the transport a switch to this entry uses
 #
-# The transport is opaque to the UI — the App stashes it as the "pending"
-# transport on selection and forwards it verbatim to the next turn — so
-# this value object carries no behavior, only the pairing.
+# The transport is opaque to the UI — a pick hands it verbatim to the
+# conversation's model switch — so this value object carries no behavior, only
+# the pairing.
 #
 # @!attribute [r] name
 #   @return [String] the connection's display name (e.g. +"Local Qwen 3.6"+),
@@ -59,9 +59,9 @@ Shared::Model::Choice = Data.define(:name, :transport) do
   # the seam crossing lives here, in the Pikuri-aware adapter.
   #
   # The connection's {Config::Llm#context_window} (an explicit cap for a
-  # server pikuri's +/props+ probe can't reach) rides the transport too,
-  # so it is honored per-model across a model switch; +nil+ defers to
-  # pikuri's auto-detection. So do its {Config::Llm#params} — handed over
+  # server the conversation's +/props+ probe can't reach) rides the transport
+  # too, so it is honored per-model across a model switch; +nil+ defers to that
+  # probe. So do its {Config::Llm#params} — handed over
   # with the file's own string keys, because +ChatTransport+ symbolizes them
   # itself, and a table symbolized twice is no better than once.
   #

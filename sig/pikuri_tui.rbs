@@ -26,7 +26,8 @@ module Code
   # pane, the status rule, the tinted full-width prompt, the tasks + git sidebar
   # ({WorkspaceSidebar}), the eager diagnostic {Shared::Log::Dialog} (popup-visible via
   # the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+ menu / +Ctrl+C+ cancel
-  # status-bar hints, and the agent loop on a worker thread.
+  # status-bar hints, and the agent on one +Pikuri::Conversations+
+  # conversation.
   # 
   # A parallel copy of {Chat::App} (see {Code} for the duplicate-don't-share
   # rationale), plus the coding-shell surface: a {TranscriptConfirmer} gating
@@ -34,9 +35,9 @@ module Code
   # popup), plan mode (a status-rule badge via {PlanModeListener} + a leader-menu
   # +p+ toggle), and +edit+ / +write+ diffs.
   # 
-  # == Construction: App owns the agent
+  # == Construction: App owns the conversation
   # 
-  # App builds its own +Pikuri::Agent+ (see {#default_build_agent}) from the
+  # App opens its own conversation (see {#configure_agent}) from the
   # {Shared::Config} handed to it plus the pre-built workspace objects the bin
   # assembles — see "What the bin still owns" below. The bin's job ends at CLI
   # + config + workspace/sandbox/trust + screen; the agent, its tools, and its
@@ -44,13 +45,8 @@ module Code
   # 
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#default_build_agent} listener/tool/extension wiring — on
-  # a scripted-HTTP backend, skipping the network / RubyLLM / MCP-verify cost.
-  # Production omits it and boots on the config's first connection. Only the
-  # transport is injectable because the agent's collaborators (the conversation
-  # listener, the confirmer, the task listener, the status rule, the plan-mode
-  # listener) are App's own objects, reached through the
-  # {Shared::ConversationTextView} / {WorkspaceSidebar} and App ivars directly.
+  # agent — the real {#configure_agent} tool/extension wiring and listeners —
+  # on a scripted-HTTP backend, skipping the network / RubyLLM cost.
   # 
   # == What the bin still owns (why this isn't just +config:+)
   # 
@@ -63,7 +59,7 @@ module Code
   # all depend on CLI flags absent from config (+--yolo+ / +--readable+ /
   # +--writable+). The bin builds those and passes them; App owns everything
   # derivable from +config+ (models, plan-mode flag, tool formatters, the MCP
-  # registry) plus the agent graph.
+  # registry) plus the agent graph, rebuilt for every agent.
   # 
   # == Screen ownership
   # 
@@ -75,18 +71,18 @@ module Code
   # 
   # Per AGENTS.md's threading invariant, Tuile is single-threaded and the agent loop must not run on
   # the UI thread. App runs {Tuile::Screen#run_event_loop} on the caller's
-  # thread and delegates the off-thread turn lifecycle — worker thread,
-  # mid-turn injection, concurrency guard, spinner, Ctrl+C escalation — to a
-  # composed {Shared::AgentSession} (see its threading contract). Enter routes
-  # to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
-  # +session.clear_conversation+. The {TranscriptConfirmer} bridges the other
-  # way: a tool on the worker thread calls +confirm?+, which submits the
+  # thread; the conversation ({#session}) builds the agent and runs each turn
+  # on threads of its own, and every call into it returns at once. Enter
+  # routes to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
+  # {#clear_conversation}. The {TranscriptConfirmer} bridges the other
+  # way: a tool on the turn thread calls +confirm?+, which submits the
   # question to the UI thread and parks the worker until the user answers (see
   # its docs).
   # 
   # UI-thread-confined.
   class App
     LOG: Logger
+    CLOSE_TIMEOUT_S: Integer
     SIDEBAR_ARGUMENTS: ::Hash[String, Symbol]
 
     # _@return_ — the workspace root — the passed filesystem's
@@ -96,8 +92,7 @@ module Code
     def project_root: () -> Pathname
 
     # _@return_ — the task-pane listener (owned by
-    # the {WorkspaceSidebar}'s task pane); {#default_build_agent} wires it
-    # into the agent's +ListenerList+.
+    # the {WorkspaceSidebar}'s task pane), in the conversation's listener.
     def task_listener: () -> TaskListPane::Listener
 
     # _@return_ — the eager-constructed
@@ -110,7 +105,7 @@ module Code
     # 
     # _@param_ `sandbox` — the pre-built bash sandbox (Bubblewrap, or +NONE+ under +--no-sandbox+/+--yolo+) — built in the bin so its bwrap probe raises to a normal terminal pre-screen, next to the filesystem it wraps.
     # 
-    # _@param_ `skill_catalog` — the skill catalog whose roots the bin already folded into +filesystem.readable+; wired into the +Skill+ extension.
+    # _@param_ `skill_catalog` — the skill catalog whose roots the bin already folded into +filesystem.readable+; wired into every agent's +Skill+ extension.
     # 
     # _@param_ `command_registry` — the on-disk slash commands, whose roots the bin folded into +filesystem.readable+ for the same reason. Becomes one palette entry each, and one +Command+ extension so +/trifecta+ counts their untrusted leg.
     # 
@@ -120,7 +115,7 @@ module Code
     # 
     # _@param_ `markdown` — forwarded to {Shared::ConversationTextView}'s +markdown:+ flag (default +true+).
     # 
-    # _@param_ `transport` — test seam: the backend to build the real agent on. Omit in production (boots on the config's first connection); a spec passes a +Pikuri::Testing.fake_transport+ to run real turns against scripted HTTP — skipping the network / RubyLLM / MCP-verify cost. See the class header.
+    # _@param_ `transport` — test seam: the backend to build the real agent on. Omit in production (boots on the config's first connection); a spec passes a +Pikuri::Testing.fake_transport+ to run real turns against scripted HTTP. See the class header.
     def initialize: (
                       config: Shared::Config,
                       filesystem: Pikuri::Workspace::Filesystem,
@@ -134,24 +129,33 @@ module Code
                     ) -> void
 
     # Runs the Tuile event loop, blocking the calling thread until the user
-    # quits or the loop is otherwise stopped. Starts the {WorkspaceSidebar}'s
-    # git poll before the loop and stops it in the +ensure+. Does NOT close the
-    # screen: the bin owns teardown via +begin/ensure Tuile::Screen.close+
-    # around both +App.new+ and this call, so the screen is torn down whether
-    # the failure is in construction (an MCP verify / transport probe) or in
-    # the loop.
+    # quits or the loop is otherwise stopped, then {#close}s the conversation.
+    # Starts the {WorkspaceSidebar}'s git poll before the loop and stops it in
+    # the +ensure+. Does NOT close the screen: the bin owns teardown via
+    # +begin/ensure Tuile::Screen.close+ around both +App.new+ and this call.
     def run: () -> void
+
+    # Close the conversation, cancelling a running turn — and a question parked
+    # on the human, which would otherwise hold the turn: every way out of the
+    # event loop ends here, so a tool blocked on an answer is unwound rather
+    # than abandoned mid-operation — then wait a moment
+    # for its agent (and the MCP servers it started) to be released.
+    # Idempotent.
+    def close: () -> void
 
     def build_components: () -> void
 
-    # Build the coding shell's +Pikuri::Agent+: a streaming agent on the boot
-    # connection (+@boot_transport+, the config's first connection unless a
-    # test injected a fake), the bin-assembled +system_prompt+, and the full
-    # coding tool surface. Wires the conversation listener
-    # (rate-limited to 15 fps), {#token_log}, the sidebar {#task_listener},
-    # {#status_rule}, and {#plan_mode_listener} into the agent's
-    # +ListenerList+ — all reached through App's own objects, so nothing has to
-    # be passed in.
+    # Open the shell's one conversation on +transport+, which boots its agent
+    # on a thread of its own: the bin-assembled system prompt, the coding tool
+    # surface {#configure_agent} adds, and the panes' listeners — the transcript
+    # rate-limited to 15 fps (see {Chat::App} for why), the status rule, the
+    # sidebar's task pane, the plan-mode badge and the skill palette.
+    # 
+    # _@param_ `transport` — the model it starts on.
+    def open_session: (Pikuri::Agent::ChatTransport transport) -> Pikuri::Conversations::Conversation
+
+    # The coding tool surface, built fresh for each agent — at boot and after
+    # every clear — on the boot thread.
     # 
     # File/shell tools first (declaration order biases some models toward
     # earlier tools); calculator as auxiliary. Network tools go on the
@@ -163,15 +167,56 @@ module Code
     # +Code::Extension+. Both take the shared plan-mode flag so Edit/Write
     # refuse while it's active.
     # 
-    # == The MCP registry + verify
+    # _@param_ `configurator`
     # 
-    # Translates +config.mcp+'s Pikuri-free +McpServer+ value objects into
-    # +Registry+ entries here (a wiring layer where +Pikuri::*+ is allowed).
-    # Empty by default — an empty registry makes +Mcp::Extension+'s boot-time
-    # synthesize/verify LLM calls no-ops, so a no-MCP agent stays offline.
+    # _@param_ `_conversation`
+    def configure_agent: (Pikuri::Agent::Configurator configurator, Pikuri::Conversations::Conversation _conversation) -> void
+
+    # The +[[code.mcp]]+ servers, translated from the config's Pikuri-free
+    # +McpServer+ value objects (a wiring layer, where +Pikuri::*+ is allowed).
+    def build_mcp_registry: () -> Pikuri::Mcp::Registry
+
+    # The verified MCP servers, built on the first agent's boot thread and kept
+    # for every agent after: building one spawns each server and asks the
+    # model to describe and vet it, which a /clear should not repeat. An empty
+    # registry makes this a no-op, so a no-MCP shell stays offline. Only ever
+    # called from the one boot thread a conversation runs at a time.
     # 
-    # _@return_ — the wired agent.
-    def default_build_agent: () -> Pikuri::Agent
+    # _@param_ `agent` — the agent being built, whose model, cancel token and throttle the build's own requests use — so Ctrl+C aborts it.
+    def mcp_catalog: (Pikuri::Agent agent) -> Pikuri::Mcp::Catalog
+
+    # A +/<skill-name>+ from the palette: the skill's body, then +rest+ as the
+    # message — a bare load when +rest+ is blank. Once an agent runs, the
+    # skill goes in through its extension and lands ahead of the message in one
+    # turn; before that (booting, or after a /clear) the conversation queues
+    # both, in order, for the agent to come.
+    # 
+    # _@param_ `name` — a skill the palette listed, so in play.
+    # 
+    # _@param_ `rest` — the rest of the typed line.
+    def load_skill: (String name, String rest) -> void
+
+    # Enter on the prompt: start a turn, or join the running one. A model known
+    # to refuse the images gets nothing, and the line comes back for a fix.
+    # 
+    # _@param_ `text` — the line, +@path+ tokens split out.
+    # 
+    # _@param_ `attachments` — the images it named.
+    def submit: (String text, ?attachments: ::Array[Pikuri::Attachment]) -> void
+
+    # Why the next turn's model can't see +attachments+, asked before anything
+    # is sent; +nil+ when they may go out, unknown modalities included.
+    # 
+    #   attachment_refusal([png])   # => "shot.png (image/png): model m takes no vision input"
+    # 
+    # _@param_ `attachments`
+    # 
+    # _@return_ — the reason, worded as +run_loop+'s own refusal.
+    def attachment_refusal: (::Array[Pikuri::Attachment] attachments) -> String?
+
+    # _@return_ — the +/trifecta+ answer: the report, or a note while the
+    # agent it describes is still being built.
+    def trifecta_report: () -> String
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
     # cursor-owner suppression that would otherwise let the focused
@@ -195,11 +240,12 @@ module Code
     #   open — close it (ESC/q) first.
     def register_shortcuts: () -> void
 
-    # +Ctrl+C+: the {Shared::AgentSession#interrupt} escalation (cancel turn ->
-    # unfocus -> quit), then wake a parked confirmation with a cancel too —
-    # its tool has the worker blocked, so cancelling the turn alone would look
-    # like nothing happened until the decision was answered. A parked question
-    # means a turn is running, so the escalation's step taken is the cancel.
+    # +Ctrl+C+, three states in priority order: a running turn (or boot) is
+    # cancelled; else a focused pane drops focus, as ESC does; else the event
+    # loop stops, which quits. A parked confirmation is woken with a cancel too
+    # — its tool has the turn blocked, so cancelling alone would look like
+    # nothing happened until the decision was answered. A parked question means
+    # a turn is running, so the step taken is then always the cancel.
     def interrupt: () -> void
 
     # Build the {Shared::LeaderMenu} for the coding shell: logs, git diff, plan
@@ -222,20 +268,23 @@ module Code
     # appends the +/<skill-name>+ half and re-lists it as the path gate opens.
     # 
     # Callbacks are lazy (they resolve +@log_ui+ / +@sidebar+ / +@plan_mode+ /
-    # +@session+ / +@agent+ / +quit+ at run time), so this is safe to build
-    # before the agent/sidebar; only the +/model+ *presence* is decided now,
+    # +@session+ / +quit+ at run time), so this is safe to build before the
+    # conversation/sidebar; only the +/model+ *presence* is decided now,
     # from {Shared::Model::Picker#multiple?}.
     def build_slash_commands: () -> ::Array[Shared::SlashCommand]
 
-    # Clear the conversation, then re-list the palette — the clear re-hides
-    # every +paths:+-gated skill, so their +/<name>+ entries have to go with it.
+    # Start over on a fresh agent — the transcript and the task pane wipe as
+    # it boots, and its new skill extension re-hides every +paths:+-gated
+    # skill's palette entry. Refused while a turn runs, which is what Ctrl+C is
+    # for.
     def clear_conversation: () -> void
 
-    # Stop the event loop, unwinding {#run} back to the bin's +ensure+ (which
+    # Stop the event loop, unwinding {#run} into {#close} — which cancels a
+    # parked question and the turn — and back to the bin's +ensure+ (which
     # calls +Screen#close+). The leader menu's +q+ action — a hard quit,
-    # distinct from {Shared::AgentSession#interrupt}'s escalation (no
-    # turn-cancel / unfocus steps). Runs on the event-loop thread (deferred by
-    # {Shared::LeaderMenu}), so +stop+ is safe to call.
+    # distinct from {#interrupt}'s escalation (no unfocus step). Runs on the
+    # event-loop thread (deferred by {Shared::LeaderMenu}), so +stop+ is safe to
+    # call.
     def quit: () -> void
 
     # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
@@ -277,18 +326,12 @@ module Code
 
     # _@return_ — the resolved configuration the bin loaded;
     # drives the model list, the sandbox/confirm posture, the web-search
-    # provider keys, and the MCP registry {#default_build_agent} builds.
+    # provider keys, and the MCP registry {#configure_agent} wires.
     attr_reader config: Shared::Config
 
-    # _@return_ — the agent {#default_build_agent} built. Exposed
-    # so callers (and tests) can inspect tools/listeners/transport after
-    # wiring.
-    attr_reader agent: Pikuri::Agent
-
-    # _@return_ — the turn-lifecycle engine this shell
-    # composes; Enter / Ctrl+C / leader +c+ delegate into it. Exposed for
-    # tests.
-    attr_reader session: Shared::AgentSession
+    # _@return_ — the one conversation this
+    # shell runs; Enter, Ctrl+C, the model picker and leader +c+ drive it.
+    attr_reader session: Pikuri::Conversations::Conversation
 
     # _@return_ — the conversation transcript
     # pane. Exposed primarily for tests; production code should reach
@@ -300,18 +343,12 @@ module Code
     # leader menu's +d+ entry opens. Exposed for tests.
     attr_reader sidebar: WorkspaceSidebar
 
-    # _@return_ — the main agent's token
-    # log, App-owned and fed into the {Shared::StatusRuleLabel}. {#default_build_agent} registers this
-    # same instance in the agent's +ListenerList+.
-    attr_reader token_log: Pikuri::Agent::Listener::TokenLog
-
-    # _@return_ — the status rule, which doubles as the
-    # model-name listener. {#default_build_agent} registers it in the
-    # agent's +ListenerList+ so +ModelSwitched+ events reach it.
+    # _@return_ — the status rule; it follows the
+    # conversation as a listener.
     attr_reader status_rule: Shared::StatusRuleLabel
 
     # _@return_ — the status rule's plan-mode-badge listener,
-    # registered by {#default_build_agent} so +Pikuri::Code::PlanModeChanged+
+    # in the conversation's listener so +Pikuri::Code::PlanModeChanged+
     # events reach the status rule. Dormant until a plan-mode transition fires
     # (via {#toggle_plan_mode} or the model's enter/exit tools).
     attr_reader plan_mode_listener: PlanModeListener
@@ -1166,8 +1203,8 @@ module Code
       # _@param_ `screen` — the screen whose +event_queue+ marshals the rewrite back from the worker thread. Passed explicitly so the listener can be unit-tested with a {Tuile::FakeScreen}.
       def initialize: (pane: TaskListPane, screen: Tuile::Screen) -> void
 
-      # _@param_ `event` — any agent event; only {Pikuri::Tasks::ListChanged} is acted on.
-      def on_event: (Data event) -> void
+      # _@param_ `event` — any agent or conversation event; only {Pikuri::Tasks::ListChanged} and a +Booting+ agent — whose list starts empty — are acted on.
+      def on_event: (Object event) -> void
 
       # _@return_ — label used by +Pikuri::Agent#to_s+ when this listener
       # is in its +ListenerList+.
@@ -2205,13 +2242,17 @@ module Code
   #   · skills available: writing-rdoc (matched lib/code/app.rb)
   # 
   #   skill_activation = Code::SkillActivationListener.new(
-  #     skill_extension: skill_ext, slash_menu: slash_menu,
+  #     catalog: skill_catalog, slash_menu: slash_menu,
   #     conversation: conversation_window, screen: screen,
   #     base: built_in_commands,
-  #     on_load: ->(name, rest) { skill_ext.schedule_load_skill(name); session.submit(rest) }
+  #     on_load: ->(name, rest) { load_skill(name, rest) }
   #   )
-  #   agent = Pikuri::Agent.new(...) { |c| c.add_listener skill_activation }
-  #   skill_activation.refresh        # seed the palette, and again after every /clear
+  #   # in the Conversations' configure:, once per agent
+  #   ext = Pikuri::Skill::Extension.new(catalog: skill_catalog, root: project_root)
+  #   c.add_extension ext
+  #   skill_activation.extension = ext   # re-lists the palette for the new agent
+  # 
+  # It must hear the agent's events — put it in the conversation's listener.
   # 
   # A skill declaring +paths:+ is not in play until the model touches a matching
   # file, so it is not listed until then — and the moment it fires it appears
@@ -2233,22 +2274,16 @@ module Code
   # deliberately over-fires, so a skill *will* appear for no visible reason, and
   # without the trigger, diagnosing it means guessing which glob matched.
   # 
-  # {#refresh} is the reset half rather than a +Event::Reset+ arm:
-  # +Agent#clear_conversation+ emits that event *before* it clears the
-  # activation, so the host refreshes once that call has returned.
-  # 
-  # The extension is held rather than its +activation+, because
-  # +Skill::Extension#configure+ may swap that object out for an
-  # +Activation::Open+ (an agent with no interloper has no channel a promotion
-  # could land on, so the gate comes off wholesale). Reading it per call follows
-  # the swap; a captured reference would keep gating a palette nothing can
-  # un-gate.
+  # Which skills are in play is the current agent's {Pikuri::Skill::Activation},
+  # and every agent — a /clear builds a new one — starts with the gated ones
+  # hidden; {#extension=} is how the palette follows. Before the first agent is
+  # built, a fresh activation of the catalog's own answers the same.
   # 
   # UI-thread-confined, with exceptions.
   class SkillActivationListener < Pikuri::Agent::Listener::Base
     LOG: Logger
 
-    # _@param_ `skill_extension` — source of both the catalog and the activation gate deciding what is in play right now.
+    # _@param_ `catalog` — the skills a palette entry may load, those gated on +paths:+ included.
     # 
     # _@param_ `slash_menu` — the palette to keep current.
     # 
@@ -2260,7 +2295,7 @@ module Code
     # 
     # _@param_ `on_load` — called as +(name, rest)+ when a +/<skill-name>+ runs: the catalog name, and the rest of the typed line.
     def initialize: (
-                      skill_extension: Pikuri::Skill::Extension,
+                      catalog: Pikuri::Skill::Catalog,
                       slash_menu: Shared::SlashMenuPopup,
                       conversation: Shared::ConversationTextView,
                       screen: Tuile::Screen,
@@ -2272,9 +2307,7 @@ module Code
     # +/<skill-name>+ per skill currently in play, in catalog order.
     def commands: () -> ::Array[Shared::SlashCommand]
 
-    # Push {#commands} onto the palette. Call it once the agent is built (to
-    # seed), and after every +clear_conversation+ (which re-hides every gated
-    # skill).
+    # Push {#commands} onto the palette.
     def refresh: () -> void
 
     # Announces a promotion and re-lists the palette; ignores every other event.
@@ -2294,6 +2327,10 @@ module Code
     # _@return_ — +nil+ when +base+ already took the
     # name, warned once per skill however often the palette is recomputed.
     def skill_command: (Pikuri::Skill::Catalog::Skill skill) -> Shared::SlashCommand?
+
+    # _@return_ — the extension the current agent
+    # was built with; +nil+ before the first is.
+    attr_accessor extension: Pikuri::Skill::Extension?
   end
 end
 
@@ -2302,30 +2339,26 @@ module Chat
   # conversation pane, the status rule, the tinted prompt, the eager diagnostic {Shared::Log::Dialog}
   # (popup-visible via the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+ menu /
   # +Ctrl+C+ cancel global-shortcut hints
-  # in the screen-wide status bar, and wires the agent's loop onto a worker
-  # thread so the UI thread stays free for repaints.
+  # in the screen-wide status bar, and runs the agent on one
+  # +Pikuri::Conversations+ conversation, whose threads keep the UI thread free
+  # for repaints.
   # 
-  # == Construction: App owns the agent
+  # == Construction: App owns the conversation
   # 
-  # App builds its own +Pikuri::Agent+ from the {Shared::Config} handed to
-  # it — the chat system prompt, the boot connection ({#config}'s first
-  # +llm+), and the web/calc tool set (see {#default_build_agent}). The bin
-  # only parses CLI + config and mounts the screen; the agent, its tools,
-  # and its listeners are the shell's identity and live here.
+  # App opens its own conversation from the {Shared::Config} handed to it —
+  # the chat system prompt, the boot connection ({#config}'s first +llm+), and
+  # the web/calc tool set (see {#configure_agent}). The bin only parses CLI +
+  # config and mounts the screen; the agent, its tools, and its listeners are
+  # the shell's identity and live here.
   # 
-  # Construction is linear, not cyclic: App builds the components (the
-  # {Shared::ConversationTextView} owns the {Shared::ConversationTextView::Listener}
-  # and {Shared::StatusRuleLabel}), *then* builds the agent against those
-  # listeners.
+  # Construction is linear, not cyclic: App builds the components, *then*
+  # opens the conversation with their listeners, which boots the agent on a
+  # thread of its own — the UI is up before the agent is.
   # 
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#default_build_agent} listener/tool wiring — on a
-  # scripted-HTTP backend instead of a live server. Production omits it and
-  # boots on the config's first connection ({#config}'s first +llm+). Only the
-  # transport is injectable because the agent's collaborators (the conversation
-  # listener, the status rule, the tools) are App's own objects — swapping the
-  # backend is all a test needs to exercise the wiring without the network.
+  # agent — the real {#configure_agent} tool wiring and listeners — on a
+  # scripted-HTTP backend instead of a live server.
   # 
   # == Screen ownership
   # 
@@ -2340,23 +2373,24 @@ module Chat
   # 
   # Per AGENTS.md's threading invariant, Tuile is single-threaded and the agent loop must not
   # run on the UI thread. App runs {Tuile::Screen#run_event_loop} on the
-  # caller's thread (the main thread for the bin script) and delegates the
-  # off-thread turn lifecycle — worker thread, mid-turn injection,
-  # concurrency guard, spinner, Ctrl+C escalation — to a composed
-  # {Shared::AgentSession} (see its threading contract). Enter routes to
-  # +session.submit+, Ctrl+C to +session.interrupt+, leader +c+ to
-  # +session.clear_conversation+.
+  # caller's thread (the main thread for the bin script); the conversation
+  # ({#session}) builds the agent and runs each turn on threads of its own,
+  # and every call into it returns at once. What happens there reaches the
+  # panes as events, each listener marshaling onto the UI thread. Enter routes
+  # to +session.submit+ (a message typed mid-turn joins the running turn),
+  # Ctrl+C to {#interrupt}, leader +c+ to {#clear_conversation}.
   # 
   # UI-thread-confined.
   class App
     LOG: Logger
+    CLOSE_TIMEOUT_S: Integer
 
     # _@return_ — the eager-constructed
     # diagnostic log (owned by the {Shared::Log::UI}). Exposed for tests and for
     # callers that want to install additional logger sinks.
     def log_dialog: () -> Shared::Log::Dialog
 
-    # _@param_ `config` — the resolved configuration; App derives the model list (one {Shared::Model::Choice} per +config.llms+ entry, the first the boot connection) and reads the web-search provider keys from it when building the agent.
+    # _@param_ `config` — the resolved configuration; App derives the model list (one {Shared::Model::Choice} per +config.llms+ entry, the first the boot connection) and reads the web-search provider keys from it when building an agent.
     # 
     # _@param_ `markdown` — forwarded to {Shared::ConversationTextView}'s +markdown:+ flag (default +true+). When +false+, the conversation pane skips +TTY::Markdown+ and the streaming path uses {Shared::Markdown::PassthroughBuffer} — appropriate for back-ends whose content is already in display form.
     # 
@@ -2364,13 +2398,16 @@ module Chat
     def initialize: (config: Shared::Config, ?markdown: bool, ?transport: Pikuri::Agent::ChatTransport?) -> void
 
     # Runs the Tuile event loop, blocking the calling thread until the user
-    # quits ({Tuile::Keys::ESC} or +q+) or the loop is otherwise stopped. Does
-    # NOT close the screen: the bin owns teardown via +begin/ensure
-    # Tuile::Screen.close+ around both +App.new+ and this call, so the screen
-    # is torn down whether the failure is in construction (a boot-time
-    # transport probe) or in the loop. +run_event_loop+ only restores stdin /
-    # cursor / mouse; +Screen#close+ clears the frame and unsets the singleton.
+    # quits ({Tuile::Keys::ESC} or +q+) or the loop is otherwise stopped, then
+    # {#close}s the conversation. Does NOT close the screen: the bin owns
+    # teardown via +begin/ensure Tuile::Screen.close+ around both +App.new+ and
+    # this call. +run_event_loop+ only restores stdin / cursor / mouse;
+    # +Screen#close+ clears the frame and unsets the singleton.
     def run: () -> void
+
+    # Close the conversation, cancelling a running turn, and wait a moment for
+    # its agent to be released. Idempotent.
+    def close: () -> void
 
     def build_components: () -> void
 
@@ -2380,22 +2417,49 @@ module Chat
     # which has no menu counterpart: a report to read when you wonder, not an
     # action worth a leader key. +/image <path>+ has none either: it fills the
     # prompt ({Shared::InputPane#attach}) rather than acting. Callbacks are lazy (they resolve +@log_ui+ /
-    # +@session+ / +@agent+ / +quit+ at run time), so this is safe to build
-    # before the agent; only the +/model+ *presence* is decided now, from
+    # +@session+ / +quit+ at run time), so this is safe to build before the
+    # conversation; only the +/model+ *presence* is decided now, from
     # {Shared::Model::Picker#multiple?}.
     def build_slash_commands: () -> ::Array[Shared::SlashCommand]
 
-    # Build the chat shell's +Pikuri::Agent+: a streaming agent on the boot
-    # connection (+@boot_transport+, the config's first connection unless a
-    # test injected a fake), the +pikuri-chat+ system prompt (dated), and the
-    # web-search / calculator / scrape / fetch tool set. Registers the
-    # conversation listener (rate-limited to 15 fps), {#token_log}, and the
-    # {#status_rule} into the agent's +ListenerList+ — all reached
-    # through the {Shared::ConversationTextView} this App owns, so nothing has to
-    # be passed in.
+    # Open the shell's one conversation on +transport+, which boots its agent
+    # on a thread of its own: the +pikuri-chat+ system prompt (dated), the
+    # tools {#configure_agent} adds, and the panes' listeners — the transcript
+    # rate-limited to 15 fps (a fast llama.cpp emits dozens of deltas a second,
+    # and re-rendering Markdown on each is wasted work), and the status rule.
     # 
-    # _@return_ — the wired agent.
-    def default_build_agent: () -> Pikuri::Agent
+    # _@param_ `transport` — the model it starts on.
+    def open_session: (Pikuri::Agent::ChatTransport transport) -> Pikuri::Conversations::Conversation
+
+    # The chat agent's tools: web search / scrape / fetch and the calculator.
+    # Runs once per agent — at boot and after every clear — on the boot thread.
+    # 
+    # _@param_ `configurator`
+    # 
+    # _@param_ `_conversation`
+    def configure_agent: (Pikuri::Agent::Configurator configurator, Pikuri::Conversations::Conversation _conversation) -> void
+
+    # Enter on the prompt: start a turn, or join the running one. A model known
+    # to refuse the images gets nothing, and the line comes back for a fix.
+    # 
+    # _@param_ `text` — the line, +@path+ tokens split out.
+    # 
+    # _@param_ `attachments` — the images it named.
+    def submit: (String text, ?attachments: ::Array[Pikuri::Attachment]) -> void
+
+    # Why the next turn's model can't see +attachments+, asked before anything
+    # is sent; +nil+ when they may go out, unknown modalities included.
+    # 
+    #   attachment_refusal([png])   # => "shot.png (image/png): model m takes no vision input"
+    # 
+    # _@param_ `attachments`
+    # 
+    # _@return_ — the reason, worded as +run_loop+'s own refusal.
+    def attachment_refusal: (::Array[Pikuri::Attachment] attachments) -> String?
+
+    # _@return_ — the +/trifecta+ answer: the report, or a note while the
+    # agent it describes is still being built.
+    def trifecta_report: () -> String
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
     # cursor-owner suppression that would otherwise let the focused
@@ -2411,14 +2475,24 @@ module Chat
     #   an open popup. The {Shared::Log::UI} owns this binding because its hint also
     #   carries the unread-error tally — the only always-visible status-bar
     #   surface.
-    # - +Ctrl+C+ runs the {Shared::AgentSession#interrupt} escalation (cancel turn →
-    #   unfocus → quit). The one direct accelerator kept: it is the urgent
+    # - +Ctrl+C+ runs the {#interrupt} escalation (cancel turn → unfocus →
+    #   quit). The one direct accelerator kept: it is the urgent
     #   mid-turn interrupt, not a command we want behind a chord. Also
     #   +over_modal: false+: a popup means the user isn't interacting with
     #   the LLM, so Ctrl+C is the popup's business, not ours. The trade-off
     #   is that you can't cancel a running turn while a popup happens to be
     #   open — close it (ESC/q) first.
     def register_shortcuts: () -> void
+
+    # The +Ctrl+C+ escalation, three states in priority order: a running turn
+    # (or boot) is cancelled; else a focused pane drops focus, as ESC does; else
+    # the event loop stops, which quits. Registered +over_modal: false+, so it
+    # never runs while a popup is open.
+    def interrupt: () -> void
+
+    # Start over on a fresh agent — the transcript wipes as it boots. Refused
+    # while a turn runs, which is what Ctrl+C is for.
+    def clear_conversation: () -> void
 
     # Build the {Shared::LeaderMenu} for the chat shell: logs, switch model (only
     # when there's more than one connection to pick between), and a hard
@@ -2427,9 +2501,8 @@ module Chat
     def build_leader_menu: () -> Shared::LeaderMenu
 
     # Stop the event loop, unwinding {#run} into +Screen#close+. The leader
-    # menu's +q+ action — a hard quit, distinct from
-    # {Shared::AgentSession#interrupt}'s escalation (no turn-cancel /
-    # unfocus steps). Runs on the event-loop
+    # menu's +q+ action — a hard quit, distinct from {#interrupt}'s escalation
+    # (no turn-cancel / unfocus steps). Runs on the event-loop
     # thread (deferred by {Shared::LeaderMenu}), so +stop+ is safe to call.
     def quit: () -> void
 
@@ -2449,34 +2522,20 @@ module Chat
 
     # _@return_ — the resolved configuration the bin loaded;
     # drives the model list, the boot connection, and the web-search
-    # provider keys {#default_build_agent} reads.
+    # provider keys {#configure_agent} reads.
     attr_reader config: Shared::Config
 
-    # _@return_ — the agent {#default_build_agent} built. Exposed
-    # so callers (and tests) can inspect tools/listeners/transport after
-    # wiring.
-    attr_reader agent: Pikuri::Agent
-
-    # _@return_ — the turn-lifecycle engine this shell
-    # composes; Enter / Ctrl+C / leader +c+ delegate into it. Exposed for
-    # tests.
-    attr_reader session: Shared::AgentSession
+    # _@return_ — the one conversation this
+    # shell runs; Enter, Ctrl+C, the model picker and leader +c+ drive it.
+    attr_reader session: Pikuri::Conversations::Conversation
 
     # _@return_ — the conversation transcript
     # pane. Exposed primarily for tests; production code should reach
     # it through the {Shared::ConversationTextView::Listener}.
     attr_reader conversation: Shared::ConversationTextView
 
-    # _@return_ — the main agent's token
-    # log, App-owned and fed into the {Shared::StatusRuleLabel}.
-    # {#default_build_agent} registers this same instance in the agent's
-    # +ListenerList+ so it receives +Tokens+ events.
-    attr_reader token_log: Pikuri::Agent::Listener::TokenLog
-
     # _@return_ — the status rule between the
-    # conversation and the prompt, which doubles as the model-name listener.
-    # {#default_build_agent} registers it in the agent's +ListenerList+ so
-    # +ModelSwitched+ events reach it.
+    # conversation and the prompt; it follows the conversation as a listener.
     attr_reader status_rule: Shared::StatusRuleLabel
   end
 
@@ -2583,8 +2642,8 @@ module Computer
   # The Tuile shell behind +bin/pikuri-tui-computer+: the borderless
   # conversation pane, the status rule, the tinted prompt, the eager diagnostic {Shared::Log::Dialog}
   # (popup-visible via the {Shared::LeaderMenu}'s +l+ entry), the +Ctrl+K+
-  # menu / +Ctrl+C+ cancel status-bar hints, and the agent loop on a worker
-  # thread.
+  # menu / +Ctrl+C+ cancel status-bar hints, and the agent on one
+  # +Pikuri::Conversations+ conversation.
   # 
   # Laid out like {Chat::App} — one conversation pane over an input strip,
   # NO sidebar — but it carries the coding shell's safety machinery because
@@ -2595,33 +2654,32 @@ module Computer
   # re-copying them (see {Computer} for the duplicate-only-the-shell
   # rationale).
   # 
-  # == Construction: App owns the agent
+  # == Construction: App owns the conversation
   # 
-  # App builds its own +Pikuri::Agent+ from the {Shared::Config} handed to it —
+  # App opens its own conversation from the {Shared::Config} handed to it —
   # the OS-assistant prompt (with a network-posture block keyed to
   # +internet_enabled+), the boot connection (+config.llms+'s first entry), a
   # whole-host {Pikuri::Os::Extension} (five file tools + a network-severed
   # sandboxed bash), local mail + calendar via
   # {Pikuri::Thunderbird::Extension}, and — unless +internet_enabled+ is false
-  # — a quarantined web RESEARCHER sub-agent (see {#default_build_agent}). The
+  # — a quarantined web RESEARCHER sub-agent (see {#configure_agent}). The
   # bin only parses CLI + config, probes the Thunderbird profile, and mounts
   # the screen.
   # 
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#default_build_agent} listener/tool/extension wiring — on
-  # a scripted-HTTP backend instead of a live server. Production omits it and
-  # boots on the config's first connection. Only the transport is injectable
-  # because the agent's collaborators (the conversation listener, the status
-  # rule, the confirmer, the plan-mode listener) are App's own objects; the
-  # host probes the extensions make are steered through +profile_dir:+ and
-  # +config.sandbox+, which production sets anyway.
+  # agent — the real {#configure_agent} tool/extension wiring and listeners —
+  # on a scripted-HTTP backend instead of a live server. The host probes the
+  # extensions make are steered through +profile_dir:+ and +config.sandbox+,
+  # which production sets anyway.
   # 
   # == The bwrap probe runs here, on the production path
   # 
-  # {#default_build_agent} builds the +FullFsNoNet+ sandbox, whose constructor
-  # probes +bwrap+ + user/net namespaces and raises if they're unavailable.
-  # That raise happens during +App.new+ — but +Tuile::Screen.new+ has not yet
+  # The constructor builds the +FullFsNoNet+ sandbox, whose constructor
+  # probes +bwrap+ + user/net namespaces and raises if they're unavailable —
+  # here rather than with the agent, which boots on a thread of its own and
+  # would turn the raise into a line in the transcript. That raise happens
+  # during +App.new+ — but +Tuile::Screen.new+ has not yet
   # entered raw mode / the alternate buffer (that is +run_event_loop+'s job),
   # so the backtrace still reaches a normal terminal. The bin wraps
   # +App.new+/+run+ in +begin/ensure Tuile::Screen.close+ to tear the screen
@@ -2638,18 +2696,18 @@ module Computer
   # 
   # Per AGENTS.md's threading invariant, Tuile is single-threaded and the agent loop must not run on
   # the UI thread. App runs {Tuile::Screen#run_event_loop} on the caller's
-  # thread and delegates the off-thread turn lifecycle — worker thread,
-  # mid-turn injection, concurrency guard, spinner, Ctrl+C escalation — to a
-  # composed {Shared::AgentSession} (see its threading contract). Enter routes
-  # to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
-  # +session.clear_conversation+. The {Code::TranscriptConfirmer} bridges the
-  # other way: a tool on the worker thread calls +confirm?+, which submits the
+  # thread; the conversation ({#session}) builds the agent and runs each turn
+  # on threads of its own, and every call into it returns at once. Enter
+  # routes to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
+  # {#clear_conversation}. The {Code::TranscriptConfirmer} bridges the
+  # other way: a tool on the turn thread calls +confirm?+, which submits the
   # question to the UI thread and parks the worker until the user answers (see
   # its docs).
   # 
   # UI-thread-confined.
   class App
     LOG: Logger
+    CLOSE_TIMEOUT_S: Integer
 
     # _@return_ — the whole-host workspace anchor — the filesystem's
     # normalized project root (relative-path base + bash chdir target). The
@@ -2661,7 +2719,7 @@ module Computer
     # diagnostic log (owned by the {Shared::Log::UI}).
     def log_dialog: () -> Shared::Log::Dialog
 
-    # _@param_ `config` — the resolved configuration; App derives the model list (one {Shared::Model::Choice} per +config.llms+ entry, the first the boot connection), reads the sandbox/confirm posture, and reads the web-search provider keys when building the agent.
+    # _@param_ `config` — the resolved configuration; App derives the model list (one {Shared::Model::Choice} per +config.llms+ entry, the first the boot connection), reads the sandbox/confirm posture, and reads the web-search provider keys when building an agent.
     # 
     # _@param_ `internet_enabled` — whether to wire the quarantined web RESEARCHER sub-agent (the +--no-internet+ flag forces +false+). Also selects the online/offline network-posture prompt block. Mail + calendar work regardless. Default +true+.
     # 
@@ -2685,42 +2743,75 @@ module Computer
                     ) -> void
 
     # Runs the Tuile event loop, blocking the calling thread until the user
-    # quits or the loop is otherwise stopped. Does NOT close the screen: the
-    # bin owns teardown via +begin/ensure Tuile::Screen.close+ around both
-    # +App.new+ and this call, so the screen is torn down whether the failure
-    # is in construction (the +FullFsNoNet+ bwrap probe) or in the loop. See
-    # the "bwrap probe" note in the class docs.
+    # quits or the loop is otherwise stopped, then {#close}s the conversation.
+    # Does NOT close the screen: the bin owns teardown via +begin/ensure
+    # Tuile::Screen.close+ around both +App.new+ and this call, so the screen is
+    # torn down whether the failure is in construction (the +FullFsNoNet+ bwrap
+    # probe) or in the loop. See the "bwrap probe" note in the class docs.
     def run: () -> void
+
+    # Close the conversation, cancelling a running turn — and a question parked
+    # on the human, which would otherwise hold the turn: every way out of the
+    # event loop ends here, so a tool blocked on an answer is unwound rather
+    # than abandoned mid-operation — then wait a moment
+    # for its agent to be released. Idempotent.
+    def close: () -> void
 
     def build_components: () -> void
 
-    # Build the computer shell's +Pikuri::Agent+: a streaming agent on the boot
-    # connection (+@boot_transport+, the config's first connection unless a
-    # test injected a fake), the OS-assistant prompt (plus a network
-    # online/offline posture block keyed to +internet_enabled+), and the
-    # desktop tool surface. Wires the conversation listener
-    # (rate-limited to 15 fps), {#token_log}, {#status_rule}, and
-    # {#plan_mode_listener} into the agent's +ListenerList+ — all reached
-    # through App's own objects, so nothing has to be passed in.
+    # The bash sandbox every agent shares: +FullFsNoNet+, or +NONE+ under
+    # +--no-sandbox+ / +--yolo+ (+config.sandbox+ false), which re-opens the
+    # network. Built here, not per agent: the bwrap probe in its constructor
+    # raises (no silent fallback), and see the class docs for why that raise
+    # belongs in +App.new+.
+    def build_sandbox: () -> Pikuri::Code::Bash::Sandbox
+
+    # Open the shell's one conversation on +transport+, which boots its agent
+    # on a thread of its own: the OS-assistant prompt (plus the online
+    # network-posture block when +internet_enabled+ — offline adds nothing), the
+    # desktop tool surface {#configure_agent} adds, and the panes' listeners —
+    # the transcript rate-limited to 15 fps (see {Chat::App} for why), the
+    # status rule and the plan-mode badge.
     # 
-    # Composes two pikuri surfaces onto one agent: {Pikuri::Os::Extension} (the
-    # five file tools + a network-severed +FullFsNoNet+-sandboxed bash + the
-    # machine facts / MACHINE.md prompt sections) and
-    # {Pikuri::Thunderbird::Extension} (mail + calendar search/read + two
-    # human-gated outbound hand-offs). Web research, on unless
+    # _@param_ `transport` — the model it starts on.
+    def open_session: (Pikuri::Agent::ChatTransport transport) -> Pikuri::Conversations::Conversation
+
+    # The computer agent's desktop tool surface, built fresh for each agent —
+    # at boot and after every clear — on the boot thread. Composes two pikuri
+    # surfaces onto one agent: {Pikuri::Os::Extension} (the five file tools + a
+    # network-severed sandboxed bash + the machine facts / MACHINE.md prompt
+    # sections) and {Pikuri::Thunderbird::Extension} (mail + calendar
+    # search/read + two human-gated outbound hand-offs). Web research, on unless
     # +internet_enabled+ is false, is quarantined: the web tools go on
     # sub-agent-only, so the main agent holds no direct egress and delegates to
     # an isolated RESEARCHER (web tools, no filesystem) gated by the confirmer.
     # 
-    # == The sandbox probe raises here
+    # _@param_ `configurator`
     # 
-    # +FullFsNoNet.new+ probes +bwrap+ + user/net namespaces at construction
-    # and raises (no silent fallback) if unavailable — see the class docs for
-    # why that raise is safe on this path. +--no-sandbox+ / +--yolo+
-    # (+config.sandbox+ false) swap in +Sandbox::NONE+ and re-open the network.
+    # _@param_ `_conversation`
+    def configure_agent: (Pikuri::Agent::Configurator configurator, Pikuri::Conversations::Conversation _conversation) -> void
+
+    # Enter on the prompt: start a turn, or join the running one. A model known
+    # to refuse the images gets nothing, and the line comes back for a fix.
     # 
-    # _@return_ — the wired agent.
-    def default_build_agent: () -> Pikuri::Agent
+    # _@param_ `text` — the line, +@path+ tokens split out.
+    # 
+    # _@param_ `attachments` — the images it named.
+    def submit: (String text, ?attachments: ::Array[Pikuri::Attachment]) -> void
+
+    # Why the next turn's model can't see +attachments+, asked before anything
+    # is sent; +nil+ when they may go out, unknown modalities included.
+    # 
+    #   attachment_refusal([png])   # => "shot.png (image/png): model m takes no vision input"
+    # 
+    # _@param_ `attachments`
+    # 
+    # _@return_ — the reason, worded as +run_loop+'s own refusal.
+    def attachment_refusal: (::Array[Pikuri::Attachment] attachments) -> String?
+
+    # _@return_ — the +/trifecta+ answer: the report, or a note while the
+    # agent it describes is still being built.
+    def trifecta_report: () -> String
 
     # Wire app-level keyboard shortcuts on the screen. Both bypass the
     # cursor-owner suppression that would otherwise let the focused
@@ -2743,12 +2834,17 @@ module Computer
     #   open — close it (ESC/q) first.
     def register_shortcuts: () -> void
 
-    # +Ctrl+C+: the {Shared::AgentSession#interrupt} escalation (cancel turn ->
-    # unfocus -> quit), then wake a parked confirmation with a cancel too —
-    # its tool has the worker blocked, so cancelling the turn alone would look
-    # like nothing happened until the decision was answered. A parked question
-    # means a turn is running, so the escalation's step taken is the cancel.
+    # +Ctrl+C+, three states in priority order: a running turn (or boot) is
+    # cancelled; else a focused pane drops focus, as ESC does; else the event
+    # loop stops, which quits. A parked confirmation is woken with a cancel too
+    # — its tool has the turn blocked, so cancelling alone would look like
+    # nothing happened until the decision was answered. A parked question means
+    # a turn is running, so the step taken is then always the cancel.
     def interrupt: () -> void
+
+    # Start over on a fresh agent — the transcript wipes as it boots. Refused
+    # while a turn runs, which is what Ctrl+C is for.
+    def clear_conversation: () -> void
 
     # Build the {Shared::LeaderMenu} for the computer shell: logs, plan mode, switch
     # model (only when there's more than one connection), and a hard quit.
@@ -2767,16 +2863,17 @@ module Computer
     # the reassembled trifecta is the one where it is worth reading.
     # +/image <path>+ has none either: it fills the prompt
     # ({Shared::InputPane#attach}) rather than acting. Callbacks
-    # are lazy (they resolve +@log_ui+ / +@plan_mode+ / +@session+ / +@agent+ /
-    # +quit+ at run time), so this is safe to build before the agent; only the
+    # are lazy (they resolve +@log_ui+ / +@plan_mode+ / +@session+ /
+    # +quit+ at run time), so this is safe to build before the conversation; only the
     # +/model+ *presence* is decided now, from {Shared::Model::Picker#multiple?}.
     def build_slash_commands: () -> ::Array[Shared::SlashCommand]
 
-    # Stop the event loop, unwinding {#run} back to the bin's +ensure+ (which
+    # Stop the event loop, unwinding {#run} into {#close} — which cancels a
+    # parked question and the turn — and back to the bin's +ensure+ (which
     # calls +Screen#close+). The leader menu's +q+ action — a hard quit,
-    # distinct from {Shared::AgentSession#interrupt}'s escalation (no
-    # turn-cancel / unfocus steps). Runs on the event-loop thread (deferred by
-    # {Shared::LeaderMenu}), so +stop+ is safe to call.
+    # distinct from {#interrupt}'s escalation (no unfocus step). Runs on the
+    # event-loop thread (deferred by {Shared::LeaderMenu}), so +stop+ is safe to
+    # call.
     def quit: () -> void
 
     # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
@@ -2805,36 +2902,24 @@ module Computer
 
     # _@return_ — the resolved configuration the bin loaded;
     # drives the model list, the boot connection, the sandbox/confirm
-    # posture, and the web-search provider keys {#default_build_agent} reads.
+    # posture, and the web-search provider keys {#configure_agent} reads.
     attr_reader config: Shared::Config
 
-    # _@return_ — the agent {#default_build_agent} built. Exposed
-    # so callers (and tests) can inspect tools/listeners/transport after
-    # wiring.
-    attr_reader agent: Pikuri::Agent
-
-    # _@return_ — the turn-lifecycle engine this shell
-    # composes; Enter / Ctrl+C / leader +c+ delegate into it. Exposed for
-    # tests.
-    attr_reader session: Shared::AgentSession
+    # _@return_ — the one conversation this
+    # shell runs; Enter, Ctrl+C, the model picker and leader +c+ drive it.
+    attr_reader session: Pikuri::Conversations::Conversation
 
     # _@return_ — the conversation transcript
     # pane. Exposed primarily for tests; production code should reach
     # it through the {Shared::ConversationTextView::Listener}.
     attr_reader conversation: Tuile::Component::TextView
 
-    # _@return_ — the main agent's token
-    # log, App-owned and fed into the {Shared::StatusRuleLabel}. {#default_build_agent} registers this
-    # same instance in the agent's +ListenerList+.
-    attr_reader token_log: Pikuri::Agent::Listener::TokenLog
-
-    # _@return_ — the status rule, which doubles as the
-    # model-name listener. {#default_build_agent} registers it in the
-    # agent's +ListenerList+ so +ModelSwitched+ events reach it.
+    # _@return_ — the status rule; it follows the
+    # conversation as a listener.
     attr_reader status_rule: Shared::StatusRuleLabel
 
     # _@return_ — the status rule's plan-mode-badge listener,
-    # registered by {#default_build_agent} so +Pikuri::Code::PlanModeChanged+
+    # in the conversation's listener so +Pikuri::Code::PlanModeChanged+
     # events reach the status rule. Dormant until a plan-mode transition fires
     # (via {#toggle_plan_mode} or the model's enter/exit tools).
     attr_reader plan_mode_listener: Code::PlanModeListener
@@ -2888,525 +2973,61 @@ module Computer
   end
 end
 
+# Opened as +module Shared+ rather than +class Shared::FanoutListener+: YARD
+# registers the namespace only from a file that opens it so, and without one
+# sord drops every +Shared::+ class from sig/pikuri_tui.rbs.
 module Shared
-  # Owns one agent's turn lifecycle for a shell: run the loop off the UI
-  # thread, serialize concurrent turns, absorb mid-turn injections, drive
-  # the status rule's spinner, and escalate Ctrl+C. Construct it, hand it the
-  # agent once the build block has run, then feed it user input:
+  # One listener standing for several: a +Pikuri::Conversations#open+ takes a
+  # single +listener:+, which hears both the agent's events and the
+  # conversation's own, and each pane wants its slice of both.
   # 
-  #   session = Shared::AgentSession.new(
-  #     screen: @screen, conversation: @conversation, status_rule: @status_rule,
-  #     model_picker: @model_picker, logger: LOG
-  #   )
-  #   session.agent = built_agent          # once the agent exists
-  #   input = Shared::InputPane.new(on_submit: session.method(:submit))
-  #   # Ctrl+C -> session.interrupt ; leader 'c' -> session.clear_conversation
+  #   listener = Shared::FanoutListener.new([transcript_listener, status_rule, task_listener])
+  #   conversations.open(id: 'main', transport:, listener:)
   # 
-  # This is a *coordinator*, not a UI-independent service: unlike
-  # {Code::GitWatcher} it deliberately holds the +screen+ and drives two panes'
-  # surfaces — the rule's spinner and the transcript's error / notice lines.
-  # Coordinating those with off-thread agent work is its whole job. It only
-  # ever calls their public action verbs (+start_animation+ /
-  # +stop_animation+ / +render_turn_error+ — tell, don't ask); each pane keeps
-  # owning how it draws.
+  # A spawned sub-agent gets a fan-out of each listener's sub-agent variant, by
+  # +Pikuri::Agent::ListenerList#for_sub_agent+'s rule: a listener without
+  # +for_sub_agent+ is kept by reference, one answering +nil+ is dropped.
   # 
-  # Each shell's +App+ composes one of these and delegates into it; the +App+
-  # keeps its own construction / layout / leader-menu / shortcuts / +run+
-  # loop, plus +quit+ and +on_screen_error+ (which touch neither the agent
-  # nor the turn flag, so they don't belong to the turn lifecycle).
-  # 
-  # == Threading
-  # 
-  # UI-thread-confined, with a worker exception. Every method here must be
-  # called on the thread that owns +Screen#run_event_loop+ (the UI thread) —
-  # the +@turn_in_progress+ flag is read and written only there. The agent
-  # loop blocks on the LLM, so {#submit} spawns a fresh +Thread.new+ per turn
-  # that calls +agent.run_loop+; that worker never touches the UI directly,
-  # marshaling the spinner-off / flag-clear / leftover-delivery back through
-  # +screen.event_queue.submit+ so they execute on the UI thread. Concurrent
-  # turns are prevented by +@turn_in_progress+: while a turn runs, {#submit}
-  # routes into the agent's +Interloper+ instead of starting a second loop.
-  # 
-  # UI-thread-confined (its own methods; the worker it spawns runs the pikuri
-  # loop off-thread and marshals back).
-  class AgentSession
-    # _@param_ `screen` — the screen whose +event_queue+ the worker marshals back through, and whose focus / loop {#interrupt} escalates.
-    # 
-    # _@param_ `conversation` — the transcript pane whose error / notice surface this drives (+render_turn_error+ / +render_notice+).
-    # 
-    # _@param_ `status_rule` — the status rule whose mid-turn spinner this drives (+start_animation+ / +stop_animation+).
-    # 
-    # _@param_ `model_picker` — the shared picker; a pending switch is consumed via +take_pending+ at the top of each turn, and read via +pending+ by {#attachment_refusal}.
-    # 
-    # _@param_ `logger` — the per-shell logger (so dropped-injection and clear-during-turn warnings keep the shell's subsystem tag in the diagnostic pane); typically the +App+'s +LOG+ constant.
-    def initialize: (
-                      screen: Tuile::Screen,
-                      conversation: Shared::ConversationTextView,
-                      status_rule: Shared::StatusRuleLabel,
-                      model_picker: Shared::Model::Picker,
-                      logger: Logger
-                    ) -> void
+  # Thread-safe when every listener in it is: it holds no state of its own.
+  class FanoutListener < Pikuri::Agent::Listener::Base
+    # _@param_ `listeners` — the listeners, in the order each event reaches them.
+    def initialize: (::Array[Pikuri::Agent::Listener::Base] listeners) -> void
 
-    # Subscribe to a turn the model refused for its images
-    # (+Pikuri::Agent::UnsupportedAttachmentError+): nothing was sent, and the
-    # block runs on the UI thread with the reason.
-    # 
-    #   session.on_attachment_refused { |reason| input.refuse_attachment(reason) }
-    def on_attachment_refused: () ?{ (String reason) -> void } -> void
+    # _@param_ `event` — any agent or conversation event.
+    def on_event: (Object event) -> void
 
-    # _@return_ — whether a turn is currently running. Read on the UI
-    # thread.
-    def turn_in_progress?: () -> bool
+    # _@param_ `params` — forwarded to each listener's +for_sub_agent+.
+    def for_sub_agent: (**::Hash[Symbol, Object] params) -> Shared::FanoutListener
 
-    # Why the model a {#submit} would reach can't see +attachments+, asked
-    # before anything is sent. Mid-turn that is the running model; between
-    # turns, a pending switch's.
-    # 
-    #   session.attachment_refusal([png])
-    #   # => "shot.png (image/png): model m takes no vision input"
-    # 
-    # Only a reported +false+ for +:vision+ refuses (+Pikuri::Agent#modalities+).
-    # When nothing is known yet, the answer is +nil+ and the attachment goes
-    # out. On the first turn pikuri's own check catches it, and
-    # {#on_attachment_refused} hears; mid-turn, pikuri withholds it with a
-    # note.
-    # 
-    # _@param_ `attachments`
-    # 
-    # _@return_ — the reason, worded as +run_loop+'s own refusal; +nil+
-    # when they may go out.
-    def attachment_refusal: (::Array[Pikuri::Attachment] attachments) -> String?
-
-    # Start a turn for +message+, or — if one is already running — queue it as
-    # a mid-turn injection instead of starting a second +run_loop+. The
-    # {Shared::InputPane}'s +on_submit+ target, and the re-entry point
-    # {#deliver_pending_injections} uses to flush leftovers as a fresh turn.
-    # 
-    # +message+ is normally non-blank (the input suppresses blank submits), but a
-    # skill command submits +""+ to drive a *bare* load (the skill it just
-    # scheduled becomes the whole turn). A blank submit is only meaningful when
-    # idle — it runs a bare +run_loop+; a blank submit *mid-turn* is a no-op, as
-    # the scheduled skill already rides the running turn and there's no message to
-    # inject.
-    # 
-    # _@param_ `message` — the draft; blank only from a skill bare-load.
-    # 
-    # _@param_ `attachments` — images to show the model with +message+.
-    def submit: (String message, ?attachments: ::Array[Pikuri::Attachment]) -> void
-
-    # The +Ctrl+C+ escalation, mirroring ESC's two-press quit but driven
-    # explicitly because a global shortcut fires before the pane and so never
-    # "falls through" to the loop's unhandled-key quit the way ESC does. Three
-    # states, in priority order:
-    # 
-    # 1. A turn is running -> cancel it. {Shared::ConversationTextView::Listener}
-    #    renders the +Cancelled+ event; the worker's +ensure+ clears the flag.
-    # 2. Nothing running but something is focused (normally the
-    #    {Shared::InputPane}) -> drop focus, the same visible effect as ESC.
-    # 3. Nothing running and nothing focused -> stop the event loop, which
-    #    unwinds the +App+'s +run+ into +Screen#close+ (what an unhandled ESC
-    #    does).
-    # 
-    # The host registers this +over_modal: false+, so it never runs while a
-    # popup is open — no need to guard the unfocus/quit steps against orphaning
-    # a modal popup's focus. Runs on the UI thread (global-shortcut dispatch),
-    # so touching +focused=+ / +event_queue.stop+ and reading the flag are safe.
-    def interrupt: () -> void
-
-    # Reset the agent to a fresh-conversation state via
-    # +Pikuri::Agent#clear_conversation+ (chat history, controls, and each
-    # extension's conversation-scoped state). That emits a single
-    # +Pikuri::Agent::Event::Reset+, off which {Shared::ConversationTextView::Listener}
-    # wipes the pane and the +TokenLog+ zeroes the status rule — so this only kicks
-    # the agent; the visible reset falls out of the event stream. The leader
-    # menu's +c+ action.
-    # 
-    # A no-op (logged) while a turn is running: +clear_conversation+ is not
-    # designed to race an in-flight +run_loop+.
-    def clear_conversation: () -> void
-
-    # Route a message submitted while a turn is in flight into the agent's
-    # +Pikuri::Agent::Control::Interloper+. The agent drains the queue at its
-    # next +after_tool_result+ boundary; when the host wired no interloper the
-    # message is dropped with a warn in the diagnostic log.
-    # 
-    # _@param_ `message`
-    # 
-    # _@param_ `attachments`
-    def queue_mid_turn: (String message, ::Array[Pikuri::Attachment] attachments) -> void
-
-    # Spawn a worker thread for one agent turn. Library exceptions are logged
-    # (the long-running TUI takes the "exceptions logged, our bugs raise" path
-    # from +D_tui_degrades_not_crashes+) and a short red one-liner is echoed into the conversation
-    # pane; cancellation is silent because {Shared::ConversationTextView::Listener}
-    # already rendered the +Cancelled+ event.
-    # 
-    # _@param_ `message`
-    # 
-    # _@param_ `attachments`
-    def start_turn: (String message, ::Array[Pikuri::Attachment] attachments) -> void
-
-    # A turn can end with items still sitting in the interloper queue (the agent
-    # only drains it at +after_tool_result+ boundaries). Drain them and start a
-    # fresh turn so every leftover is delivered promptly. Fires after a cancelled
-    # turn too: a mid-turn message is usually a correction, and the cancel is
-    # what makes room for it.
-    # 
-    # The queue holds two {Pikuri::Agent::Control::Interloper::Item} kinds
-    # (+:user+ / +:system+). +:user+ leftovers join, in submission order, into
-    # the fresh turn's message, their attachments with them; +:system+ leftovers (e.g. a skill scheduled
-    # during the final assistant message and never drained) go *back* on the
-    # queue via +inject_system_message+, so the next +run_loop+ re-applies them
-    # as system context at its top rather than folding a skill body into a user
-    # message. With only +:system+ leftovers the fresh turn is bare, which still
-    # drains + applies them.
-    # 
-    # Runs on the UI thread (the caller marshals via +submit+), so the
-    # +@turn_in_progress+ read inside {#submit} is safe.
-    def deliver_pending_injections: () -> void
-
-    # _@return_ — the agent this session drives, or +nil+
-    # until it's set. Set it once, after the shell's build block has
-    # returned the agent: the agent, hence its interloper and transport,
-    # doesn't exist at construction.
-    attr_accessor agent: Pikuri::Agent?
+    # _@return_ — e.g. +"Fanout[RateLimited(…), StatusRule]"+.
+    def to_s: () -> String
   end
 
-  # Turns pikuri's on-disk slash commands — the +.md+ prompt templates under
-  # +.pikuri/commands+ / +.claude/commands+ — into {Shared::SlashCommand}s the
-  # palette can list and run:
-  # 
-  #   commands = Shared::FileCommands.build(
-  #     registry: command_registry, reserved: built_ins.map(&:name),
-  #     screen: screen, logger: LOG,
-  #     on_expand: ->(text) { session.submit(text) }
-  #   )
-  #   #=> [#<SlashCommand name="/wh" description="<label> — weekly work log" …>]
-  # 
-  # Running one expands its template (+$ARGUMENTS+, +$1+…+$9+) against the rest
-  # of the typed line and hands the result to +on_expand+ as an ordinary user
-  # turn — the human wrote it, the template just saved the typing. So it is not a
-  # +:system+ block and it is not hidden from the transcript.
-  # 
-  # A command whose file pikuri refuses — it declares +allowed-tools:+, or its
-  # body carries a <code>!`cmd`</code> shell directive — is still listed, marked
-  # +(unavailable)+, and answers with the reason instead of running. A menu entry
-  # that silently vanished would be the worse failure, since the human is looking
-  # straight at the list.
-  # 
-  # +reserved+ is what a built-in already took. A file command may not capture a
-  # built-in verb: a cloned repo shipping +.claude/commands/plan.md+ would
-  # otherwise take over +/plan+, which flips a safety gate. The loser is dropped
-  # with a warn, and dropped is all it is — unlike a shadowed skill, nothing else
-  # reaches it.
-  # 
-  # Requires no pikuri gem: +registry+ is duck-typed, so the lean chat process
-  # (which never loads pikuri-skills) can still eager-load this file.
-  module FileCommands
-    # _@param_ `registry` — the scanned command files.
-    # 
-    # _@param_ `reserved` — command names already taken, leading slash included.
-    # 
-    # _@param_ `screen` — resolves the theme at run time, so a refusal is toned by whatever theme is current rather than the boot one.
-    # 
-    # _@param_ `logger` — takes the shadowing warnings, so they carry the composing shell's subsystem tag.
-    # 
-    # _@param_ `on_expand` — called with the expanded template +String+; drives it as a user turn.
-    # 
-    # _@return_ — in the registry's own precedence
-    # order.
-    def build: (
-                 registry: Pikuri::Command::Registry,
-                 reserved: ::Array[String],
-                 screen: Tuile::Screen,
-                 logger: Logger,
-                 on_expand: Proc
-               ) -> ::Array[Shared::SlashCommand]
-
-    # _@param_ `registry` — the scanned command files.
-    # 
-    # _@param_ `reserved` — command names already taken, leading slash included.
-    # 
-    # _@param_ `screen` — resolves the theme at run time, so a refusal is toned by whatever theme is current rather than the boot one.
-    # 
-    # _@param_ `logger` — takes the shadowing warnings, so they carry the composing shell's subsystem tag.
-    # 
-    # _@param_ `on_expand` — called with the expanded template +String+; drives it as a user turn.
-    # 
-    # _@return_ — in the registry's own precedence
-    # order.
-    def self.build: (
-                      registry: Pikuri::Command::Registry,
-                      reserved: ::Array[String],
-                      screen: Tuile::Screen,
-                      logger: Logger,
-                      on_expand: Proc
-                    ) -> ::Array[Shared::SlashCommand]
-
-    # _@param_ `command`
-    # 
-    # _@return_ — the palette's right column: the argument hint leads when
-    # the file declared one, since that is what you type next.
-    def hint: (Pikuri::Command::Registry::Command command) -> String
-
-    # _@param_ `command`
-    # 
-    # _@return_ — the palette's right column: the argument hint leads when
-    # the file declared one, since that is what you type next.
-    def self.hint: (Pikuri::Command::Registry::Command command) -> String
-
-    # _@param_ `registry`
-    # 
-    # _@param_ `command`
-    # 
-    # _@param_ `screen`
-    # 
-    # _@param_ `on_expand`
-    # 
-    # _@return_ — the +(rest)+ action; +nil+ return for a command that ran (the
-    # turn is its own record), the refusal reason for one that cannot.
-    def callback: (
-                    Pikuri::Command::Registry registry,
-                    Pikuri::Command::Registry::Command command,
-                    Tuile::Screen screen,
-                    Proc on_expand
-                  ) -> Proc
-
-    # _@param_ `registry`
-    # 
-    # _@param_ `command`
-    # 
-    # _@param_ `screen`
-    # 
-    # _@param_ `on_expand`
-    # 
-    # _@return_ — the +(rest)+ action; +nil+ return for a command that ran (the
-    # turn is its own record), the refusal reason for one that cannot.
-    def self.callback: (
-                         Pikuri::Command::Registry registry,
-                         Pikuri::Command::Registry::Command command,
-                         Tuile::Screen screen,
-                         Proc on_expand
-                       ) -> Proc
-  end
-
-  # One slash command: the typed name, the autocomplete hint, and the action.
-  # 
-  #   # an action command ignores the rest of the line:
-  #   Shared::SlashCommand.new('/diff', 'show the git diff',
-  #                            ->(_rest) { sidebar.open_diff; 'Opened the git diff.' })
-  #   # a skill command consumes it as a follow-up message:
-  #   Shared::SlashCommand.new('/writing-rdoc', 'writing rdoc docs',
-  #                            ->(rest) { skill_ext.schedule_load_skill('writing-rdoc'); session.submit(rest); nil })
-  # 
-  # The +description+ is the right-column hint in the {Shared::SlashMenuPopup}
-  # list; the +callback+'s *return value* is a separate string — the outcome
-  # shown below the command in the conversation pane once it runs (nil for none,
-  # e.g. a command that drives an agent turn and lets the turn be its own record).
-  # So the hint ("show the git diff") and the effect report ("Opened the git
-  # diff.") are distinct, and a command can report a dynamic result.
-  # 
-  # The +rest+ argument is the text after the command name (+""+ when none) —
-  # {Shared::SlashMenuPopup} splits +"/name rest"+ and passes +rest+ through. An
-  # action command takes-and-ignores it (+->(_rest) { … }+); a skill command
-  # forwards it to the agent as a follow-up message.
-  # 
-  # Sibling of {Shared::LeaderMenu::Action}; each shell registers its own set.
-  # 
-  # @!attribute [r] name
-  #   @return [String] the command as typed, leading slash included (+"/diff"+).
-  # @!attribute [r] description
-  #   @return [String] the autocomplete hint (right column of the popup list).
-  # @!attribute [r] callback
-  #   @return [Proc, Method] one-arg action (the +rest+ String), run one tick
-  #     after Enter; its +String+ (or nil) return is echoed below the command as
-  #     the outcome.
-  class SlashCommand < Data
-    # _@return_ — the command as typed, leading slash included (+"/diff"+).
-    attr_reader name: String
-
-    # _@return_ — the autocomplete hint (right column of the popup list).
-    attr_reader description: String
-
-    # _@return_ — one-arg action (the +rest+ String), run one tick
-    # after Enter; its +String+ (or nil) return is echoed below the command as
-    # the outcome.
-    attr_reader callback: (Proc | Method)
-  end
-
-  # Shell-style recall for the prompt: the messages submitted this session,
-  # oldest first, with the unsent draft pinned one slot *below* the newest — so
-  # browsing away from what you were typing and back is lossless.
-  # 
-  #   history.append('deploy staging')  # the user submits
-  #   history.draft = 'half-typed'      # capture on leaving the draft (the first Up)
-  #   history.older                     # => 'deploy staging'
-  #   history.older                     # => nil — already at the oldest
-  #   history.newer                     # => 'half-typed' — back on the draft
-  # 
-  # Entries are frozen and never rewritten — the arrows always show exactly what
-  # was sent, and the draft is the one mutable slot.
-  class PromptHistory
-    def initialize: () -> void
-
-    # _@return_ — the entries, oldest first; a copy, so mutating it
-    # doesn't reach the store.
-    def entries: () -> ::Array[String]
-
-    # _@return_ — whether the cursor is on the draft, i.e. nothing is
-    # currently recalled.
-    def at_draft?: () -> bool
-
-    # Record a submitted message, then return the cursor to a cleared draft —
-    # so submitting while browsing discards the pending draft, as shells do.
-    # Only *consecutive* duplicates collapse (zsh's +HIST_IGNORE_DUPS+):
-    # 
-    #   history.append('ls'); history.append('ls')    # => one entry
-    #   history.append('pwd'); history.append('ls')   # => ls, pwd, ls
-    # 
-    # _@param_ `text` — the submitted text; kept frozen, so the caller may go on mutating the String it passed.
-    def append: (String text) -> void
-
-    # _@param_ `text` — the unsent buffer to preserve; kept frozen.
-    def draft=: (String text) -> void
-
-    # Step one entry toward the oldest.
-    # 
-    # _@return_ — the entry to show, or +nil+ when the cursor is
-    # already on the oldest entry (or there is no history at all).
-    def older: () -> String?
-
-    # Step one entry toward the newest, stopping on the draft.
-    # 
-    # _@return_ — the entry to show — the draft, once past the newest
-    # entry — or +nil+ when the cursor is already on the draft.
-    def newer: () -> String?
-
-    # Abandon browsing and go straight back to the draft.
-    # 
-    # _@return_ — the preserved draft (+""+ when none was captured).
-    def jump_to_draft: () -> String
-  end
-
-  # A single open streamed block: a {Tuile::Component::TextView::Region} plus the
-  # streaming buffer writing into it, opened lazily on the first {#append} and then
-  # closed one of three ways - {#finalize} (commit the authoritative text),
-  # {#wipe} (drop the region and its content), or {#preserve} (drop the handle,
-  # keep the content on screen). The assistant answer and the reasoning pane are
-  # each one of these; they differ only in which buffer builder opens them, which
-  # is exactly what the +open+ factory captures.
-  # 
-  #   block = Shared::StreamedBlock.new do
-  #     region = view.create_region
-  #     [region, view.build_assistant_buffer(region, indent: 0)]
-  #   end
-  #   block.append(delta)     # opens the region + buffer on the first call
-  #   block.finalize(full)    # commit the final text, then close
-  #   # …or, on an event that interrupts the stream:
-  #   block.wipe              # a ToolCall arrived mid-answer -> remove the preview
-  #   block.preserve          # a cancel -> keep what streamed, drop the handle
-  # 
-  # After any close ({#finalize} / {#wipe} / {#preserve}) the block is reusable: the
-  # next {#append} opens a fresh region + buffer. {#wipe} / {#preserve} / {#finalize}
-  # are no-ops while closed, so a caller can fire them unconditionally on an
-  # interrupting event without first checking {#open?}.
-  # 
-  # UI-thread-confined: every region / buffer mutation it makes must run on the UI
-  # thread (the caller marshals the driving event stream there).
-  class StreamedBlock
-    def initialize: () ?{ () -> [Tuile::Component::TextView::Region, untyped] } -> void
-
-    # _@return_ — whether the block is currently open (holds an unfinalized
-    # buffer).
-    def open?: () -> bool
-
-    # Append a streamed delta, opening the region + buffer on the first call.
-    # 
-    # _@param_ `content` — the delta text.
-    def append: (String content) -> void
-
-    # Commit the authoritative full text (which may replace a truncated preview)
-    # and close. A no-op when not open.
-    # 
-    # _@param_ `content` — the final text.
-    def finalize: (String content) -> void
-
-    # Remove the region and its rendered content, then close - for an event that
-    # interrupts an unfinished stream (e.g. a tool call mid-answer). A no-op when
-    # not open.
-    def wipe: () -> void
-
-    # Drop the region / buffer handles but leave the rendered content on screen -
-    # for a stream that should stay (a cancel, or handing off to a non-streamed
-    # bookend). A no-op when not open.
-    def preserve: () -> void
-
-    def close: () -> void
-  end
-
-  # The transcript-density submenu — a {Shared::LeaderMenu} whose labels carry
-  # live state, lazyvim's +<leader>u+ retargeted at Tuile. Hang it off the
-  # leader menu:
-  # 
-  #   ui = Shared::UIToggleMenu.new(screen: screen, conversation: conversation)
-  #   menu.add('u', 'UI toggles') { ui.open }
-  # 
-  #   Ctrl+K  u
-  #   ┌ UI ─────────────────────┐
-  #   │ t  thinking: shown      │
-  #   │ v  tool lines: short    │
-  #   └─────────────────────────┘
-  # 
-  # Each entry flips one {Shared::ConversationTextView} display flag, a session
-  # override of a +[ui]+ config default that is never written back.
-  # 
-  # A submenu rather than two more top-level keys, and worth the extra keystroke
-  # only because there are two: it keeps the leader menu a list of *actions*
-  # (open the logs, clear the conversation) rather than a mix of actions and
-  # settings, and puts the two preferences where they read against each other.
-  # 
-  # UI-thread-confined.
-  class UIToggleMenu
-    CAPTION: String
-
-    # _@param_ `screen` — the screen the popup mounts on.
-    # 
-    # _@param_ `conversation` — the pane whose display flags these entries flip.
-    def initialize: (screen: Tuile::Screen, conversation: Shared::ConversationTextView) -> void
-
-    def open: () -> void
-
-    # _@return_ — the toggle entries, in display
-    # order. Exposed for tests.
-    def actions: () -> ::Array[Shared::LeaderMenu::Action]
-  end
-
-  # Installs each +[[server]] max_concurrent_requests+ into pikuri's
-  # process-wide request throttle, logging a line per server it sized:
+  # Installs each +[[server]] max_concurrent_requests+ into the process-wide
+  # request throttle every conversation's requests pass through
+  # (+Pikuri::Conversations::Throttle+), logging a line per server it sized:
   # 
   #   Shared::RequestPermits.install(config.servers)
   #   # permits: grok at most 4 concurrent request(s) → https://api.x.ai/v1
   # 
-  # A server naming no ceiling is left alone, so pikuri's +/props+ probe sizes it
-  # from the box's own +total_slots+. Don't add a spelling for "explicitly
-  # unlimited": it suppresses that probe, and the only server worth typing it
-  # against is a cloud endpoint the probe already answers for.
+  # A server naming no ceiling is left alone, so the conversation's +/props+
+  # probe sizes it from the box's own +total_slots+. Don't add a spelling for
+  # "explicitly unlimited": it suppresses that probe, and the only server worth
+  # typing it against is a cloud endpoint the probe already answers for.
   # 
   # == Implementation details
   # 
-  # +.limit+ wins by *decision*, not by ordering: +ServerPermits+ marks an
-  # explicit size and refuses to let the probe's +.default+ overwrite it, so this
-  # may run before or after the agent is built. Its scope is one process, not the
+  # +.limit+ wins by *decision*, not by ordering: the throttle marks an explicit
+  # size and refuses to let the probe's +.default+ overwrite it, so this may run
+  # before or after the conversation boots. Its scope is one process, not the
   # machine — three shells against one llama.cpp each get the full allowance.
   # 
-  # The ceiling rations nothing in a pikuri-tui process, and this is still not
-  # dead wiring. Nothing here puts two requests in flight (+tool_concurrency+ is
-  # off, +SubAgentTool+ runs its child's loop inline, {Shared::AgentSession}
-  # takes one turn at a time), so the live effect is narrower: a sized server
-  # counts as *known* and skips the boot +/props+ probe (pikuri's
-  # +decisions.md+ → +probe_when_unknown+). The ceiling is installed for the schema's
-  # other consumer, pikuri-web, which does serve concurrent conversations — and
-  # for the day this one does.
+  # The ceiling rations little in a pikuri-tui process — one conversation, one
+  # turn at a time, a sub-agent's loop inline — so the live effect is mostly
+  # narrower: a sized server whose model states its cap and modalities skips the
+  # per-turn +/props+ probe. The ceiling is installed for the schema's other
+  # consumer, pikuri-webui, which serves concurrent conversations, and for the
+  # day this one does.
   module RequestPermits
     LOG: Logger
 
@@ -3758,8 +3379,8 @@ module Shared
   # The one-row rule separating the conversation pane from the prompt, carrying
   # the agent's status readout. A busy rule reads:
   # 
-  #   ── ⏸ decision — Tab to answer · ‖ Plan Mode · ⠹ ~/work/pikuri-tui · Qwen 3.6 · 2 queued · 25k/60k ──
-  #      <parked decision>            <plan mode>   <spinner> <context>  <model>    <queued>   <token stats>
+  #   ── ⏸ decision — Tab to answer · ‖ Plan Mode · ⠹ ~/pikuri-tui · Qwen · 2 queued · msg #3: ctx=25.0k … · cap 60.0k ──
+  #      <parked decision>            <plan mode>   <spinner> <context> <model> <queued> <token stats>        <window>
   # 
   # Empty segments drop out (chat never lights the badge; an idle agent shows no
   # spinner) and with nothing at all to say the row is a plain hairline. With the
@@ -3773,20 +3394,19 @@ module Shared
   # instead, e.g. +⤷ researcher  8k/60k+, so the readout doesn't freeze while the
   # main agent blocks in the +agent+ tool.
   # 
-  # Drive it with the setters and the spinner controls. It also duck-types as an
-  # agent listener via {#on_event} — fold it into the agent's +ListenerList+ and
-  # it re-points {#current_model} whenever a +run_loop+ model switch lands:
+  # Most of it follows the conversation by itself: hand it to
+  # +Pikuri::Conversations#open+ as (part of) the listener and it spins while the
+  # agent boots or a turn runs, counts the queued messages, keeps the token line
+  # and the context window, and re-points {#current_model} when a model switch
+  # lands. The rest the host sets:
   # 
-  #   rule = Shared::StatusRuleLabel.new(token_log: token_log)
-  #   rule.current_model = 'Local Qwen 3.6'  # boot model
-  #   rule.interloper = agent.interloper     # enables the "N queued" segment
-  #   rule.plan_active = true                # lights the badge
-  #   rule.start_animation                   # spinner on for a turn; stop_animation after
-  #   config.add_listener(rule)              # re-points current_model on a switch
+  #   rule = Shared::StatusRuleLabel.new(names: picker.names, context: project_root.to_s)
+  #   rule.current_model = transport   # boot model
+  #   rule.plan_active = true          # lights the badge
+  #   conversations.open(id: 'main', transport:, listener: Shared::FanoutListener.new([..., rule]))
   # 
-  # +token_log+ must be the *same* {Pikuri::Agent::Listener::TokenLog} instance
-  # wired into the agent — the rule reads its cached +status_line+ rather than
-  # subscribing to events itself.
+  # The token line is a {Pikuri::Agent::Listener::TokenLog}'s, one per agent: a
+  # fresh one at every boot, so a cleared conversation starts from zero.
   # 
   # The row paints +:pane_bg+, so it reads as the top edge of the tinted block
   # the {Shared::InputPane} continues rather than as a divider on the terminal
@@ -3800,21 +3420,16 @@ module Shared
   # 
   # Shared by all three shells.
   # 
-  # UI-thread-confined, with exceptions ({#on_event} and the token-log observer
-  # both self-marshal).
+  # UI-thread-confined, with exceptions.
   class StatusRuleLabel < Tuile::Component::Label
     SPINNER: ::Array[String]
     FRAME_INTERVAL_S: Float
     LEAD: Integer
 
-    # Claims the +token_log.on_status_line+ observer slot.
-    # 
-    # _@param_ `token_log` — the agent's token log; must be the *same* instance wired into the agent (see class docs).
-    # 
     # _@param_ `names` — {Shared::Model::Choice.key} → display name, used to resolve a transport passed to {#current_model=}; transports absent from the map render as their raw model id.
     # 
     # _@param_ `context` — a static leading segment naming what the agent is pointed at — the coding shell passes its project root, the chat and computer shells nothing. Unlike every other segment it never changes, so it is a constructor argument rather than a setter.
-    def initialize: (token_log: Pikuri::Agent::Listener::TokenLog, ?names: ::Hash[[String, String, ::Hash[untyped, untyped]], String], ?context: String?) -> void
+    def initialize: (?names: ::Hash[[String, String, ::Hash[untyped, untyped]], String], ?context: String?) -> void
 
     # Start the mid-turn spinner ticker; idempotent.
     def start_animation: () -> void
@@ -3822,17 +3437,19 @@ module Shared
     # Stop the spinner ticker and settle the rule back to idle; idempotent.
     def stop_animation: () -> void
 
-    # Agent-listener entry point (duck-typed — the rule plays the listener role
-    # without subclassing +Pikuri::Agent::Listener::Base+): on a +run_loop+ model
-    # switch ({Pikuri::Agent::Event::ModelSwitched}), re-points {#current_model}
-    # to the switched-to transport; ignores every other event. Fold the rule into
-    # the agent's +ListenerList+ for this.
+    # Listener entry point (duck-typed — the rule plays the listener role without
+    # subclassing +Pikuri::Agent::Listener::Base+), for the agent's events and
+    # the conversation's alike. Safe from any thread: what touches the rule is
+    # marshaled onto the UI thread.
     # 
-    # Safe from any thread: invoked on the agent's worker thread, it marshals the
-    # {#current_model=} back onto the UI thread via +screen.event_queue.submit+.
+    # _@param_ `event` — any agent or conversation event; the rest are ignored.
+    def on_event: (Object event) -> void
+
+    # A spawned sub-agent counts its own tokens; its line takes the token slot
+    # while it runs.
     # 
-    # _@param_ `event` — any agent event; only {Pikuri::Agent::Event::ModelSwitched} is acted on.
-    def on_event: (Data event) -> void
+    # _@param_ `params` — +id:+, the sub-agent's id.
+    def for_sub_agent: (**::Hash[Symbol, Object] params) -> Pikuri::Agent::Listener::TokenLog
 
     # _@return_ — short label used by +Pikuri::Agent#to_s+ when the rule
     # is in its +ListenerList+.
@@ -3848,6 +3465,17 @@ module Shared
     # Re-renders against the new {Tuile::Screen#theme}, already in place when
     # this fires: the lead hairline and every segment tone are baked into the text.
     def handle_theme_changed: () -> void
+
+    # The UI-thread half of {#on_event}.
+    # 
+    # _@param_ `event`
+    def apply: (Object event) -> void
+
+    def ui: () -> void
+
+    # _@return_ — a zeroed log whose lines reach
+    # this rule.
+    def new_token_log: () -> Pikuri::Agent::Listener::TokenLog
 
     # Resolve a transport to its friendly connection name via +names+, falling
     # back to the raw model id when the +[model, api_base]+ pair isn't mapped.
@@ -3904,9 +3532,15 @@ module Shared
     # coding shell's own change summary does.
     def files_segment: (WorkspaceDigest digest) -> String
 
-    # The agent's mid-loop input queue; its +#size+ drives the "N queued"
-    # segment. +nil+ until the host wires one.
-    attr_accessor interloper: Pikuri::Agent::Control::Interloper?
+    # _@return_ — messages waiting for the agent, shown as "N queued".
+    attr_reader pending: Integer
+
+    # _@return_ — the context window the conversation runs against, in
+    # tokens; +nil+ while unknown.
+    attr_reader context_cap: Integer?
+
+    # _@return_ — the current agent's token log.
+    attr_reader token_log: Pikuri::Agent::Listener::TokenLog
 
     # Display name shown as the readout's leading segment (after any badge);
     # +nil+/empty renders no model segment.
@@ -4037,6 +3671,62 @@ module Shared
     attr_accessor caption: (String | Tuile::StyledString)
   end
 
+  # Coalesces streaming deltas ({Pikuri::Agent::Event::AssistantDelta},
+  # {Pikuri::Agent::Event::ThinkingDelta}) into at most +fps+ events a second
+  # before they reach +inner+; every other event flows straight through.
+  # 
+  #   listener = Shared::RateLimitedListener.new(view.listener, fps: 15)
+  #   # 60 deltas/s from a fast llama.cpp → 15 Markdown re-renders/s in the pane
+  # 
+  # A buffered delta is dropped when its own bookend (+Assistant+ / +Thinking+)
+  # arrives, since the bookend carries the whole text and the inner listener
+  # re-renders from it; any other event — a tool call, the conversation's
+  # +PendingChanged+ as the user types mid-turn — first flushes what is buffered,
+  # so the stream reaches the pane whole and in order.
+  # 
+  # == Implementation details
+  # 
+  # The tick schedule is anchored at construction, not at the first delta, so
+  # stream-startup latency doesn't leak into the cadence; after a flush it
+  # advances by whole periods, so a long-idle stream doesn't backlog ticks.
+  # Assistant and thinking deltas buffer independently.
+  # 
+  # A conversation reaches its listener from more than one thread — the turn
+  # thread, and the UI thread for a cancel — so every event is handled under one
+  # lock, +inner+'s +on_event+ included. That suits an inner listener which only
+  # marshals onto the UI thread and returns.
+  # 
+  # Thread-safe.
+  class RateLimitedListener < Pikuri::Agent::Listener::Base
+    # _@param_ `inner` — where the coalesced stream goes.
+    # 
+    # _@param_ `fps` — the cap on delta events a second; positive.
+    # 
+    # _@param_ `clock` — zero-arg → monotonic seconds; a spec's seam.
+    def initialize: (Pikuri::Agent::Listener::Base inner, fps: (Integer | Float), ?clock: Proc) -> void
+
+    # _@param_ `event` — any agent or conversation event.
+    def on_event: (Object event) -> void
+
+    # Wraps the inner listener's sub-agent variant in a fresh limiter with the
+    # same knobs; +nil+ when the inner one opts out.
+    # 
+    # _@param_ `params` — forwarded to the inner's +for_sub_agent+.
+    def for_sub_agent: (**::Hash[Symbol, Object] params) -> Shared::RateLimitedListener?
+
+    # _@return_ — e.g. +"RateLimited(15fps, Listener)"+.
+    def to_s: () -> String
+
+    # _@param_ `event`
+    def handle: (Object event) -> void
+
+    def tick: () -> void
+
+    def flush_assistant: () -> void
+
+    def flush_thinking: () -> void
+  end
+
   # The conversation transcript as one cohesive Tuile component: a
   # {Tuile::Component::TextView} that renders an agent conversation into itself —
   # user turns, streamed reasoning, streamed assistant answers, tool calls, tool
@@ -4129,7 +3819,7 @@ module Shared
   # renders through a recolor-only function, so the gray tint survives.
   # 
   # UI-thread-confined, with exceptions (the nested {Listener} marshals the event
-  # stream onto the UI thread before driving these verbs; {#render_turn_error} is
+  # stream onto the UI thread before driving these verbs; {#render_notice} is
   # safe off-thread and self-marshals).
   class ConversationTextView < Tuile::Component::TextView
     TOOL_DETAIL_MODES: ::Array[Symbol]
@@ -4289,17 +3979,9 @@ module Shared
     # _@return_ — gray-toned ANSI text
     def render_thinking: (String content) -> String
 
-    # Append a one-line, error-themed turn-failure notice to the transcript.
-    # Safe to call from the agent worker thread; marshals its own append onto
-    # the event-loop thread.
-    # 
-    # _@param_ `exception` — the caught library exception.
-    def render_turn_error: (StandardError exception) -> void
-
-    # Append a one-line, muted informational notice to the transcript — the dim
-    # sibling of {#render_turn_error}, same self-marshaling shape but the detail
-    # tone, so a non-failure (e.g. a bare skill-load with nothing to send yet)
-    # never reads as an error. Safe to call from the agent worker thread.
+    # Append a one-line, muted informational notice to the transcript, in the
+    # detail tone so it never reads as an error. Safe to call from the agent
+    # worker thread.
     # 
     # _@param_ `text` — the notice, plain; this applies the tone.
     def render_notice: (String text) -> void
@@ -4454,8 +4136,10 @@ module Shared
     #    capped here. The terminal listener's argument dump survives as the
     #    pane's +:verbose+ form.
     # 
-    # +Tokens+ / +ContextCap+ stay silent (their consumer is
-    # +Pikuri::Agent::Listener::TokenLog+).
+    # It hears the conversation's events too: a +Booting+ agent starts the
+    # transcript over, and a failed boot or turn ends in one error line. +Tokens+
+    # and the conversation's bookkeeping (the cap, the pending count) stay silent;
+    # they are {Shared::StatusRuleLabel}'s.
     # 
     # {#on_event} fires on the agent's worker thread and wraps the whole dispatch
     # in +screen.event_queue.submit+, so every region mutation runs on the
@@ -4497,6 +4181,18 @@ module Shared
       # 
       # _@param_ `event` — any agent event (a +Pikuri::Agent::Event+ variant).
       def dispatch_event: (Data event) -> void
+
+      # The +! cancelled+ line, closing whatever was streaming.
+      def render_cancelled: () -> void
+
+      # One error line in the transcript; the backtrace goes to the log pane.
+      # 
+      #   ! RubyLLM::ServerError: connection refused
+      # 
+      # _@param_ `what` — what failed, for the log line.
+      # 
+      # _@param_ `error`
+      def render_failure: (String what, StandardError error) -> void
 
       # Render a {Pikuri::Agent::Event::SystemInjected} body — dim, with a ⊕
       # marker, mirroring +Pikuri::Agent::Listener::Terminal+ — collapsing the two
@@ -4626,14 +4322,322 @@ module Shared
       # _@param_ `limit`
       def cap: (String text, Integer limit) -> String
 
-      # Wipe the pane and drop every per-turn render handle on
-      # {Pikuri::Agent::Event::Reset} (the host cleared the conversation). The
-      # pane is cleared (detaching all regions, including any open buffers'), then
+      # Wipe the pane and drop every per-turn render handle as a new agent boots.
+      # The pane is cleared (detaching all regions, including any open buffers'), then
       # both blocks are +preserve+d — dropping their now-detached handles without
       # a second +region.remove+ — and the streaming / pairing slots reset to
       # construction state.
       def reset_conversation: () -> void
     end
+  end
+
+  # The transcript-density submenu — a {Shared::LeaderMenu} whose labels carry
+  # live state, lazyvim's +<leader>u+ retargeted at Tuile. Hang it off the
+  # leader menu:
+  # 
+  #   ui = Shared::UIToggleMenu.new(screen: screen, conversation: conversation)
+  #   menu.add('u', 'UI toggles') { ui.open }
+  # 
+  #   Ctrl+K  u
+  #   ┌ UI ─────────────────────┐
+  #   │ t  thinking: shown      │
+  #   │ v  tool lines: short    │
+  #   └─────────────────────────┘
+  # 
+  # Each entry flips one {Shared::ConversationTextView} display flag, a session
+  # override of a +[ui]+ config default that is never written back.
+  # 
+  # A submenu rather than two more top-level keys, and worth the extra keystroke
+  # only because there are two: it keeps the leader menu a list of *actions*
+  # (open the logs, clear the conversation) rather than a mix of actions and
+  # settings, and puts the two preferences where they read against each other.
+  # 
+  # UI-thread-confined.
+  class UIToggleMenu
+    CAPTION: String
+
+    # _@param_ `screen` — the screen the popup mounts on.
+    # 
+    # _@param_ `conversation` — the pane whose display flags these entries flip.
+    def initialize: (screen: Tuile::Screen, conversation: Shared::ConversationTextView) -> void
+
+    def open: () -> void
+
+    # _@return_ — the toggle entries, in display
+    # order. Exposed for tests.
+    def actions: () -> ::Array[Shared::LeaderMenu::Action]
+  end
+
+  # A single open streamed block: a {Tuile::Component::TextView::Region} plus the
+  # streaming buffer writing into it, opened lazily on the first {#append} and then
+  # closed one of three ways - {#finalize} (commit the authoritative text),
+  # {#wipe} (drop the region and its content), or {#preserve} (drop the handle,
+  # keep the content on screen). The assistant answer and the reasoning pane are
+  # each one of these; they differ only in which buffer builder opens them, which
+  # is exactly what the +open+ factory captures.
+  # 
+  #   block = Shared::StreamedBlock.new do
+  #     region = view.create_region
+  #     [region, view.build_assistant_buffer(region, indent: 0)]
+  #   end
+  #   block.append(delta)     # opens the region + buffer on the first call
+  #   block.finalize(full)    # commit the final text, then close
+  #   # …or, on an event that interrupts the stream:
+  #   block.wipe              # a ToolCall arrived mid-answer -> remove the preview
+  #   block.preserve          # a cancel -> keep what streamed, drop the handle
+  # 
+  # After any close ({#finalize} / {#wipe} / {#preserve}) the block is reusable: the
+  # next {#append} opens a fresh region + buffer. {#wipe} / {#preserve} / {#finalize}
+  # are no-ops while closed, so a caller can fire them unconditionally on an
+  # interrupting event without first checking {#open?}.
+  # 
+  # UI-thread-confined: every region / buffer mutation it makes must run on the UI
+  # thread (the caller marshals the driving event stream there).
+  class StreamedBlock
+    def initialize: () ?{ () -> [Tuile::Component::TextView::Region, untyped] } -> void
+
+    # _@return_ — whether the block is currently open (holds an unfinalized
+    # buffer).
+    def open?: () -> bool
+
+    # Append a streamed delta, opening the region + buffer on the first call.
+    # 
+    # _@param_ `content` — the delta text.
+    def append: (String content) -> void
+
+    # Commit the authoritative full text (which may replace a truncated preview)
+    # and close. A no-op when not open.
+    # 
+    # _@param_ `content` — the final text.
+    def finalize: (String content) -> void
+
+    # Remove the region and its rendered content, then close - for an event that
+    # interrupts an unfinished stream (e.g. a tool call mid-answer). A no-op when
+    # not open.
+    def wipe: () -> void
+
+    # Drop the region / buffer handles but leave the rendered content on screen -
+    # for a stream that should stay (a cancel, or handing off to a non-streamed
+    # bookend). A no-op when not open.
+    def preserve: () -> void
+
+    def close: () -> void
+  end
+
+  # Shell-style recall for the prompt: the messages submitted this session,
+  # oldest first, with the unsent draft pinned one slot *below* the newest — so
+  # browsing away from what you were typing and back is lossless.
+  # 
+  #   history.append('deploy staging')  # the user submits
+  #   history.draft = 'half-typed'      # capture on leaving the draft (the first Up)
+  #   history.older                     # => 'deploy staging'
+  #   history.older                     # => nil — already at the oldest
+  #   history.newer                     # => 'half-typed' — back on the draft
+  # 
+  # Entries are frozen and never rewritten — the arrows always show exactly what
+  # was sent, and the draft is the one mutable slot.
+  class PromptHistory
+    def initialize: () -> void
+
+    # _@return_ — the entries, oldest first; a copy, so mutating it
+    # doesn't reach the store.
+    def entries: () -> ::Array[String]
+
+    # _@return_ — whether the cursor is on the draft, i.e. nothing is
+    # currently recalled.
+    def at_draft?: () -> bool
+
+    # Record a submitted message, then return the cursor to a cleared draft —
+    # so submitting while browsing discards the pending draft, as shells do.
+    # Only *consecutive* duplicates collapse (zsh's +HIST_IGNORE_DUPS+):
+    # 
+    #   history.append('ls'); history.append('ls')    # => one entry
+    #   history.append('pwd'); history.append('ls')   # => ls, pwd, ls
+    # 
+    # _@param_ `text` — the submitted text; kept frozen, so the caller may go on mutating the String it passed.
+    def append: (String text) -> void
+
+    # _@param_ `text` — the unsent buffer to preserve; kept frozen.
+    def draft=: (String text) -> void
+
+    # Step one entry toward the oldest.
+    # 
+    # _@return_ — the entry to show, or +nil+ when the cursor is
+    # already on the oldest entry (or there is no history at all).
+    def older: () -> String?
+
+    # Step one entry toward the newest, stopping on the draft.
+    # 
+    # _@return_ — the entry to show — the draft, once past the newest
+    # entry — or +nil+ when the cursor is already on the draft.
+    def newer: () -> String?
+
+    # Abandon browsing and go straight back to the draft.
+    # 
+    # _@return_ — the preserved draft (+""+ when none was captured).
+    def jump_to_draft: () -> String
+  end
+
+  # One slash command: the typed name, the autocomplete hint, and the action.
+  # 
+  #   # an action command ignores the rest of the line:
+  #   Shared::SlashCommand.new('/diff', 'show the git diff',
+  #                            ->(_rest) { sidebar.open_diff; 'Opened the git diff.' })
+  #   # a skill command consumes it as a follow-up message:
+  #   Shared::SlashCommand.new('/writing-rdoc', 'writing rdoc docs',
+  #                            ->(rest) { load_skill('writing-rdoc', rest); nil })
+  # 
+  # The +description+ is the right-column hint in the {Shared::SlashMenuPopup}
+  # list; the +callback+'s *return value* is a separate string — the outcome
+  # shown below the command in the conversation pane once it runs (nil for none,
+  # e.g. a command that drives an agent turn and lets the turn be its own record).
+  # So the hint ("show the git diff") and the effect report ("Opened the git
+  # diff.") are distinct, and a command can report a dynamic result.
+  # 
+  # The +rest+ argument is the text after the command name (+""+ when none) —
+  # {Shared::SlashMenuPopup} splits +"/name rest"+ and passes +rest+ through. An
+  # action command takes-and-ignores it (+->(_rest) { … }+); a skill command
+  # forwards it to the agent as a follow-up message.
+  # 
+  # Sibling of {Shared::LeaderMenu::Action}; each shell registers its own set.
+  # 
+  # @!attribute [r] name
+  #   @return [String] the command as typed, leading slash included (+"/diff"+).
+  # @!attribute [r] description
+  #   @return [String] the autocomplete hint (right column of the popup list).
+  # @!attribute [r] callback
+  #   @return [Proc, Method] one-arg action (the +rest+ String), run one tick
+  #     after Enter; its +String+ (or nil) return is echoed below the command as
+  #     the outcome.
+  class SlashCommand < Data
+    # _@return_ — the command as typed, leading slash included (+"/diff"+).
+    attr_reader name: String
+
+    # _@return_ — the autocomplete hint (right column of the popup list).
+    attr_reader description: String
+
+    # _@return_ — one-arg action (the +rest+ String), run one tick
+    # after Enter; its +String+ (or nil) return is echoed below the command as
+    # the outcome.
+    attr_reader callback: (Proc | Method)
+  end
+
+  # Turns pikuri's on-disk slash commands — the +.md+ prompt templates under
+  # +.pikuri/commands+ / +.claude/commands+ — into {Shared::SlashCommand}s the
+  # palette can list and run:
+  # 
+  #   commands = Shared::FileCommands.build(
+  #     registry: command_registry, reserved: built_ins.map(&:name),
+  #     screen: screen, logger: LOG,
+  #     on_expand: ->(text) { session.submit(text) }
+  #   )
+  #   #=> [#<SlashCommand name="/wh" description="<label> — weekly work log" …>]
+  # 
+  # Running one expands its template (+$ARGUMENTS+, +$1+…+$9+) against the rest
+  # of the typed line and hands the result to +on_expand+ as an ordinary user
+  # turn — the human wrote it, the template just saved the typing. So it is not a
+  # +:system+ block and it is not hidden from the transcript.
+  # 
+  # A command whose file pikuri refuses — it declares +allowed-tools:+, or its
+  # body carries a <code>!`cmd`</code> shell directive — is still listed, marked
+  # +(unavailable)+, and answers with the reason instead of running. A menu entry
+  # that silently vanished would be the worse failure, since the human is looking
+  # straight at the list.
+  # 
+  # +reserved+ is what a built-in already took. A file command may not capture a
+  # built-in verb: a cloned repo shipping +.claude/commands/plan.md+ would
+  # otherwise take over +/plan+, which flips a safety gate. The loser is dropped
+  # with a warn, and dropped is all it is — unlike a shadowed skill, nothing else
+  # reaches it.
+  # 
+  # Requires no pikuri gem: +registry+ is duck-typed, so the lean chat process
+  # (which never loads pikuri-skills) can still eager-load this file.
+  module FileCommands
+    # _@param_ `registry` — the scanned command files.
+    # 
+    # _@param_ `reserved` — command names already taken, leading slash included.
+    # 
+    # _@param_ `screen` — resolves the theme at run time, so a refusal is toned by whatever theme is current rather than the boot one.
+    # 
+    # _@param_ `logger` — takes the shadowing warnings, so they carry the composing shell's subsystem tag.
+    # 
+    # _@param_ `on_expand` — called with the expanded template +String+; drives it as a user turn.
+    # 
+    # _@return_ — in the registry's own precedence
+    # order.
+    def build: (
+                 registry: Pikuri::Command::Registry,
+                 reserved: ::Array[String],
+                 screen: Tuile::Screen,
+                 logger: Logger,
+                 on_expand: Proc
+               ) -> ::Array[Shared::SlashCommand]
+
+    # _@param_ `registry` — the scanned command files.
+    # 
+    # _@param_ `reserved` — command names already taken, leading slash included.
+    # 
+    # _@param_ `screen` — resolves the theme at run time, so a refusal is toned by whatever theme is current rather than the boot one.
+    # 
+    # _@param_ `logger` — takes the shadowing warnings, so they carry the composing shell's subsystem tag.
+    # 
+    # _@param_ `on_expand` — called with the expanded template +String+; drives it as a user turn.
+    # 
+    # _@return_ — in the registry's own precedence
+    # order.
+    def self.build: (
+                      registry: Pikuri::Command::Registry,
+                      reserved: ::Array[String],
+                      screen: Tuile::Screen,
+                      logger: Logger,
+                      on_expand: Proc
+                    ) -> ::Array[Shared::SlashCommand]
+
+    # _@param_ `command`
+    # 
+    # _@return_ — the palette's right column: the argument hint leads when
+    # the file declared one, since that is what you type next.
+    def hint: (Pikuri::Command::Registry::Command command) -> String
+
+    # _@param_ `command`
+    # 
+    # _@return_ — the palette's right column: the argument hint leads when
+    # the file declared one, since that is what you type next.
+    def self.hint: (Pikuri::Command::Registry::Command command) -> String
+
+    # _@param_ `registry`
+    # 
+    # _@param_ `command`
+    # 
+    # _@param_ `screen`
+    # 
+    # _@param_ `on_expand`
+    # 
+    # _@return_ — the +(rest)+ action; +nil+ return for a command that ran (the
+    # turn is its own record), the refusal reason for one that cannot.
+    def callback: (
+                    Pikuri::Command::Registry registry,
+                    Pikuri::Command::Registry::Command command,
+                    Tuile::Screen screen,
+                    Proc on_expand
+                  ) -> Proc
+
+    # _@param_ `registry`
+    # 
+    # _@param_ `command`
+    # 
+    # _@param_ `screen`
+    # 
+    # _@param_ `on_expand`
+    # 
+    # _@return_ — the +(rest)+ action; +nil+ return for a command that ran (the
+    # turn is its own record), the refusal reason for one that cannot.
+    def self.callback: (
+                         Pikuri::Command::Registry registry,
+                         Pikuri::Command::Registry::Command command,
+                         Tuile::Screen screen,
+                         Proc on_expand
+                       ) -> Proc
   end
 
   # The screen's content component: a shell's pane layout with the
@@ -5915,10 +5919,10 @@ module Shared
     # flag visible in +ps+), outside the workspace the coding agent reads,
     # and flagged by a logged warning when the file has loose permissions.
     # 
-    # Field names match +Pikuri::Tool::WebSearch.build+'s keyword arguments
+    # Field names match +Pikuri::Web::Search.build+'s keyword arguments
     # 1:1, and both the bins and the shells rely on that: they splat
     # +search.to_h+ straight into +build+ (and into
-    # +Pikuri::Tool::Search::Engines.resolve+ for the boot-time check). Keep the
+    # +Pikuri::Web::Search::Engines.resolve+ for the boot-time check). Keep the
     # mirror exact — a field pikuri does not take is an unknown-keyword crash at
     # wiring time (see the "Pikuri seam" note).
     # 

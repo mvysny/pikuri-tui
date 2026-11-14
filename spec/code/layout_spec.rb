@@ -2,7 +2,7 @@
 
 RSpec.describe Code::Layout do
   let(:conversation) { Shared::ConversationTextView.new }
-  let(:status_rule)  { Shared::StatusRuleLabel.new(token_log: Pikuri::Agent::Listener::TokenLog.new) }
+  let(:status_rule)  { Shared::StatusRuleLabel.new }
   let(:input)        { Shared::InputPane.new(on_submit: ->(_text) {}) }
   let(:sidebar)      { Code::WorkspaceSidebar.new }
   let(:layout) do

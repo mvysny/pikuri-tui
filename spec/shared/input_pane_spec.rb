@@ -428,7 +428,6 @@ RSpec.describe Shared::InputPane do
   end
 
   describe 'with a slash menu' do
-    let(:token_log)    { Pikuri::Agent::Listener::TokenLog.new }
     let(:conversation) { Shared::ConversationTextView.new }
     let(:ran)          { [] } # [symbol, rest] pairs
     let(:commands) do
@@ -547,7 +546,6 @@ RSpec.describe Shared::InputPane do
   end
 
   describe 'paging the conversation' do
-    let(:token_log)    { Pikuri::Agent::Listener::TokenLog.new }
     let(:conversation) { Shared::ConversationTextView.new }
     let(:commands)     { [Shared::SlashCommand.new('/quit', 'quits the app', ->(_rest) { nil })] }
     let(:menu) do
