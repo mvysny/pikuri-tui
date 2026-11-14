@@ -75,7 +75,7 @@ module Code
   # on threads of its own, and every call into it returns at once. Enter
   # routes to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
   # {#clear_conversation}. The {TranscriptConfirmer} bridges the other
-  # way: a tool on the turn thread calls +confirm?+, which submits the
+  # way: a tool on the turn thread calls +ask+, which submits the
   # question to the UI thread and parks the worker until the user answers (see
   # its docs).
   # 
@@ -983,7 +983,7 @@ module Code
   #   store  = Code::PrivacyStore.new
   #   answer = store.answer(project_root)     # nil => never asked
   #   if answer.nil? && $stdin.tty?
-  #     answer = confirmer.confirm?(request: privacy_question)
+  #     answer = yes?(privacy_question, project_root)   # the bin's own y/N prompt
   #     store.record!(project_root, private: answer)
   #   end
   # 
@@ -2713,7 +2713,7 @@ module Computer
   # on threads of its own, and every call into it returns at once. Enter
   # routes to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
   # {#clear_conversation}. The {Code::TranscriptConfirmer} bridges the
-  # other way: a tool on the turn thread calls +confirm?+, which submits the
+  # other way: a tool on the turn thread calls +ask+, which submits the
   # question to the UI thread and parks the worker until the user answers (see
   # its docs).
   # 

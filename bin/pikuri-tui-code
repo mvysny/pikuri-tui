@@ -164,6 +164,15 @@ skill_catalog = Pikuri::Skill::Catalog::Bundled.new(search_bases: bundle_bases)
 # can read a file a command body points at.
 command_registry = Pikuri::Command::Registry.new(search_bases: bundle_bases)
 
+# Asks one of this bin's boot questions on the plain terminal, before the
+# screen is up and before any agent exists. Anything but y/yes, EOF included,
+# is no.
+def yes?(question, detail)
+  puts question, detail
+  print '[y/N] '
+  %w[y yes].include?($stdin.gets.to_s.strip.downcase)
+end
+
 # The private-data declaration, sole input to the trifecta's private leg (see
 # Code::PrivacyStore). A question and not a --private flag because a forgotten
 # flag fails silent, and silent over a repo full of secrets is the outcome the
@@ -177,16 +186,12 @@ command_registry = Pikuri::Command::Registry.new(search_bases: bundle_bases)
 privacy_store = Code::PrivacyStore.new
 private_answer = privacy_store.answer(project_root)
 if private_answer.nil? && $stdin.tty?
-  private_answer = Pikuri::Workspace::Confirmer::Terminal.new.confirm?(
-    request: Pikuri::Workspace::Confirmer::Request.new(
-      question: 'Does this project hold anything you would mind leaking ' \
-                '(credentials, client work, unpublished code)?',
-      detail: "#{project_root}\n\nAsked once per project. This sets one line of the " \
-              '/trifecta report; it blocks nothing either way. Say yes and the report ' \
-              'will tell you whenever this agent simultaneously holds private data, ' \
-              'attacker-authored content, and a way to send bytes out.'
-    )
-  )
+  private_answer = yes?('Does this project hold anything you would mind leaking ' \
+                        '(credentials, client work, unpublished code)?',
+                        "#{project_root}\n\nAsked once per project. This sets one line of the " \
+                        '/trifecta report; it blocks nothing either way. Say yes and the report ' \
+                        'will tell you whenever this agent simultaneously holds private data, ' \
+                        'attacker-authored content, and a way to send bytes out.')
   privacy_store.record!(project_root, private: private_answer)
 end
 private_repo = private_answer || false
@@ -254,9 +259,9 @@ sandbox = if sandbox_enabled
 #   - .git exists: git repos only (.exist?, not .directory? — linked worktrees
 #     and submodules carry a .git *file*).
 #   - already trusted: honored even under piped stdin; no prompt needed.
-#   - else prompt, but only on an interactive TTY. Reuses Confirmer::Terminal
-#     (sanitized puts/gets straight to the terminal — NOT the Shared::Log::BufferingIO),
-#     the same primitive upstream bin/pikuri-code uses; we add persistence.
+#   - else prompt, but only on an interactive TTY, through yes? (plain
+#     puts/gets straight to the terminal — NOT the Shared::Log::BufferingIO);
+#     we add persistence.
 # This must run before Tuile::Screen.new (a prompt is invisible once the
 # alternate screen buffer is up) and stay OUT of App (which builds the agent
 # and may re-run under a test override — re-prompting/re-persisting there would
@@ -268,16 +273,12 @@ trusted_repo =
   (trust_store.trusted?(filesystem.project_root) ||
    ($stdin.tty? &&
     begin
-      granted = Pikuri::Workspace::Confirmer::Terminal.new.confirm?(
-        request: Pikuri::Workspace::Confirmer::Request.new(
-          question: "Trust this directory's git config? Read-only git " \
-                    '(status/diff/log/show/…) will then run WITHOUT confirmation.',
-          detail: "#{filesystem.project_root}\n\nSay yes ONLY if you control this repo's " \
-                  '.git/config and committed .gitattributes: a hostile one can make even ' \
-                  '`git diff` execute arbitrary code on every read-only git call — and with ' \
-                  "the sandbox's network shared, exfiltrate. Default is no."
-        )
-      )
+      granted = yes?("Trust this directory's git config? Read-only git " \
+                     '(status/diff/log/show/…) will then run WITHOUT confirmation.',
+                     "#{filesystem.project_root}\n\nSay yes ONLY if you control this repo's " \
+                     '.git/config and committed .gitattributes: a hostile one can make even ' \
+                     '`git diff` execute arbitrary code on every read-only git call — and with ' \
+                     "the sandbox's network shared, exfiltrate. Default is no.")
       trust_store.trust!(filesystem.project_root) if granted
       granted
     end))

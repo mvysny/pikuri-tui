@@ -7,7 +7,7 @@ module Code
   #   store  = Code::PrivacyStore.new
   #   answer = store.answer(project_root)     # nil => never asked
   #   if answer.nil? && $stdin.tty?
-  #     answer = confirmer.confirm?(request: privacy_question)
+  #     answer = yes?(privacy_question, project_root)   # the bin's own y/N prompt
   #     store.record!(project_root, private: answer)
   #   end
   #

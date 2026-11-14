@@ -68,7 +68,7 @@ module Computer
   # on threads of its own, and every call into it returns at once. Enter
   # routes to +session.submit+, Ctrl+C to {#interrupt}, leader +c+ to
   # {#clear_conversation}. The {Code::TranscriptConfirmer} bridges the
-  # other way: a tool on the turn thread calls +confirm?+, which submits the
+  # other way: a tool on the turn thread calls +ask+, which submits the
   # question to the UI thread and parks the worker until the user answers (see
   # its docs).
   #

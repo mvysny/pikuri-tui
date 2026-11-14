@@ -34,16 +34,16 @@ RSpec.describe Code::TranscriptConfirmer do
     Pikuri::Workspace::Confirmer::Change.new(path: path, old: old, new: new)
   end
 
-  # Run +ask+ (or +confirm?+) on a worker and answer it from the example thread
-  # via the block (which calls #decide / #type), returning what it produced.
-  def run(req, method: :ask, cancellable: Pikuri::Agent::Control::Cancellable.new, &block)
+  # Run +ask+ on a worker and answer it from the example thread via the block
+  # (which calls #decide / #type), returning what it produced.
+  def run(req, cancellable: Pikuri::Agent::Control::Cancellable.new, &block)
     result = nil
     worker = Thread.new do
       Thread.current.report_on_exception = false # a cancel's raise is joined below
-      result = confirmer.public_send(method, request: req, cancellable: cancellable)
+      result = confirmer.ask(request: req, cancellable: cancellable)
     end
     block&.call
-    worker.join(2) || raise("#{method} never returned")
+    worker.join(2) || raise('ask never returned')
     result
   end
 
@@ -160,16 +160,6 @@ RSpec.describe Code::TranscriptConfirmer do
         type(key: Tuile::Keys::ESC)
       end
       assert_equal rejected, result
-    end
-  end
-
-  describe '#confirm? — the derived boolean the mutation gates use' do
-    it 'is true on approve' do
-      assert_equal true, run(request, method: :confirm?) { decide('y') }
-    end
-
-    it 'is false on reject' do
-      assert_equal false, run(request, method: :confirm?) { decide('n') }
     end
   end
 
