@@ -89,7 +89,9 @@ gem 'typemap', '~> 0.1'
 # `path: '../pikuri/<gem>'` for tuile's reason above: Gemfile.lock pins one
 # revision per repo, and `bundle update --conservative` naming *every* gem from
 # that repo moves it (Bundler 4 leaves the revision alone while one of them
-# stays locked). The workshop pins its own pikuri by commit;
+# stays locked). A gem new to a repo can't be named until the lock knows it:
+# `bundle lock --conservative --update` the others first, then the update. The
+# workshop pins its own pikuri by commit;
 # keep ours at or past that commit, or a workshop gem may call into a pikuri
 # that lacks what it needs. The cut of pikuri 0.2.0 and the workshop's first
 # release revert these to version requirements.
@@ -118,9 +120,14 @@ gem 'pikuri-pdf', **pikuri
 
 # The web tools — search, scrape, fetch. The chat shell wires them on its main
 # agent; the coding and computer shells only on a sub-agent. In :default
-# because every shell reaches them, and its HTML extractor renders a fetched
-# page as Markdown rather than raw markup.
+# because every shell reaches them.
 gem 'pikuri-web', **pikuri
+
+# The HTML extractor: renders a fetched page or an HTML mail attachment as
+# Markdown rather than raw markup, registering itself on require. pikuri-web
+# depends on it and requires it, so no shell requires it here; named only so
+# Bundler finds it in pikuri's git repo.
+gem 'pikuri-html', **pikuri
 
 # The two heavier shells (coding + computer) share their runtime across three
 # Bundler groups so each shell's +Bundler.setup+ activates exactly what it
