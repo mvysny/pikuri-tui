@@ -31,13 +31,10 @@ module Code
   #
   # Those keys answer only while the conversation pane holds focus — which is
   # what lets them be spelled +y+ / +n+ at all, since prose typed at the prompt
-  # is a different focus target and can never reach a decision. The one
-  # obligation that puts on a caller: *dismissal is not decline.* Tabbing away
-  # leaves the decision parked, and a parked decision holds the agent's worker
-  # thread, so +Ctrl+C+ and quit must both call {#cancel_pending!} or they do
-  # nothing visible while a question waits. That cancels rather than rejects:
-  # the parked {#ask} raises +Cancellable::Cancelled+, so the turn ends there
-  # instead of running on for one more model reply.
+  # is a different focus target and can never reach a decision. Tabbing away
+  # leaves the decision parked; cancelling the turn (+Ctrl+C+, a quit) ends it:
+  # the parked {#ask} raises +Cancellable::Cancelled+ and the block reads
+  # +cancelled+.
   #
   # == Sanitizing
   #
@@ -60,23 +57,17 @@ module Code
   # UI-thread-confined, with one exception (the method a tool calls parks the
   # *caller's* thread, and carries its own rule).
   #
-  # The hand-off is a one-shot +Queue+: the question is submitted onto the UI
-  # thread, and the worker parks on +Queue#pop+ until a key resolves it. Parking
-  # the worker is the point — it is exactly the thread that should wait while the
-  # human decides, leaving the UI thread free to paint and to process the
-  # keypress that unblocks it.
+  # The hand-off is a +Pikuri::Agent::Control::Handoff+ on the turn's token: the
+  # question is submitted onto the UI thread, and the worker parks in
+  # +Handoff#await+ until a key completes it or the turn is cancelled. Either
+  # way out, {#ask} then submits a cleanup that settles a block still parked as
+  # +cancelled+, so no cancel path needs a hook on this class.
   class TranscriptConfirmer < Pikuri::Workspace::Confirmer
     # Marker the {Shared::InputPane} wears while it holds a captured answer
     # rather than a message, so a borrowed prompt doesn't look like an idle one.
     #
     # @return [String]
     CAPTURE_MARKER = '✎'
-
-    # What {#cancel_pending!} wakes a parked {#ask} with, in place of a decision.
-    #
-    # @return [Object]
-    CANCELLED = Object.new.freeze
-    private_constant :CANCELLED
 
     # @param screen [Tuile::Screen] the screen whose +event_queue+ marshals the
     #   question onto the UI thread.
@@ -92,16 +83,12 @@ module Code
       @conversation = conversation
       @status_rule = status_rule
       @input = input
-      # The parked answer channel, owned by the UI thread: #ask hands it over
-      # inside the submit and never touches it again.
+      # The parked question's handoff, owned by the UI thread; nil when none.
       @pending = nil
-      # Set by #cancel_pending! while a capture in flight unwinds, so #finish
-      # turns that capture's nil answer into a cancel rather than a reject.
-      @cancelling = false
     end
 
     # Ask +request+ in the transcript and block the calling (worker) thread
-    # until the user answers.
+    # until the user answers or the turn is cancelled.
     #
     # Safe to call from any thread *except* the UI thread — calling it there
     # would deadlock, since the submitted block can't run until the event loop
@@ -111,60 +98,38 @@ module Code
     # @param request [Pikuri::Workspace::Confirmer::Request] semantic content
     #   composed by the calling tool; sanitized and rendered here.
     # @param cancellable [Pikuri::Agent::Control::Cancellable] the asking turn's
-    #   token. Unread: a cancel reaches the parked question through
-    #   {#cancel_pending!}, which also settles its transcript block.
+    #   token; any +cancel!+ on it ends the wait.
     # @return [Pikuri::Workspace::Confirmer::Approved,
     #   Pikuri::Workspace::Confirmer::Rejected,
     #   Pikuri::Workspace::Confirmer::Redirected] the resolved decision.
-    # @raise [Pikuri::Agent::Control::Cancellable::Cancelled] when
-    #   {#cancel_pending!} ends the wait.
-    def ask(request:, cancellable:) # rubocop:disable Lint/UnusedMethodArgument -- the port's signature
+    # @raise [Pikuri::Agent::Control::Cancellable::Cancelled] when the turn is
+    #   cancelled, before or during the wait.
+    def ask(request:, cancellable:)
       question = Pikuri::Sanitizer.sanitize(request.question)
       detail   = request.detail ? Pikuri::Sanitizer.sanitize(request.detail) : nil
       change, change_warnings = sanitize_change(request.change)
       warnings = question.warnings + (detail ? detail.warnings : []) + change_warnings
 
-      channel = Queue.new
+      handoff = Pikuri::Agent::Control::Handoff.new(cancellable)
       @screen.event_queue.submit do
-        park(channel, request: request, question: question, detail: detail,
+        park(handoff, request: request, question: question, detail: detail,
                       warnings: warnings, change: change)
       end
-      decision = channel.pop
-      raise Pikuri::Agent::Control::Cancellable::Cancelled if decision.equal?(CANCELLED)
-
-      decision
+      handoff.await
+    ensure
+      @screen.event_queue.submit { abandon(handoff) } if handoff
     end
 
     # @return [Boolean] whether a tool is parked waiting for an answer. Read on
     #   the UI thread.
     def pending? = !@pending.nil?
 
-    # Cancel whatever is parked, so a +Ctrl+C+ or a quit isn't swallowed by a
-    # decision the user never noticed: the parked {#ask} raises
-    # +Cancellable::Cancelled+. Pair it with cancelling the agent's
-    # +Cancellable+, so a sub-agent tree stops too.
-    #
-    # @return [Boolean] +false+ when nothing was parked, +true+ when a decision
-    #   was cancelled.
-    def cancel_pending!
-      return false if @pending.nil?
-
-      if @input.capturing?
-        # The capture resolves through its own callback with a nil answer;
-        # @cancelling makes #finish read that as this cancel, not as ESC.
-        @cancelling = true
-        @input.cancel_capture
-      else
-        finish(CANCELLED, 'cancelled')
-      end
-      true
-    end
-
     private
 
     # Ask the question and light the badge, arming the transcript's keys.
     #
-    # @param channel [Queue] the one-shot channel the parked caller is popping.
+    # @param handoff [Pikuri::Agent::Control::Handoff] what the parked caller
+    #   awaits.
     # @param request [Pikuri::Workspace::Confirmer::Request] the original,
     #   *unsanitized* request. Needed alongside the display copies below because
     #   an approval passes its +detail+ through verbatim and an edit pre-fills
@@ -176,8 +141,8 @@ module Code
     # @param change [Pikuri::Workspace::Confirmer::Change, nil] the sanitized
     #   file change to diff.
     # @return [void]
-    def park(channel, request:, question:, detail:, warnings:, change:)
-      @pending = channel
+    def park(handoff, request:, question:, detail:, warnings:, change:)
+      @pending = handoff
       clean = warnings.empty?
       editable = request.editable && !request.detail.nil?
       body = ConfirmRenderer.render(question: question, detail: detail, warnings: warnings,
@@ -185,7 +150,7 @@ module Code
                                     theme: @screen.theme)
       @conversation.pending_decision = Shared::PendingDecision.new(
         body: body, choices: choices(editable: editable, clean: clean),
-        on_choice: ->(outcome) { decide(outcome, payload: request.detail, clean: clean) }
+        on_choice: ->(outcome) { decide(handoff, outcome, payload: request.detail, clean: clean) }
       )
       @status_rule.decision_pending = true
     end
@@ -209,16 +174,17 @@ module Code
     # Act on the picked outcome: resolve it, or borrow the prompt for the text
     # the outcome still needs.
     #
+    # @param handoff [Pikuri::Agent::Control::Handoff] the question answered.
     # @param outcome [Symbol] +:approve+, +:edit+, +:reject+, +:redirect+.
     # @param payload [String, nil] the raw +Request#detail+.
     # @param clean [Boolean] whether the sanitizer flagged nothing.
     # @return [void]
-    def decide(outcome, payload:, clean:)
+    def decide(handoff, outcome, payload:, clean:)
       case outcome
-      when :approve then finish(Approved.new(new_request_detail: payload), 'approved')
-      when :reject then finish(Rejected.new, 'rejected')
-      when :edit then capture_task(payload: payload, clean: clean)
-      when :redirect then capture_redirect
+      when :approve then finish(handoff, Approved.new(new_request_detail: payload), 'approved')
+      when :reject then finish(handoff, Rejected.new, 'rejected')
+      when :edit then capture_task(handoff, payload: payload, clean: clean)
+      when :redirect then capture_redirect(handoff)
       end
     end
 
@@ -226,17 +192,18 @@ module Code
     # human-authored text (an emptied buffer included — a deliberately cleared
     # task); cancelling declines.
     #
+    # @param handoff [Pikuri::Agent::Control::Handoff] the question answered.
     # @param payload [String, nil] the raw task, pre-filled only when clean.
     # @param clean [Boolean] whether the sanitizer flagged nothing; a flagged
     #   task starts from an empty buffer.
     # @return [void]
-    def capture_task(payload:, clean:)
+    def capture_task(handoff, payload:, clean:)
       @conversation.settle_pending_decision('editing the task — Enter sends it, Esc rejects')
       @input.capture(marker: CAPTURE_MARKER, initial: clean ? payload : '') do |text|
         if text.nil?
-          finish(Rejected.new, 'rejected')
+          finish(handoff, Rejected.new, 'rejected')
         else
-          finish(Approved.new(new_request_detail: text), 'approved, task rewritten')
+          finish(handoff, Approved.new(new_request_detail: text), 'approved, task rewritten')
         end
       end
     end
@@ -244,41 +211,61 @@ module Code
     # Hand the prompt the words a redirect sends the model. A blank answer or
     # an ESC is a plain reject.
     #
+    # @param handoff [Pikuri::Agent::Control::Handoff] the question answered.
     # @return [void]
-    def capture_redirect
+    def capture_redirect(handoff)
       @conversation.settle_pending_decision('redirecting — tell the agent, Enter sends it, Esc just rejects')
       @input.capture(marker: CAPTURE_MARKER) do |text|
         message = text&.strip
         if message.nil? || message.empty?
-          finish(Rejected.new, 'rejected')
+          finish(handoff, Rejected.new, 'rejected')
         else
-          finish(Redirected.new(message: message), "redirected: #{message}")
+          finish(handoff, Redirected.new(message: message), "redirected: #{message}")
         end
       end
     end
 
     # Settle the transcript block and wake the parked tool. The wake goes last,
     # so the UI is finished before the worker resumes rendering into that same
-    # pane.
+    # pane. A no-op once {#abandon} settled the question as cancelled.
     #
+    # @param handoff [Pikuri::Agent::Control::Handoff] the question answered.
     # @param decision [Pikuri::Workspace::Confirmer::Approved,
     #   Pikuri::Workspace::Confirmer::Rejected,
-    #   Pikuri::Workspace::Confirmer::Redirected, Object] a decision, or
-    #   {CANCELLED}.
+    #   Pikuri::Workspace::Confirmer::Redirected] the answer.
     # @param note [String] the outcome as the transcript records it.
     # @return [void]
-    def finish(decision, note)
-      if @cancelling
-        decision = CANCELLED
-        note = 'cancelled'
-        @cancelling = false
-      end
-      channel = @pending
+    def finish(handoff, decision, note)
+      return unless @pending.equal?(handoff)
+
+      settle(note)
+      handoff.complete(decision)
+    end
+
+    # The cleanup every {#ask} submits on its way out: a question still parked
+    # there was cancelled, so its block says so and a borrowed prompt is
+    # handed back. A no-op once answered.
+    #
+    # @param handoff [Pikuri::Agent::Control::Handoff] the ended wait.
+    # @return [void]
+    def abandon(handoff)
+      return unless @pending.equal?(handoff)
+
+      settle('cancelled')
+      # After settle: the capture's callback lands in #finish, which now
+      # finds nothing pending rather than reading the cancel as a reject.
+      @input.cancel_capture
+    end
+
+    # Close the parked question in the transcript and the status rule.
+    #
+    # @param note [String] the outcome as the transcript records it.
+    # @return [void]
+    def settle(note)
       @pending = nil
       @conversation.settle_pending_decision(note)
       @status_rule.decision_pending = false
       @input.focus
-      channel << decision
     end
 
     # Neutralize a change's bytes for display, returning a +Change+ carrying the

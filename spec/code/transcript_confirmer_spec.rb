@@ -36,11 +36,11 @@ RSpec.describe Code::TranscriptConfirmer do
 
   # Run +ask+ (or +confirm?+) on a worker and answer it from the example thread
   # via the block (which calls #decide / #type), returning what it produced.
-  def run(req, method: :ask, &block)
+  def run(req, method: :ask, cancellable: Pikuri::Agent::Control::Cancellable.new, &block)
     result = nil
     worker = Thread.new do
       Thread.current.report_on_exception = false # a cancel's raise is joined below
-      result = confirmer.public_send(method, request: req, cancellable: Pikuri::Agent::Control::Cancellable.new)
+      result = confirmer.public_send(method, request: req, cancellable: cancellable)
     end
     block&.call
     worker.join(2) || raise("#{method} never returned")
@@ -268,42 +268,53 @@ RSpec.describe Code::TranscriptConfirmer do
     end
   end
 
-  describe 'staying answerable — #pending? / #cancel_pending!' do
-    it 'is not pending with nothing parked, and cancels nothing' do
+  describe 'staying answerable — a cancelled turn ends the question' do
+    let(:token) { Pikuri::Agent::Control::Cancellable.new }
+
+    it 'is not pending with nothing parked' do
       refute_predicate confirmer, :pending?
-      assert_equal false, confirmer.cancel_pending!
     end
 
-    it 'makes the parked ask raise Cancelled (what Ctrl+C and App#close call)' do
+    it 'makes the parked ask raise Cancelled and settles its block' do
       assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) do
-        run(request) do
+        run(request, cancellable: token) do
           wait_until { confirmer.pending? }
-          assert_equal true, confirmer.cancel_pending!
+          token.cancel!
         end
       end
-      refute_predicate confirmer, :pending?
+      wait_until { !confirmer.pending? }
       assert_includes transcript_lines, '· cancelled'
+      refute_predicate status_rule, :decision_pending
     end
 
-    it 'cancels a question whose redirect is still being typed' do
+    it 'raises at once on a turn already cancelled' do
+      token.cancel!
+      assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) { run(request, cancellable: token) }
+      wait_until { !confirmer.pending? }
+    end
+
+    it 'hands back a prompt whose redirect is still being typed' do
       assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) do
-        run(request) do
+        run(request, cancellable: token) do
           decide('r')
           wait_until { input.capturing? }
-          assert_equal true, confirmer.cancel_pending!
+          token.cancel!
         end
       end
-      refute_predicate input, :capturing?
+      wait_until { !input.capturing? }
+      assert_includes transcript_lines, '· cancelled'
+      refute_includes transcript_lines, '· rejected'
     end
 
     it 'still rejects on a later ESC once a cancel has unwound' do
       assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) do
-        run(request) do
+        run(request, cancellable: token) do
           decide('r')
           wait_until { input.capturing? }
-          confirmer.cancel_pending!
+          token.cancel!
         end
       end
+      wait_until { !input.capturing? }
       result = run(request) do
         decide('r')
         type(key: Tuile::Keys::ESC)

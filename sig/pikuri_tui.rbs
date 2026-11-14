@@ -135,11 +135,10 @@ module Code
     # +begin/ensure Tuile::Screen.close+ around both +App.new+ and this call.
     def run: () -> void
 
-    # Close the conversation, cancelling a running turn — and a question parked
-    # on the human, which would otherwise hold the turn: every way out of the
-    # event loop ends here, so a tool blocked on an answer is unwound rather
-    # than abandoned mid-operation — then wait a moment
-    # for its agent (and the MCP servers it started) to be released.
+    # Close the conversation, cancelling a running turn — a question parked on
+    # the human included: every way out of the event loop ends here, so a tool
+    # blocked on an answer is unwound rather than abandoned mid-operation — then
+    # wait a moment for its agent (and the MCP servers it started) to be released.
     # Idempotent.
     def close: () -> void
 
@@ -244,10 +243,8 @@ module Code
 
     # +Ctrl+C+, three states in priority order: a running turn (or boot) is
     # cancelled; else a focused pane drops focus, as ESC does; else the event
-    # loop stops, which quits. A parked confirmation is woken with a cancel too
-    # — its tool has the turn blocked, so cancelling alone would look like
-    # nothing happened until the decision was answered. A parked question means
-    # a turn is running, so the step taken is then always the cancel.
+    # loop stops, which quits. A parked confirmation means a turn is running, so
+    # the step taken is then always the cancel, which ends the question too.
     def interrupt: () -> void
 
     # Build the {Shared::LeaderMenu} for the coding shell: logs, git diff, plan
@@ -2069,13 +2066,10 @@ module Code
   # 
   # Those keys answer only while the conversation pane holds focus — which is
   # what lets them be spelled +y+ / +n+ at all, since prose typed at the prompt
-  # is a different focus target and can never reach a decision. The one
-  # obligation that puts on a caller: *dismissal is not decline.* Tabbing away
-  # leaves the decision parked, and a parked decision holds the agent's worker
-  # thread, so +Ctrl+C+ and quit must both call {#cancel_pending!} or they do
-  # nothing visible while a question waits. That cancels rather than rejects:
-  # the parked {#ask} raises +Cancellable::Cancelled+, so the turn ends there
-  # instead of running on for one more model reply.
+  # is a different focus target and can never reach a decision. Tabbing away
+  # leaves the decision parked; cancelling the turn (+Ctrl+C+, a quit) ends it:
+  # the parked {#ask} raises +Cancellable::Cancelled+ and the block reads
+  # +cancelled+.
   # 
   # == Sanitizing
   # 
@@ -2098,14 +2092,13 @@ module Code
   # UI-thread-confined, with one exception (the method a tool calls parks the
   # *caller's* thread, and carries its own rule).
   # 
-  # The hand-off is a one-shot +Queue+: the question is submitted onto the UI
-  # thread, and the worker parks on +Queue#pop+ until a key resolves it. Parking
-  # the worker is the point — it is exactly the thread that should wait while the
-  # human decides, leaving the UI thread free to paint and to process the
-  # keypress that unblocks it.
+  # The hand-off is a +Pikuri::Agent::Control::Handoff+ on the turn's token: the
+  # question is submitted onto the UI thread, and the worker parks in
+  # +Handoff#await+ until a key completes it or the turn is cancelled. Either
+  # way out, {#ask} then submits a cleanup that settles a block still parked as
+  # +cancelled+, so no cancel path needs a hook on this class.
   class TranscriptConfirmer < Pikuri::Workspace::Confirmer
     CAPTURE_MARKER: String
-    CANCELLED: Object
 
     # _@param_ `screen` — the screen whose +event_queue+ marshals the question onto the UI thread.
     # 
@@ -2122,7 +2115,7 @@ module Code
                     ) -> void
 
     # Ask +request+ in the transcript and block the calling (worker) thread
-    # until the user answers.
+    # until the user answers or the turn is cancelled.
     # 
     # Safe to call from any thread *except* the UI thread — calling it there
     # would deadlock, since the submitted block can't run until the event loop
@@ -2131,7 +2124,7 @@ module Code
     # 
     # _@param_ `request` — semantic content composed by the calling tool; sanitized and rendered here.
     # 
-    # _@param_ `cancellable` — the asking turn's token. Unread: a cancel reaches the parked question through {#cancel_pending!}, which also settles its transcript block.
+    # _@param_ `cancellable` — the asking turn's token; any +cancel!+ on it ends the wait.
     # 
     # _@return_ — the resolved decision.
     def ask: (request: Pikuri::Workspace::Confirmer::Request, cancellable: Pikuri::Agent::Control::Cancellable) -> (Pikuri::Workspace::Confirmer::Approved | Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected)
@@ -2140,18 +2133,9 @@ module Code
     # the UI thread.
     def pending?: () -> bool
 
-    # Cancel whatever is parked, so a +Ctrl+C+ or a quit isn't swallowed by a
-    # decision the user never noticed: the parked {#ask} raises
-    # +Cancellable::Cancelled+. Pair it with cancelling the agent's
-    # +Cancellable+, so a sub-agent tree stops too.
-    # 
-    # _@return_ — +false+ when nothing was parked, +true+ when a decision
-    # was cancelled.
-    def cancel_pending!: () -> bool
-
     # Ask the question and light the badge, arming the transcript's keys.
     # 
-    # _@param_ `channel` — the one-shot channel the parked caller is popping.
+    # _@param_ `handoff` — what the parked caller awaits.
     # 
     # _@param_ `request` — the original, *unsanitized* request. Needed alongside the display copies below because an approval passes its +detail+ through verbatim and an edit pre-fills the prompt with it — both want the raw bytes the tool will act on.
     # 
@@ -2163,7 +2147,7 @@ module Code
     # 
     # _@param_ `change` — the sanitized file change to diff.
     def park: (
-                Queue channel,
+                Pikuri::Agent::Control::Handoff handoff,
                 request: Pikuri::Workspace::Confirmer::Request,
                 question: Pikuri::Sanitizer::Result,
                 detail: Pikuri::Sanitizer::Result?,
@@ -2182,34 +2166,59 @@ module Code
     # Act on the picked outcome: resolve it, or borrow the prompt for the text
     # the outcome still needs.
     # 
+    # _@param_ `handoff` — the question answered.
+    # 
     # _@param_ `outcome` — +:approve+, +:edit+, +:reject+, +:redirect+.
     # 
     # _@param_ `payload` — the raw +Request#detail+.
     # 
     # _@param_ `clean` — whether the sanitizer flagged nothing.
-    def decide: (Symbol outcome, payload: String?, clean: bool) -> void
+    def decide: (
+                  Pikuri::Agent::Control::Handoff handoff,
+                  Symbol outcome,
+                  payload: String?,
+                  clean: bool
+                ) -> void
 
     # Hand the prompt the task to rewrite. Submitting approves the
     # human-authored text (an emptied buffer included — a deliberately cleared
     # task); cancelling declines.
     # 
+    # _@param_ `handoff` — the question answered.
+    # 
     # _@param_ `payload` — the raw task, pre-filled only when clean.
     # 
     # _@param_ `clean` — whether the sanitizer flagged nothing; a flagged task starts from an empty buffer.
-    def capture_task: (payload: String?, clean: bool) -> void
+    def capture_task: (Pikuri::Agent::Control::Handoff handoff, payload: String?, clean: bool) -> void
 
     # Hand the prompt the words a redirect sends the model. A blank answer or
     # an ESC is a plain reject.
-    def capture_redirect: () -> void
+    # 
+    # _@param_ `handoff` — the question answered.
+    def capture_redirect: (Pikuri::Agent::Control::Handoff handoff) -> void
 
     # Settle the transcript block and wake the parked tool. The wake goes last,
     # so the UI is finished before the worker resumes rendering into that same
-    # pane.
+    # pane. A no-op once {#abandon} settled the question as cancelled.
     # 
-    # _@param_ `decision` — a decision, or {CANCELLED}.
+    # _@param_ `handoff` — the question answered.
+    # 
+    # _@param_ `decision` — the answer.
     # 
     # _@param_ `note` — the outcome as the transcript records it.
-    def finish: ((Pikuri::Workspace::Confirmer::Approved | Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected | Object) decision, String note) -> void
+    def finish: (Pikuri::Agent::Control::Handoff handoff, (Pikuri::Workspace::Confirmer::Approved | Pikuri::Workspace::Confirmer::Rejected | Pikuri::Workspace::Confirmer::Redirected) decision, String note) -> void
+
+    # The cleanup every {#ask} submits on its way out: a question still parked
+    # there was cancelled, so its block says so and a borrowed prompt is
+    # handed back. A no-op once answered.
+    # 
+    # _@param_ `handoff` — the ended wait.
+    def abandon: (Pikuri::Agent::Control::Handoff handoff) -> void
+
+    # Close the parked question in the transcript and the status rule.
+    # 
+    # _@param_ `note` — the outcome as the transcript records it.
+    def settle: (String note) -> void
 
     # Neutralize a change's bytes for display, returning a +Change+ carrying the
     # sanitized old/new text alongside the warnings they raised.
@@ -2754,11 +2763,10 @@ module Computer
     # probe) or in the loop. See the "bwrap probe" note in the class docs.
     def run: () -> void
 
-    # Close the conversation, cancelling a running turn — and a question parked
-    # on the human, which would otherwise hold the turn: every way out of the
-    # event loop ends here, so a tool blocked on an answer is unwound rather
-    # than abandoned mid-operation — then wait a moment
-    # for its agent to be released. Idempotent.
+    # Close the conversation, cancelling a running turn — a question parked on
+    # the human included: every way out of the event loop ends here, so a tool
+    # blocked on an answer is unwound rather than abandoned mid-operation — then
+    # wait a moment for its agent to be released. Idempotent.
     def close: () -> void
 
     def build_components: () -> void
@@ -2840,10 +2848,8 @@ module Computer
 
     # +Ctrl+C+, three states in priority order: a running turn (or boot) is
     # cancelled; else a focused pane drops focus, as ESC does; else the event
-    # loop stops, which quits. A parked confirmation is woken with a cancel too
-    # — its tool has the turn blocked, so cancelling alone would look like
-    # nothing happened until the decision was answered. A parked question means
-    # a turn is running, so the step taken is then always the cancel.
+    # loop stops, which quits. A parked confirmation means a turn is running, so
+    # the step taken is then always the cancel, which ends the question too.
     def interrupt: () -> void
 
     # Start over on a fresh agent — the transcript wipes as it boots. Refused

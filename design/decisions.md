@@ -120,7 +120,7 @@ is entered, which is exactly the surface a mis-aimed `y` would land in. Why not 
 a timer before the keys arm: a pause does not prove attention, and the swallowed key is how this
 went wrong the first time; focus is a structural answer where a timer is a statistical one. The
 price of arming on focus is that dismissal is not decline — tabbing away parks the decision, which
-is the obligation the confirmer's rdoc puts on `Ctrl+C` and quit.
+still ends on any cancel of the turn, since the confirmer waits on the turn's own token.
 
 ## D_visible_not_detach — Why hide a pane with `visible=` rather than tuile's documented remove/add?
 

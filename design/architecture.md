@@ -31,7 +31,7 @@ has crept in.
 
 1. The tool thread calls `Code::TranscriptConfirmer#ask` and **blocks** there.
 2. The confirmer marshals onto the UI thread, renders the request through `Code::ConfirmRenderer` and hands the pane a `Shared::PendingDecision`; the status rule shows the badge.
-3. Nothing else happens until a key answers it *in the transcript* (`D_transcript_confirmer`) — or `Ctrl+C` / quit calls `#cancel_pending!`, the only two places a parked question is cancelled; the parked `#ask` then raises `Cancellable::Cancelled` and the turn ends.
+3. Nothing else happens until a key answers it *in the transcript* (`D_transcript_confirmer`) — or the turn is cancelled (`Ctrl+C`, quit): the `#ask` parked in a `Pikuri::Agent::Control::Handoff` on the turn's token raises `Cancellable::Cancelled`, the block settles as cancelled, and the turn ends.
 4. An `e` or `r` outcome borrows the prompt via `Shared::InputPane#capture`; the answer unblocks the tool thread, which returns into pikuri's loop.
 
 ## Where to start reading

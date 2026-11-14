@@ -376,11 +376,11 @@ RSpec.describe Code::App do
     end
 
     # #ask parks the calling thread, so it runs where a tool runs: off the UI.
-    def asking(some_app)
+    def asking(some_app, cancellable: Pikuri::Agent::Control::Cancellable.new)
       answer = nil
       worker = Thread.new do
         Thread.current.report_on_exception = false # a cancel's raise is joined below
-        answer = some_app.confirmer.ask(request: request, cancellable: Pikuri::Agent::Control::Cancellable.new)
+        answer = some_app.confirmer.ask(request: request, cancellable: cancellable)
       end
       wait_until { some_app.confirmer.pending? }
       yield
@@ -401,9 +401,22 @@ RSpec.describe Code::App do
       refute_predicate app.status_rule, :decision_pending
     end
 
+    # A question parks only inside a running turn, and asks on that turn's token.
     it 'cancels it on Ctrl+C, so the interrupt is never swallowed' do
-      assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) { asking(app) { press_ctrl_c } }
-      refute_predicate app.confirmer, :pending?
+      gate = Pikuri::Testing::Gate.new
+      turn_app = code_app(gate: gate) { |llm| llm.stream('done') }
+      gate.block!
+      turn_app.session.submit('work')
+      wait_until { turn_app.session.status.state == :running }
+
+      token = turn_app.session.instance_variable_get(:@cancellable)
+      assert_raises(Pikuri::Agent::Control::Cancellable::Cancelled) do
+        asking(turn_app, cancellable: token) { press_ctrl_c(turn_app) }
+      end
+      wait_until { !turn_app.confirmer.pending? }
+      assert_includes turn_app.conversation.text.to_s, '· cancelled'
+    ensure
+      gate&.release!
     end
   end
 

@@ -219,15 +219,13 @@ module Computer
       close
     end
 
-    # Close the conversation, cancelling a running turn — and a question parked
-    # on the human, which would otherwise hold the turn: every way out of the
-    # event loop ends here, so a tool blocked on an answer is unwound rather
-    # than abandoned mid-operation — then wait a moment
-    # for its agent to be released. Idempotent.
+    # Close the conversation, cancelling a running turn — a question parked on
+    # the human included: every way out of the event loop ends here, so a tool
+    # blocked on an answer is unwound rather than abandoned mid-operation — then
+    # wait a moment for its agent to be released. Idempotent.
     #
     # @return [void]
     def close
-      @confirmer.cancel_pending!
       @conversations.shutdown(timeout: CLOSE_TIMEOUT_S)
       nil
     end
@@ -456,14 +454,11 @@ module Computer
 
     # +Ctrl+C+, three states in priority order: a running turn (or boot) is
     # cancelled; else a focused pane drops focus, as ESC does; else the event
-    # loop stops, which quits. A parked confirmation is woken with a cancel too
-    # — its tool has the turn blocked, so cancelling alone would look like
-    # nothing happened until the decision was answered. A parked question means
-    # a turn is running, so the step taken is then always the cancel.
+    # loop stops, which quits. A parked confirmation means a turn is running, so
+    # the step taken is then always the cancel, which ends the question too.
     #
     # @return [void]
     def interrupt
-      @confirmer.cancel_pending!
       return if @session.cancel == :cancelled
 
       if @screen.focused
