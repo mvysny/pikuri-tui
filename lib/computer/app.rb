@@ -178,14 +178,9 @@ module Computer
       @project_root = project_root
       @markdown = markdown
       @command_registry = command_registry
-      # The shared plan-mode (read-only) flag: the leader menu's +p+ toggle
-      # and the model's enter/exit tools flip this one instance (threaded into
-      # every agent's Pikuri::Os::Extension by configure_agent). The
-      # message: is the plan-mode-specific refusal wording Edit/Write splice
-      # into their "cannot write …" observation.
-      @plan_mode = Pikuri::Workspace::ReadOnly.new(
-        message: Pikuri::Code::Extension::PLAN_MODE_READONLY_MESSAGE
-      )
+      # One flag for the process, outliving every agent a /clear builds: the
+      # leader menu's +p+ toggle and the model's enter/exit tools flip it.
+      @plan_mode = Pikuri::Code::PlanMode.new
       @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
       Shared::RequestPermits.install(config.servers)
       Pikuri::Extractors::PDF.register
@@ -243,7 +238,7 @@ module Computer
       # via an auto-approved `cat` would be security theater. Safe because
       # egress is human-gated, not open (bash is kernel-severed, each research
       # task is approved, every mail/event is a Send/confirm in Thunderbird).
-      @filesystem = Pikuri::Workspace::Filesystem::AllowAll.new(project_root: @project_root, denylist: [])
+      @filesystem = Pikuri::Code::WholeDisk.new(project_root: @project_root, denylist: [])
 
       # Per-tool diff formatters for the conversation pane: edit / write render
       # as a before/after diff (write reads the existing file through the same
@@ -360,10 +355,9 @@ module Computer
         filesystem: @filesystem,
         confirmer: confirmer,
         sandbox: @sandbox,
-        # Threaded into both sub-extensions (Workspace gates Edit/Write, Code
-        # wires the plan-mode tools + the PlanModeChanged event the status rule
-        # badge tracks), the same flag the leader-menu 'p' toggle flips.
-        read_only: @plan_mode
+        # Guards Edit/Write and wires the plan-mode tools + the PlanModeChanged
+        # event the status rule badge tracks; the same flag 'p' flips.
+        plan_mode: @plan_mode
       )
       # No confirmer wired — the gate is Thunderbird's own compose window /
       # import wizard, where the user reviews and Sends/confirms.
@@ -549,14 +543,10 @@ module Computer
       @screen.event_queue.stop
     end
 
-    # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
-    # enter if off, exit if on. Runs on the UI thread (global-shortcut
-    # dispatch); the flag is thread-safe, and the status-rule badge updates
-    # through {Code::PlanModeListener} off the +PlanModeChanged+ event the
-    # flip emits, so this stays a one-liner and the model-flip path
-    # renders the same way. Idempotent transitions
-    # ({Pikuri::Workspace::ReadOnly#activate!}/{#deactivate!}) make a
-    # double-press harmless.
+    # Flip the shared {Pikuri::Code::PlanMode} flag — enter if off, exit if
+    # on. The status-rule badge updates through {Code::PlanModeListener} off
+    # the +PlanModeChanged+ event the flip emits, so the model-flip path
+    # renders the same way.
     #
     # @return [void]
     def toggle_plan_mode

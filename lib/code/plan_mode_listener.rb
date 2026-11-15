@@ -5,7 +5,7 @@ require 'pikuri-code'
 
 module Code
   # Keeps the status rule's plan-mode badge in step with
-  # the agent's shared {Pikuri::Workspace::ReadOnly} flag. A
+  # the agent's shared {Pikuri::Code::PlanMode} flag. A
   # {Pikuri::Agent::Listener::Base} subclass that consumes the
   # {Pikuri::Code::PlanModeChanged} event +Pikuri::Code::Extension+
   # re-emits on every real transition, and pushes the new posture onto
@@ -21,7 +21,7 @@ module Code
   # == Why the event, not the control
   #
   # The badge is driven off the *event* rather than the host reading the
-  # {Pikuri::Workspace::ReadOnly} flag directly, so a
+  # {Pikuri::Code::PlanMode} flag directly, so a
   # **model**-initiated entry (the +enter_plan_mode+ tool) lights up the
   # status rule exactly like the leader menu's +p+ toggle does — both flips fire the
   # flag's +on_change+, which +Code::Extension+ bridges onto this

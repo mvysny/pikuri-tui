@@ -162,9 +162,9 @@ module Code
     # with no file read/write/bash to hijack (pikuri's SECURITY.md "capability
     # boundaries via sub-agents"). The five file tools come from one
     # +Workspace::Extension+ (a single +Workspace+ composite shared across
-    # them, so the read-before-edit gate works); +Bash+ / +git_clone+ come from
-    # +Code::Extension+. Both take the shared plan-mode flag so Edit/Write
-    # refuse while it's active.
+    # them, so the read-before-edit gate works), over the plan-mode guard so
+    # Edit/Write refuse while it's on; +Bash+ and the plan-mode tools come from
+    # +Code::Extension+, over the raw filesystem.
     # 
     # _@param_ `configurator`
     # 
@@ -286,14 +286,10 @@ module Code
     # call.
     def quit: () -> void
 
-    # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
-    # enter if off, exit if on. Runs on the UI thread (global-shortcut
-    # dispatch); the flag is thread-safe, and the status-rule badge updates
-    # through {PlanModeListener} off the +PlanModeChanged+ event the flip
-    # emits, so this stays a one-liner and the model-flip path renders the
-    # same way. Idempotent transitions
-    # ({Pikuri::Workspace::ReadOnly#activate!}/{#deactivate!}) make a
-    # double-press harmless.
+    # Flip the shared {Pikuri::Code::PlanMode} flag — enter if off, exit if
+    # on. The status-rule badge updates through {PlanModeListener} off the
+    # +PlanModeChanged+ event the flip emits, so the model-flip path renders
+    # the same way.
     def toggle_plan_mode: () -> void
 
     # Pushes the sidebar's counts into the status rule, or clears them: the rule
@@ -1846,7 +1842,7 @@ module Code
   end
 
   # Keeps the status rule's plan-mode badge in step with
-  # the agent's shared {Pikuri::Workspace::ReadOnly} flag. A
+  # the agent's shared {Pikuri::Code::PlanMode} flag. A
   # {Pikuri::Agent::Listener::Base} subclass that consumes the
   # {Pikuri::Code::PlanModeChanged} event +Pikuri::Code::Extension+
   # re-emits on every real transition, and pushes the new posture onto
@@ -1862,7 +1858,7 @@ module Code
   # == Why the event, not the control
   # 
   # The badge is driven off the *event* rather than the host reading the
-  # {Pikuri::Workspace::ReadOnly} flag directly, so a
+  # {Pikuri::Code::PlanMode} flag directly, so a
   # **model**-initiated entry (the +enter_plan_mode+ tool) lights up the
   # status rule exactly like the leader menu's +p+ toggle does — both flips fire the
   # flag's +on_change+, which +Code::Extension+ bridges onto this
@@ -2886,14 +2882,10 @@ module Computer
     # call.
     def quit: () -> void
 
-    # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
-    # enter if off, exit if on. Runs on the UI thread (global-shortcut
-    # dispatch); the flag is thread-safe, and the status-rule badge updates
-    # through {Code::PlanModeListener} off the +PlanModeChanged+ event the
-    # flip emits, so this stays a one-liner and the model-flip path
-    # renders the same way. Idempotent transitions
-    # ({Pikuri::Workspace::ReadOnly#activate!}/{#deactivate!}) make a
-    # double-press harmless.
+    # Flip the shared {Pikuri::Code::PlanMode} flag — enter if off, exit if
+    # on. The status-rule badge updates through {Code::PlanModeListener} off
+    # the +PlanModeChanged+ event the flip emits, so the model-flip path
+    # renders the same way.
     def toggle_plan_mode: () -> void
 
     # _@param_ `event` — the uncaught exception, in the event the empty-means-re-raise slot hands its listeners.

@@ -97,7 +97,7 @@ parser = OptionParser.new do |opts|
                            'still work, and Thunderbird\'s compose/create hand-offs remain the only ' \
                            'egress leg — human-gated in Thunderbird\'s UI.') { internet_enabled = false }
   opts.on('--profile-dir DIR', 'Thunderbird profile directory (overrides auto-discovery).') { |v| profile_dir = v }
-  opts.on('--yolo', 'Combines --no-sandbox + --no-confirm. Use only in a throwaway environment.') do
+  opts.on('--yolo', 'Combines --no-sandbox + --no-confirm. Use only inside a VM.') do
     cli_sandbox = false
     cli_confirm = false
   end
@@ -187,8 +187,19 @@ begin
   safety << 'Network sandbox: DISABLED — bash can reach the internet (egress is OPEN).' unless config.sandbox
   safety << 'Confirmer: AUTO-APPROVE — mutations run without asking.' unless config.confirm
   unless safety.empty?
-    safety << 'Use only in a throwaway environment.'
-    main_log.warn(safety.join(' '))
+    # Backed loudly rather than enforced: this assistant's point is your host,
+    # so outside a VM these flags hand a prompt injection your machine. Error
+    # level, so the ^K ⚠ counter flags it.
+    case Pikuri::Code::VirtualMachine.inside?
+    when true
+      main_log.warn("#{safety.join(' ')} Running inside a VM, which is the wall now.")
+    when false
+      main_log.error("#{safety.join(' ')} NOT INSIDE A VM: a prompt injection now runs as you, on this " \
+                     'machine. Use these flags only inside a VM.')
+    else
+      main_log.warn("#{safety.join(' ')} Could not tell whether this is a VM (no systemd-detect-virt): " \
+                    'use these flags only inside one.')
+    end
   end
 
   app.run
