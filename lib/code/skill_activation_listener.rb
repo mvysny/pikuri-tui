@@ -16,7 +16,7 @@ module Code
   #     base: built_in_commands,
   #     on_load: ->(name, rest) { load_skill(name, rest) }
   #   )
-  #   # in the Conversations' configure:, once per agent
+  #   # in App#configure (the AgentInitializer), once per agent
   #   ext = Pikuri::Skill::Extension.new(catalog: skill_catalog, root: project_root)
   #   c.add_extension ext
   #   skill_activation.extension = ext   # re-lists the palette for the new agent
@@ -97,7 +97,7 @@ module Code
     attr_reader :extension
 
     # Follow a new agent's extension and re-list the palette for it. Safe from
-    # any thread — the Conversations' +configure:+ runs on the boot thread — and
+    # any thread — +AgentInitializer#configure+ runs on the boot thread — and
     # set before that agent goes idle, so a host that sees the conversation idle
     # reads the extension of the agent that runs its turn.
     #

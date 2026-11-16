@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Code::App do
-  # App boots its *real* Pikuri::Agent (real configure_agent / listener
+  # App boots its *real* Pikuri::Agent (real configure / listener
   # tool / extension wiring — workspace, sandbox, MCP, sub-agents, tasks,
   # skills) on a fake_transport, so these specs exercise the actual wiring
   # without a server. The old whole-agent CodeStubAgent is gone; see

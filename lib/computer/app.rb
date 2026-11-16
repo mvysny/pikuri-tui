@@ -30,13 +30,13 @@ module Computer
   # whole-host {Pikuri::Os::Extension} (five file tools + a network-severed
   # sandboxed bash), local mail + calendar via
   # {Pikuri::Thunderbird::Extension}, and — unless +internet_enabled+ is false
-  # — a quarantined web RESEARCHER sub-agent (see {#configure_agent}). The
+  # — a quarantined web RESEARCHER sub-agent (see {#configure}). The
   # bin only parses CLI + config, probes the Thunderbird profile, and mounts
   # the screen.
   #
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#configure_agent} tool/extension wiring and listeners —
+  # agent — the real {#configure} tool/extension wiring and listeners —
   # on a scripted-HTTP backend instead of a live server. The host probes the
   # extensions make are steered through +profile_dir:+ and +config.sandbox+,
   # which production sets anyway.
@@ -74,6 +74,8 @@ module Computer
   #
   # UI-thread-confined.
   class App
+    include Pikuri::Conversations::AgentInitializer
+
     # @return [Logger]
     LOG = Pikuri.logger_for('computer')
     private_constant :LOG
@@ -99,7 +101,7 @@ module Computer
 
     # @return [Shared::Config] the resolved configuration the bin loaded;
     #   drives the model list, the boot connection, the sandbox/confirm
-    #   posture, and the web-search provider keys {#configure_agent} reads.
+    #   posture, and the web-search provider keys {#configure} reads.
     attr_reader :config
 
     # @return [Pikuri::Conversations::Conversation] the one conversation this
@@ -225,6 +227,75 @@ module Computer
       nil
     end
 
+    # The OS-assistant prompt, dated, plus the online network-posture block
+    # when +internet_enabled+ (offline adds nothing). Built once per agent, so
+    # the date is a clear's, not the launch's.
+    #
+    # @param _conversation [Pikuri::Conversations::Conversation]
+    # @return [String]
+    def system_prompt(_conversation)
+      prompt_names = [:'os-assistant']
+      prompt_names << :'os-network-online' if @internet_enabled
+      prompt_names << :'agent-loop'
+      "#{Pikuri.prompts(*prompt_names)}\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
+    end
+
+    # The computer agent's desktop tool surface, built fresh for each agent —
+    # at boot and after every clear — on the boot thread. Composes two pikuri
+    # surfaces onto one agent: {Pikuri::Os::Extension} (the five file tools + a
+    # network-severed sandboxed bash + the machine facts / MACHINE.md prompt
+    # sections) and {Pikuri::Thunderbird::Extension} (mail + calendar
+    # search/read + two human-gated outbound hand-offs). Web research, on unless
+    # +internet_enabled+ is false, is quarantined: the web tools go on
+    # sub-agent-only, so the main agent holds no direct egress and delegates to
+    # an isolated RESEARCHER (web tools, no filesystem) gated by the confirmer.
+    #
+    # @param configurator [Pikuri::Agent::Configurator]
+    # @param _conversation [Pikuri::Conversations::Conversation]
+    # @return [void]
+    def configure(configurator, _conversation)
+      # The in-transcript confirmer for writes + bash, unless confirmations are
+      # disabled (--no-confirm / --yolo), in which case approve everything.
+      # Pikuri::Os::Extension pairs this human confirmer with a
+      # PassiveCommandDetector (allow_git: true) internally, so provably
+      # passive bash + read-only git skip the popup while every mutation
+      # still reaches it.
+      confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
+
+      configurator.add_tool Pikuri::Tool::CALCULATOR
+      configurator.add_extension Pikuri::Os::Extension.new(
+        filesystem: @filesystem,
+        confirmer: confirmer,
+        sandbox: @sandbox,
+        # Guards Edit/Write and wires the plan-mode tools + the PlanModeChanged
+        # event the status rule badge tracks; the same flag 'p' flips.
+        plan_mode: @plan_mode
+      )
+      # No confirmer wired — the gate is Thunderbird's own compose window /
+      # import wizard, where the user reviews and Sends/confirms.
+      configurator.add_extension Pikuri::Thunderbird::Extension.new(
+        profile_dir: @profile_dir,
+        allow_compose_mail: true,
+        allow_create_calendar_event: true
+      )
+      # Declaration only — commands register no tool and render no prompt, so
+      # without this /trifecta would miss their untrusted leg entirely.
+      configurator.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
+      return unless @internet_enabled
+
+      # The confirmer gates each delegation's task prompt, so the human
+      # approves what leaves this machine. The add_sub_agent_tool calls must
+      # precede the SubAgent extension, whose configure validates the persona's
+      # tool_names.
+      configurator.add_sub_agent_tool Pikuri::Web::Search.build(**@config.search.to_h)
+      configurator.add_sub_agent_tool Pikuri::Web::SCRAPE
+      configurator.add_sub_agent_tool Pikuri::Web::FETCH
+      configurator.add_extension Pikuri::SubAgent::Extension.new(
+        personas: [Pikuri::SubAgent::RESEARCHER],
+        confirmer: confirmer
+      )
+    end
+
     private
 
     # @return [void]
@@ -308,80 +379,18 @@ module Computer
     end
 
     # Open the shell's one conversation on +transport+, which boots its agent
-    # on a thread of its own: the OS-assistant prompt (plus the online
-    # network-posture block when +internet_enabled+ — offline adds nothing), the
-    # desktop tool surface {#configure_agent} adds, and the panes' listeners —
+    # on a thread of its own: {#system_prompt}, the desktop tool surface
+    # {#configure} adds, and the panes' listeners —
     # the transcript rate-limited to 15 fps (see {Chat::App} for why), the
     # status rule and the plan-mode badge.
     #
     # @param transport [Pikuri::Agent::ChatTransport] the model it starts on.
     # @return [Pikuri::Conversations::Conversation]
     def open_session(transport)
-      prompt_names = [:'os-assistant']
-      prompt_names << :'os-network-online' if @internet_enabled
-      prompt_names << :'agent-loop'
-      system_prompt = Pikuri.prompts(*prompt_names)
-      system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
-      @conversations = Pikuri::Conversations.new(system_prompt: system_prompt, configure: method(:configure_agent))
+      @conversations = Pikuri::Conversations.new
       transcript = Pikuri::Conversations::RateLimitedListener.new(@conversation.listener, fps: 15)
       listener = Pikuri::Agent::ListenerList.new([transcript, @status_rule, @plan_mode_listener])
-      @conversations.open(id: 'computer', transport: transport, listener: listener)
-    end
-
-    # The computer agent's desktop tool surface, built fresh for each agent —
-    # at boot and after every clear — on the boot thread. Composes two pikuri
-    # surfaces onto one agent: {Pikuri::Os::Extension} (the five file tools + a
-    # network-severed sandboxed bash + the machine facts / MACHINE.md prompt
-    # sections) and {Pikuri::Thunderbird::Extension} (mail + calendar
-    # search/read + two human-gated outbound hand-offs). Web research, on unless
-    # +internet_enabled+ is false, is quarantined: the web tools go on
-    # sub-agent-only, so the main agent holds no direct egress and delegates to
-    # an isolated RESEARCHER (web tools, no filesystem) gated by the confirmer.
-    #
-    # @param configurator [Pikuri::Agent::Configurator]
-    # @param _conversation [Pikuri::Conversations::Conversation]
-    # @return [void]
-    def configure_agent(configurator, _conversation)
-      # The in-transcript confirmer for writes + bash, unless confirmations are
-      # disabled (--no-confirm / --yolo), in which case approve everything.
-      # Pikuri::Os::Extension pairs this human confirmer with a
-      # PassiveCommandDetector (allow_git: true) internally, so provably
-      # passive bash + read-only git skip the popup while every mutation
-      # still reaches it.
-      confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
-
-      configurator.add_tool Pikuri::Tool::CALCULATOR
-      configurator.add_extension Pikuri::Os::Extension.new(
-        filesystem: @filesystem,
-        confirmer: confirmer,
-        sandbox: @sandbox,
-        # Guards Edit/Write and wires the plan-mode tools + the PlanModeChanged
-        # event the status rule badge tracks; the same flag 'p' flips.
-        plan_mode: @plan_mode
-      )
-      # No confirmer wired — the gate is Thunderbird's own compose window /
-      # import wizard, where the user reviews and Sends/confirms.
-      configurator.add_extension Pikuri::Thunderbird::Extension.new(
-        profile_dir: @profile_dir,
-        allow_compose_mail: true,
-        allow_create_calendar_event: true
-      )
-      # Declaration only — commands register no tool and render no prompt, so
-      # without this /trifecta would miss their untrusted leg entirely.
-      configurator.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
-      return unless @internet_enabled
-
-      # The confirmer gates each delegation's task prompt, so the human
-      # approves what leaves this machine. The add_sub_agent_tool calls must
-      # precede the SubAgent extension, whose configure validates the persona's
-      # tool_names.
-      configurator.add_sub_agent_tool Pikuri::Web::Search.build(**@config.search.to_h)
-      configurator.add_sub_agent_tool Pikuri::Web::SCRAPE
-      configurator.add_sub_agent_tool Pikuri::Web::FETCH
-      configurator.add_extension Pikuri::SubAgent::Extension.new(
-        personas: [Pikuri::SubAgent::RESEARCHER],
-        confirmer: confirmer
-      )
+      @conversations.open(id: 'computer', transport: transport, listener: listener, initializer: self)
     end
 
     # Enter on the prompt: start a turn, or join the running one. A model known
