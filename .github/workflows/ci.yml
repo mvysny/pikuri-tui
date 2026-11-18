@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # `rake check` = the sord signatures, the spec suite, rubocop, then the doc
+  # tripwires: the same command a contributor runs locally, so CI cannot drift
+  # from it. tuile and the pikuri-* gems are git sources at the revisions
+  # Gemfile.lock pins, so bundler fetches them itself; no sibling checkout.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # ripgrep: pikuri-workspace's Search::Grep probes for `rg` in its
+      # constructor and raises when it's missing, so every spec that builds a
+      # real coding agent (spec/code/app_spec.rb) needs it.
+      - run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - run: bundle exec rake check
+      # `rake check` regenerated sig/ from the YARD tags; a diff means a commit
+      # changed a tag without running `rake sig`.
+      - name: Fail if sig/ is out of date
+        run: git diff --exit-code sig/

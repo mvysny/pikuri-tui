@@ -1,8 +1,8 @@
 # pikuri-tui
 
-[![status](https://ci.codeberg.org/api/badges/17231/status.svg)](https://ci.codeberg.org/repos/17231)
+[![CI](https://github.com/mvysny/pikuri-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/mvysny/pikuri-tui/actions/workflows/ci.yml)
 
-Terminal UI front-ends for [pikuri](https://codeberg.org/mvysny/pikuri) — a Ruby LLM agent framework.
+Terminal UI front-ends for [pikuri](https://github.com/mvysny/pikuri) — a Ruby LLM agent framework.
 
 Three shells:
 

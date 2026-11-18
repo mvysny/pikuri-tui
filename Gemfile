@@ -77,7 +77,7 @@ gem 'tomlrb', '~> 3.0'
 gem 'rbs', '~> 4.2'
 gem 'typemap', '~> 0.1'
 
-# The pikuri gems come from two repos. pikuri itself (codeberg) keeps the lean
+# The pikuri gems come from two repos. pikuri itself (GitHub) keeps the lean
 # core and the gems safe on a host as-is; pikuri-workshop (GitHub) holds the
 # ones that need a cage or grow by features — the coding and OS tool surfaces,
 # skills, tasks, MCP — and pikuri-conversations, which hosts the live
@@ -95,7 +95,7 @@ gem 'typemap', '~> 0.1'
 # keep ours at or past that commit, or a workshop gem may call into a pikuri
 # that lacks what it needs. The cut of pikuri 0.2.0 and the workshop's first
 # release revert these to version requirements.
-pikuri = { git: 'https://codeberg.org/mvysny/pikuri.git', branch: 'master' }
+pikuri = { git: 'https://github.com/mvysny/pikuri.git', branch: 'master' }
 workshop = { git: 'https://github.com/mvysny/pikuri-workshop.git', branch: 'master' }
 
 # Agent, Tool, prompts, listeners. In :default because every shell needs it;

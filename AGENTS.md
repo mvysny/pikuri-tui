@@ -2,7 +2,7 @@
 
 ## What this is
 
-Terminal UI front-ends for [pikuri](https://codeberg.org/mvysny/pikuri) — a Ruby LLM agent framework.
+Terminal UI front-ends for [pikuri](https://github.com/mvysny/pikuri) — a Ruby LLM agent framework.
 
 - **`pikuri-tui-chat`** — general-purpose chat with web search and calculator tools.
 - **`pikuri-tui-code`** — in-repo coding agent (sandboxed file/shell tools, git diff view, plan mode).
@@ -86,7 +86,7 @@ Every fact lives in exactly one of these; the others link to it.
 
 ## Commands
 
-- `bundle exec rake check` — the sord signatures, the spec suite, rubocop, then the doc-layer tripwire; also the default task, and what CI runs (`.woodpecker.yml`).
+- `bundle exec rake check` — the sord signatures, the spec suite, rubocop, then the doc-layer tripwire; also the default task, and what CI runs (`.github/workflows/ci.yml`).
 - `bundle exec rspec spec/code/app_spec.rb:42` — one test, still through Bundler.
 - `bundle exec rubocop -a` — fix what rubocop can; `.rubocop.yml` says why each cop is tuned.
 - `bundle exec rake sig` — regenerate `sig/pikuri_tui.rbs` after a YARD change, and commit it; CI fails on a stale one.
