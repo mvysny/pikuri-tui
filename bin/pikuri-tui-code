@@ -90,7 +90,7 @@ parser = OptionParser.new do |opts|
     cli_confirm = false
   end
   opts.on('--yolo', 'Combines --no-sandbox + --no-confirm + opens the filesystem ' \
-                    '(credential denylist only). Use only inside a container.') do
+                    '(credential denylist only). Use only inside a VM.') do
     cli_sandbox = false
     cli_confirm = false
     yolo = true
@@ -205,32 +205,31 @@ privacy_notice =
   end
 
 # Workspace: project_root is the writable ceiling, the bind root, the
-# relative-path base. temp: true mints an ephemeral writable scratch dir.
+# relative-path base. `scratch` is an ephemeral writable folder, reaped at exit.
 # private: is the declaration above — read by the file tools' trifecta legs
-# only, never by any access check. --yolo swaps in AllowAll (everything but the
-# credential denylist).
+# only, never by any access check. --yolo swaps in WholeDisk (everything but
+# the credential denylist, scratch included).
+scratch = Pikuri::Paths.new_temp
 filesystem = if yolo
-               warn '--readable/--writable ignored under --yolo (filesystem is ALLOW_ALL).' \
+               warn '--readable/--writable ignored under --yolo (the filesystem is the whole disk).' \
                  unless extra_readable.empty? && extra_writable.empty?
-               Pikuri::Workspace::Filesystem::AllowAll.new(
-                 project_root:      project_root,
-                 temp:              true,
-                 alias_tmp_to_temp: sandbox_enabled,
-                 private:           private_repo
-               )
+               Pikuri::Code::WholeDisk.new(project_root: project_root, private: private_repo)
              else
                Pikuri::Workspace::Filesystem.new(
-                 project_root:      project_root,
-                 readable:          Pikuri::Code::ToolchainPaths.readable +
-                                    skill_catalog.roots +
-                                    command_registry.roots +
-                                    extra_readable,
-                 writable:          extra_writable,
-                 temp:              true,
-                 alias_tmp_to_temp: sandbox_enabled,
-                 private:           private_repo
+                 project_root: project_root,
+                 readable:     Pikuri::Code::ToolchainPaths.readable +
+                               skill_catalog.roots +
+                               command_registry.roots +
+                               extra_readable,
+                 writable:     extra_writable + [scratch],
+                 private:      private_repo
                )
              end
+# The sandbox binds scratch at /tmp, so the file tools must read /tmp as
+# scratch too. Without the sandbox, bash's /tmp is the host's, and the alias
+# would lie about what read('/tmp/x') opens. (--yolo is sandbox-off, so this
+# never wraps a WholeDisk, which TmpAlias would refuse.)
+filesystem = Pikuri::Code::TmpAlias.new(filesystem, tmp: scratch) if sandbox_enabled
 
 # Bubblewrap sandbox wraps every Bash subprocess. Probes `bwrap` at
 # construction and raises if it isn't installed / the kernel lacks
@@ -305,7 +304,7 @@ system_prompt += if sandbox_enabled
                    "\nScratch space: /tmp — persistent across all bash and tool calls; " \
                      'use for downloads, clones, unpacks. Cleared on exit.'
                  else
-                   "\nScratch space: #{filesystem.temp} — persistent across tool calls, " \
+                   "\nScratch space: #{scratch} — persistent across tool calls, " \
                      'cleared on exit. Prefer it over /tmp for downloads, clones, unpacks ' \
                      "(keeps the host's /tmp clean)."
                  end
@@ -358,10 +357,21 @@ begin
   safety = []
   safety << 'Sandbox: DISABLED.' unless sandbox_enabled
   safety << 'Confirmer: AUTO-APPROVE.' unless confirm_enabled
-  safety << 'Filesystem: ALLOW_ALL (credential denylist only).' if yolo
+  safety << 'Filesystem: WHOLE DISK (credential denylist only).' if yolo
   unless safety.empty?
-    safety << 'Use only with an outer sandbox (docker / dev-container) or in a throwaway environment.'
-    main_log.warn(safety.join(' '))
+    # Backed loudly rather than enforced: outside a VM a prompt injection runs
+    # as you, on this machine. Error level, so the ^K ⚠ counter flags it.
+    case Pikuri::Code::VirtualMachine.inside?
+    when true
+      main_log.warn("#{safety.join(' ')} Running inside a VM, which is the wall now.")
+    when false
+      main_log.error("#{safety.join(' ')} NOT INSIDE A VM: a prompt injection now runs as you, on this " \
+                     'machine. Use these flags only inside a VM around this whole process; a container ' \
+                     'shares your kernel.')
+    else
+      main_log.warn("#{safety.join(' ')} Could not tell whether this is a VM (no systemd-detect-virt): " \
+                    'use these flags only inside one.')
+    end
   end
 
   app.run

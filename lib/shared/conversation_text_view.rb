@@ -764,11 +764,6 @@ class Shared::ConversationTextView < Tuile::Component::TextView
         render_cancelled
       in Pikuri::Conversations::Event::BootFailed(error:)
         render_failure('agent failed to boot', error)
-      in Pikuri::Conversations::Event::TurnEnded(outcome: :failed, error: Pikuri::Agent::EmptyTurnError)
-        # A bare skill load on a system-hoisting provider has nothing to send;
-        # the skill already rendered its own block, so a nudge, not an error.
-        @view.add_block(@view.theme.detail('· Nothing to send yet — type a message to start the turn.'),
-                        indent: @indent)
       in Pikuri::Conversations::Event::TurnEnded(outcome: :failed, error:)
         render_failure('turn failed', error)
       else

@@ -5,7 +5,7 @@
 #
 #   app = build_app { |llm| llm.stream('hi') }
 #   wait_until_idle(app)          # booted, no turn running
-#   booted_agent(app).tools       # the agent configure_agent wired
+#   booted_agent(app).tools       # the agent configure wired
 #
 # Every App built in an example is shut down as the example closes its screen,
 # so no boot or turn thread outlives the example — or logs into a pane that is gone. Mixed into every example (see
@@ -46,7 +46,7 @@ module ConversationApps
   end
 
   # The agent +app+'s conversation booted — private to the conversation, read
-  # here only to inspect what +configure_agent+ wired.
+  # here only to inspect what +configure+ wired.
   #
   # @return [Pikuri::Agent]
   def booted_agent(app)

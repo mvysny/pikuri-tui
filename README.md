@@ -61,7 +61,8 @@ bin/pikuri-tui-code
 
 Discovers the project root (VCS marker), `chdir`s to it, and roots the
 workspace + bubblewrap sandbox there. `--no-sandbox` / `--no-confirm` /
-`--yolo` relax the safety machinery (see `[code]` below). The connection comes
+`--yolo` relax the safety machinery (see `[code]` below); use them only inside
+a VM, since a container shares your kernel. The connection comes
 from `[[llm]]`, as in the chat shell.
 
 ## Run the computer assistant
@@ -85,7 +86,7 @@ same y/n confirmation as writes and bash. `--no-internet` drops the researcher
 (mail + calendar still work). The sandbox requires
 [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) and refuses to
 start without it. `--no-sandbox` lifts the no-egress guarantee on `bash` (it
-can then reach the internet directly — use only in a throwaway environment);
+can then reach the internet directly — use only inside a VM);
 `--profile-dir` pins the Thunderbird profile (otherwise auto-discovered);
 `--no-confirm` / `--yolo` behave as in the other shells.
 

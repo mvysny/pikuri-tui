@@ -19,7 +19,7 @@ module Chat
   #
   # App opens its own conversation from the {Shared::Config} handed to it —
   # the chat system prompt, the boot connection ({#config}'s first +llm+), and
-  # the web/calc tool set (see {#configure_agent}). The bin only parses CLI +
+  # the web/calc tool set (see {#configure}). The bin only parses CLI +
   # config and mounts the screen; the agent, its tools, and its listeners are
   # the shell's identity and live here.
   #
@@ -29,7 +29,7 @@ module Chat
   #
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#configure_agent} tool wiring and listeners — on a
+  # agent — the real {#configure} tool wiring and listeners — on a
   # scripted-HTTP backend instead of a live server.
   #
   # == Screen ownership
@@ -54,6 +54,8 @@ module Chat
   #
   # UI-thread-confined.
   class App
+    include Pikuri::Conversations::AgentInitializer
+
     # @return [Logger]
     LOG = Pikuri.logger_for('chat')
     private_constant :LOG
@@ -79,7 +81,7 @@ module Chat
 
     # @return [Shared::Config] the resolved configuration the bin loaded;
     #   drives the model list, the boot connection, and the web-search
-    #   provider keys {#configure_agent} reads.
+    #   provider keys {#configure} reads.
     attr_reader :config
 
     # @return [Pikuri::Conversations::Conversation] the one conversation this
@@ -161,6 +163,28 @@ module Chat
       nil
     end
 
+    # The +pikuri-chat+ system prompt, dated. Built once per agent, so the
+    # date is a clear's, not the launch's.
+    #
+    # @param _conversation [Pikuri::Conversations::Conversation]
+    # @return [String]
+    def system_prompt(_conversation)
+      "#{Pikuri.prompts(:'pikuri-chat', :'agent-loop')}\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
+    end
+
+    # The chat agent's tools: web search / scrape / fetch and the calculator.
+    # Runs once per agent — at boot and after every clear — on the boot thread.
+    #
+    # @param configurator [Pikuri::Agent::Configurator]
+    # @param _conversation [Pikuri::Conversations::Conversation]
+    # @return [void]
+    def configure(configurator, _conversation)
+      configurator.add_tool Pikuri::Web::Search.build(**@config.search.to_h)
+      configurator.add_tool Pikuri::Tool::CALCULATOR
+      configurator.add_tool Pikuri::Web::SCRAPE
+      configurator.add_tool Pikuri::Web::FETCH
+    end
+
     private
 
     # @return [void]
@@ -231,33 +255,18 @@ module Chat
     end
 
     # Open the shell's one conversation on +transport+, which boots its agent
-    # on a thread of its own: the +pikuri-chat+ system prompt (dated), the
-    # tools {#configure_agent} adds, and the panes' listeners — the transcript
+    # on a thread of its own: {#system_prompt}, the tools {#configure} adds,
+    # and the panes' listeners — the transcript
     # rate-limited to 15 fps (a fast llama.cpp emits dozens of deltas a second,
     # and re-rendering Markdown on each is wasted work), and the status rule.
     #
     # @param transport [Pikuri::Agent::ChatTransport] the model it starts on.
     # @return [Pikuri::Conversations::Conversation]
     def open_session(transport)
-      system_prompt = Pikuri.prompts(:'pikuri-chat', :'agent-loop')
-      system_prompt += "\n\nCurrent date: #{Time.now.strftime('%Y-%m-%d')}"
-      @conversations = Pikuri::Conversations.new(system_prompt: system_prompt, configure: method(:configure_agent))
+      @conversations = Pikuri::Conversations.new
       transcript = Pikuri::Conversations::RateLimitedListener.new(@conversation.listener, fps: 15)
       listener = Pikuri::Agent::ListenerList.new([transcript, @status_rule])
-      @conversations.open(id: 'chat', transport: transport, listener: listener)
-    end
-
-    # The chat agent's tools: web search / scrape / fetch and the calculator.
-    # Runs once per agent — at boot and after every clear — on the boot thread.
-    #
-    # @param configurator [Pikuri::Agent::Configurator]
-    # @param _conversation [Pikuri::Conversations::Conversation]
-    # @return [void]
-    def configure_agent(configurator, _conversation)
-      configurator.add_tool Pikuri::Web::Search.build(**@config.search.to_h)
-      configurator.add_tool Pikuri::Tool::CALCULATOR
-      configurator.add_tool Pikuri::Web::SCRAPE
-      configurator.add_tool Pikuri::Web::FETCH
+      @conversations.open(id: 'chat', transport: transport, listener: listener, initializer: self)
     end
 
     # Enter on the prompt: start a turn, or join the running one. A model known

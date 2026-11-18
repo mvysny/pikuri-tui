@@ -472,12 +472,6 @@ RSpec.describe Shared::ConversationTextView do
       assert_includes log, 'turn failed: RuntimeError: boom'
     end
 
-    it 'nudges rather than errs on a bare turn with nothing to send' do
-      listener.on_event(turn_failed(Pikuri::Agent::EmptyTurnError.new('empty')))
-      assert_includes rendered, 'Nothing to send yet'
-      refute_includes rendered, '!'
-    end
-
     it 'shows a failed boot as an error line' do
       capture_log do
         listener.on_event(Pikuri::Conversations::Event::BootFailed.new(error: RuntimeError.new('no bwrap')))

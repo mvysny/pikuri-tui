@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Code::App do
-  # App boots its *real* Pikuri::Agent (real configure_agent / listener
+  # App boots its *real* Pikuri::Agent (real configure / listener
   # tool / extension wiring — workspace, sandbox, MCP, sub-agents, tasks,
   # skills) on a fake_transport, so these specs exercise the actual wiring
   # without a server. The old whole-agent CodeStubAgent is gone; see
@@ -146,7 +146,7 @@ RSpec.describe Code::App do
     it 'counts the private leg iff the workspace was declared private' do
       refute_includes trifecta_output, ':private'
       private_app = code_app(
-        filesystem: Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd, private: true)
+        filesystem: Pikuri::Code::WholeDisk.new(project_root: Dir.pwd, private: true)
       )
       assert_includes trifecta_output(private_app), ':private'
     end
@@ -607,7 +607,7 @@ RSpec.describe Code::App do
   private
 
   # Construct a Code::App with the pre-built workspace objects the bin
-  # normally assembles pre-screen. Cheap stand-ins: an AllowAll filesystem
+  # normally assembles pre-screen. Cheap stand-ins: a WholeDisk filesystem
   # rooted at the repo, no sandbox, an empty skill catalog, a placeholder
   # prompt. Overridable via kwargs (the model-picker specs pass a multi-llm
   # config). The block is the no-arg agent seam.
@@ -619,7 +619,7 @@ RSpec.describe Code::App do
   def code_app(config: code_config, model: 'stub-model', api_base: 'http://x/v1', gate: nil,
                skill_catalog: Pikuri::Skill::Catalog::Bundled.new(search_bases: []),
                command_registry: Pikuri::Command::Registry.new(search_bases: []),
-               filesystem: Pikuri::Workspace::Filesystem::AllowAll.new(project_root: Dir.pwd), &script)
+               filesystem: Pikuri::Code::WholeDisk.new(project_root: Dir.pwd), &script)
     script ||= ->(llm) { llm.stream('ok') }
     transport = Pikuri::Testing.fake_transport(model: model, api_base: api_base, gate: gate, &script)
     described_class.new(

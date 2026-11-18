@@ -37,7 +37,7 @@ module Code
   # 
   # == Construction: App owns the conversation
   # 
-  # App opens its own conversation (see {#configure_agent}) from the
+  # App opens its own conversation (see {#configure}) from the
   # {Shared::Config} handed to it plus the pre-built workspace objects the bin
   # assembles — see "What the bin still owns" below. The bin's job ends at CLI
   # + config + workspace/sandbox/trust + screen; the agent, its tools, and its
@@ -45,7 +45,7 @@ module Code
   # 
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#configure_agent} tool/extension wiring and listeners —
+  # agent — the real {#configure} tool/extension wiring and listeners —
   # on a scripted-HTTP backend, skipping the network / RubyLLM cost.
   # 
   # == What the bin still owns (why this isn't just +config:+)
@@ -81,6 +81,7 @@ module Code
   # 
   # UI-thread-confined.
   class App
+    include Pikuri::Conversations::AgentInitializer
     LOG: Logger
     CLOSE_TIMEOUT_S: Integer
     SIDEBAR_ARGUMENTS: ::Hash[String, Symbol]
@@ -142,16 +143,10 @@ module Code
     # Idempotent.
     def close: () -> void
 
-    def build_components: () -> void
-
-    # Open the shell's one conversation on +transport+, which boots its agent
-    # on a thread of its own: the bin-assembled system prompt, the coding tool
-    # surface {#configure_agent} adds, and the panes' listeners — the transcript
-    # rate-limited to 15 fps (see {Chat::App} for why), the status rule, the
-    # sidebar's task pane, the plan-mode badge and the skill palette.
+    # The bin-assembled system prompt, the same for every agent.
     # 
-    # _@param_ `transport` — the model it starts on.
-    def open_session: (Pikuri::Agent::ChatTransport transport) -> Pikuri::Conversations::Conversation
+    # _@param_ `_conversation`
+    def system_prompt: (Pikuri::Conversations::Conversation _conversation) -> String
 
     # The coding tool surface, built fresh for each agent — at boot and after
     # every clear — on the boot thread.
@@ -162,14 +157,25 @@ module Code
     # with no file read/write/bash to hijack (pikuri's SECURITY.md "capability
     # boundaries via sub-agents"). The five file tools come from one
     # +Workspace::Extension+ (a single +Workspace+ composite shared across
-    # them, so the read-before-edit gate works); +Bash+ / +git_clone+ come from
-    # +Code::Extension+. Both take the shared plan-mode flag so Edit/Write
-    # refuse while it's active.
+    # them, so the read-before-edit gate works), over the plan-mode guard so
+    # Edit/Write refuse while it's on; +Bash+ and the plan-mode tools come from
+    # +Code::Extension+, over the raw filesystem.
     # 
     # _@param_ `configurator`
     # 
     # _@param_ `_conversation`
-    def configure_agent: (Pikuri::Agent::Configurator configurator, Pikuri::Conversations::Conversation _conversation) -> void
+    def configure: (Pikuri::Agent::Configurator configurator, Pikuri::Conversations::Conversation _conversation) -> void
+
+    def build_components: () -> void
+
+    # Open the shell's one conversation on +transport+, which boots its agent
+    # on a thread of its own: {#system_prompt}, the coding tool surface
+    # {#configure} adds, and the panes' listeners — the transcript
+    # rate-limited to 15 fps (see {Chat::App} for why), the status rule, the
+    # sidebar's task pane, the plan-mode badge and the skill palette.
+    # 
+    # _@param_ `transport` — the model it starts on.
+    def open_session: (Pikuri::Agent::ChatTransport transport) -> Pikuri::Conversations::Conversation
 
     # The +[[code.mcp]]+ servers, translated from the config's Pikuri-free
     # +McpServer+ value objects (a wiring layer, where +Pikuri::*+ is allowed).
@@ -286,14 +292,10 @@ module Code
     # call.
     def quit: () -> void
 
-    # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
-    # enter if off, exit if on. Runs on the UI thread (global-shortcut
-    # dispatch); the flag is thread-safe, and the status-rule badge updates
-    # through {PlanModeListener} off the +PlanModeChanged+ event the flip
-    # emits, so this stays a one-liner and the model-flip path renders the
-    # same way. Idempotent transitions
-    # ({Pikuri::Workspace::ReadOnly#activate!}/{#deactivate!}) make a
-    # double-press harmless.
+    # Flip the shared {Pikuri::Code::PlanMode} flag — enter if off, exit if
+    # on. The status-rule badge updates through {PlanModeListener} off the
+    # +PlanModeChanged+ event the flip emits, so the model-flip path renders
+    # the same way.
     def toggle_plan_mode: () -> void
 
     # Pushes the sidebar's counts into the status rule, or clears them: the rule
@@ -325,7 +327,7 @@ module Code
 
     # _@return_ — the resolved configuration the bin loaded;
     # drives the model list, the sandbox/confirm posture, the web-search
-    # provider keys, and the MCP registry {#configure_agent} wires.
+    # provider keys, and the MCP registry {#configure} wires.
     attr_reader config: Shared::Config
 
     # _@return_ — the one conversation this
@@ -1846,7 +1848,7 @@ module Code
   end
 
   # Keeps the status rule's plan-mode badge in step with
-  # the agent's shared {Pikuri::Workspace::ReadOnly} flag. A
+  # the agent's shared {Pikuri::Code::PlanMode} flag. A
   # {Pikuri::Agent::Listener::Base} subclass that consumes the
   # {Pikuri::Code::PlanModeChanged} event +Pikuri::Code::Extension+
   # re-emits on every real transition, and pushes the new posture onto
@@ -1862,7 +1864,7 @@ module Code
   # == Why the event, not the control
   # 
   # The badge is driven off the *event* rather than the host reading the
-  # {Pikuri::Workspace::ReadOnly} flag directly, so a
+  # {Pikuri::Code::PlanMode} flag directly, so a
   # **model**-initiated entry (the +enter_plan_mode+ tool) lights up the
   # status rule exactly like the leader menu's +p+ toggle does — both flips fire the
   # flag's +on_change+, which +Code::Extension+ bridges onto this
@@ -2260,7 +2262,7 @@ module Code
   #     base: built_in_commands,
   #     on_load: ->(name, rest) { load_skill(name, rest) }
   #   )
-  #   # in the Conversations' configure:, once per agent
+  #   # in App#configure (the AgentInitializer), once per agent
   #   ext = Pikuri::Skill::Extension.new(catalog: skill_catalog, root: project_root)
   #   c.add_extension ext
   #   skill_activation.extension = ext   # re-lists the palette for the new agent
@@ -2360,7 +2362,7 @@ module Chat
   # 
   # App opens its own conversation from the {Shared::Config} handed to it —
   # the chat system prompt, the boot connection ({#config}'s first +llm+), and
-  # the web/calc tool set (see {#configure_agent}). The bin only parses CLI +
+  # the web/calc tool set (see {#configure}). The bin only parses CLI +
   # config and mounts the screen; the agent, its tools, and its listeners are
   # the shell's identity and live here.
   # 
@@ -2370,7 +2372,7 @@ module Chat
   # 
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#configure_agent} tool wiring and listeners — on a
+  # agent — the real {#configure} tool wiring and listeners — on a
   # scripted-HTTP backend instead of a live server.
   # 
   # == Screen ownership
@@ -2395,6 +2397,7 @@ module Chat
   # 
   # UI-thread-confined.
   class App
+    include Pikuri::Conversations::AgentInitializer
     LOG: Logger
     CLOSE_TIMEOUT_S: Integer
 
@@ -2422,6 +2425,20 @@ module Chat
     # its agent to be released. Idempotent.
     def close: () -> void
 
+    # The +pikuri-chat+ system prompt, dated. Built once per agent, so the
+    # date is a clear's, not the launch's.
+    # 
+    # _@param_ `_conversation`
+    def system_prompt: (Pikuri::Conversations::Conversation _conversation) -> String
+
+    # The chat agent's tools: web search / scrape / fetch and the calculator.
+    # Runs once per agent — at boot and after every clear — on the boot thread.
+    # 
+    # _@param_ `configurator`
+    # 
+    # _@param_ `_conversation`
+    def configure: (Pikuri::Agent::Configurator configurator, Pikuri::Conversations::Conversation _conversation) -> void
+
     def build_components: () -> void
 
     # The chat shell's slash commands — the {Shared::LeaderMenu} actions
@@ -2436,21 +2453,13 @@ module Chat
     def build_slash_commands: () -> ::Array[Shared::SlashCommand]
 
     # Open the shell's one conversation on +transport+, which boots its agent
-    # on a thread of its own: the +pikuri-chat+ system prompt (dated), the
-    # tools {#configure_agent} adds, and the panes' listeners — the transcript
+    # on a thread of its own: {#system_prompt}, the tools {#configure} adds,
+    # and the panes' listeners — the transcript
     # rate-limited to 15 fps (a fast llama.cpp emits dozens of deltas a second,
     # and re-rendering Markdown on each is wasted work), and the status rule.
     # 
     # _@param_ `transport` — the model it starts on.
     def open_session: (Pikuri::Agent::ChatTransport transport) -> Pikuri::Conversations::Conversation
-
-    # The chat agent's tools: web search / scrape / fetch and the calculator.
-    # Runs once per agent — at boot and after every clear — on the boot thread.
-    # 
-    # _@param_ `configurator`
-    # 
-    # _@param_ `_conversation`
-    def configure_agent: (Pikuri::Agent::Configurator configurator, Pikuri::Conversations::Conversation _conversation) -> void
 
     # Enter on the prompt: start a turn, or join the running one. A model known
     # to refuse the images gets nothing, and the line comes back for a fix.
@@ -2535,7 +2544,7 @@ module Chat
 
     # _@return_ — the resolved configuration the bin loaded;
     # drives the model list, the boot connection, and the web-search
-    # provider keys {#configure_agent} reads.
+    # provider keys {#configure} reads.
     attr_reader config: Shared::Config
 
     # _@return_ — the one conversation this
@@ -2675,13 +2684,13 @@ module Computer
   # whole-host {Pikuri::Os::Extension} (five file tools + a network-severed
   # sandboxed bash), local mail + calendar via
   # {Pikuri::Thunderbird::Extension}, and — unless +internet_enabled+ is false
-  # — a quarantined web RESEARCHER sub-agent (see {#configure_agent}). The
+  # — a quarantined web RESEARCHER sub-agent (see {#configure}). The
   # bin only parses CLI + config, probes the Thunderbird profile, and mounts
   # the screen.
   # 
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#configure_agent} tool/extension wiring and listeners —
+  # agent — the real {#configure} tool/extension wiring and listeners —
   # on a scripted-HTTP backend instead of a live server. The host probes the
   # extensions make are steered through +profile_dir:+ and +config.sandbox+,
   # which production sets anyway.
@@ -2719,6 +2728,7 @@ module Computer
   # 
   # UI-thread-confined.
   class App
+    include Pikuri::Conversations::AgentInitializer
     LOG: Logger
     CLOSE_TIMEOUT_S: Integer
 
@@ -2769,24 +2779,12 @@ module Computer
     # wait a moment for its agent to be released. Idempotent.
     def close: () -> void
 
-    def build_components: () -> void
-
-    # The bash sandbox every agent shares: +FullFsNoNet+, or +NONE+ under
-    # +--no-sandbox+ / +--yolo+ (+config.sandbox+ false), which re-opens the
-    # network. Built here, not per agent: the bwrap probe in its constructor
-    # raises (no silent fallback), and see the class docs for why that raise
-    # belongs in +App.new+.
-    def build_sandbox: () -> Pikuri::Code::Bash::Sandbox
-
-    # Open the shell's one conversation on +transport+, which boots its agent
-    # on a thread of its own: the OS-assistant prompt (plus the online
-    # network-posture block when +internet_enabled+ — offline adds nothing), the
-    # desktop tool surface {#configure_agent} adds, and the panes' listeners —
-    # the transcript rate-limited to 15 fps (see {Chat::App} for why), the
-    # status rule and the plan-mode badge.
+    # The OS-assistant prompt, dated, plus the online network-posture block
+    # when +internet_enabled+ (offline adds nothing). Built once per agent, so
+    # the date is a clear's, not the launch's.
     # 
-    # _@param_ `transport` — the model it starts on.
-    def open_session: (Pikuri::Agent::ChatTransport transport) -> Pikuri::Conversations::Conversation
+    # _@param_ `_conversation`
+    def system_prompt: (Pikuri::Conversations::Conversation _conversation) -> String
 
     # The computer agent's desktop tool surface, built fresh for each agent —
     # at boot and after every clear — on the boot thread. Composes two pikuri
@@ -2801,7 +2799,25 @@ module Computer
     # _@param_ `configurator`
     # 
     # _@param_ `_conversation`
-    def configure_agent: (Pikuri::Agent::Configurator configurator, Pikuri::Conversations::Conversation _conversation) -> void
+    def configure: (Pikuri::Agent::Configurator configurator, Pikuri::Conversations::Conversation _conversation) -> void
+
+    def build_components: () -> void
+
+    # The bash sandbox every agent shares: +FullFsNoNet+, or +NONE+ under
+    # +--no-sandbox+ / +--yolo+ (+config.sandbox+ false), which re-opens the
+    # network. Built here, not per agent: the bwrap probe in its constructor
+    # raises (no silent fallback), and see the class docs for why that raise
+    # belongs in +App.new+.
+    def build_sandbox: () -> Pikuri::Code::Bash::Sandbox
+
+    # Open the shell's one conversation on +transport+, which boots its agent
+    # on a thread of its own: {#system_prompt}, the desktop tool surface
+    # {#configure} adds, and the panes' listeners —
+    # the transcript rate-limited to 15 fps (see {Chat::App} for why), the
+    # status rule and the plan-mode badge.
+    # 
+    # _@param_ `transport` — the model it starts on.
+    def open_session: (Pikuri::Agent::ChatTransport transport) -> Pikuri::Conversations::Conversation
 
     # Enter on the prompt: start a turn, or join the running one. A model known
     # to refuse the images gets nothing, and the line comes back for a fix.
@@ -2886,14 +2902,10 @@ module Computer
     # call.
     def quit: () -> void
 
-    # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
-    # enter if off, exit if on. Runs on the UI thread (global-shortcut
-    # dispatch); the flag is thread-safe, and the status-rule badge updates
-    # through {Code::PlanModeListener} off the +PlanModeChanged+ event the
-    # flip emits, so this stays a one-liner and the model-flip path
-    # renders the same way. Idempotent transitions
-    # ({Pikuri::Workspace::ReadOnly#activate!}/{#deactivate!}) make a
-    # double-press harmless.
+    # Flip the shared {Pikuri::Code::PlanMode} flag — enter if off, exit if
+    # on. The status-rule badge updates through {Code::PlanModeListener} off
+    # the +PlanModeChanged+ event the flip emits, so the model-flip path
+    # renders the same way.
     def toggle_plan_mode: () -> void
 
     # _@param_ `event` — the uncaught exception, in the event the empty-means-re-raise slot hands its listeners.
@@ -2912,7 +2924,7 @@ module Computer
 
     # _@return_ — the resolved configuration the bin loaded;
     # drives the model list, the boot connection, the sandbox/confirm
-    # posture, and the web-search provider keys {#configure_agent} reads.
+    # posture, and the web-search provider keys {#configure} reads.
     attr_reader config: Shared::Config
 
     # _@return_ — the one conversation this

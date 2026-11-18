@@ -48,11 +48,8 @@ gem 'kramdown-parser-gfm', '~> 1.1'
 # Cuts a streamed reply into final kramdown blocks for
 # Shared::Markdown::StreamingBuffer: each finished block is rendered once, and
 # only the open tail re-renders per delta. Its repairs (the em-dash table
-# separator) also run on the one-shot render. Git rather than a release: it is
-# pre-1.0 and not on RubyGems, so Gemfile.lock pins the commit and
-# `bundle update streaming-markdown-parser` moves it.
-gem 'streaming-markdown-parser', git: 'https://github.com/mvysny/streaming-markdown-parser.git',
-                                 branch: 'master'
+# separator) also run on the one-shot render.
+gem 'streaming-markdown-parser', '~> 0.1'
 
 # Syntax highlighting for fenced code blocks in the conversation pane.
 # Used by Shared::Markdown::AnsiConverter. The upper bound

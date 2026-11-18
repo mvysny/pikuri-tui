@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Chat::App do
-  # App boots its *real* Pikuri::Agent (real configure_agent / listener
+  # App boots its *real* Pikuri::Agent (real configure / listener
   # tool wiring) on a fake_transport — a scripted-HTTP backend — so these
   # specs exercise the actual wiring end-to-end without a server. The old
   # per-shell ChatStubAgent (which faked the whole agent and bypassed that

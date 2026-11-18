@@ -15,10 +15,11 @@ RSpec.describe Shared::Model::Picker do
 
   # A real conversation, never booted: a pick lands in +switch_model+, and
   # +status.next_model+ reads it back.
-  let(:conversations) { Pikuri::Conversations.new(system_prompt: 'You are terse.') }
+  let(:conversations) { Pikuri::Conversations.new }
+  let(:initializer) { Class.new { include Pikuri::Conversations::AgentInitializer }.new }
   let(:session) do
     conversations.open(id: 'c', transport: choices[0].transport, listener: Pikuri::Agent::Listener::Base.new,
-                       boot: false)
+                       initializer: initializer, boot: false)
   end
 
   after { conversations.shutdown(timeout: 1) }
@@ -131,7 +132,7 @@ RSpec.describe Shared::Model::Picker do
               model_choice('Remote Qwen', 'qwen3', api_base: 'http://mavi-fw:8080/v1')]
       picker = described_class.new(models: pair)
       session = conversations.open(id: 'pair', transport: pair[1].transport,
-                                   listener: Pikuri::Agent::Listener::Base.new, boot: false)
+                                   listener: Pikuri::Agent::Listener::Base.new, initializer: initializer, boot: false)
       options, = capture_picker { picker.open(session: session) }
 
       refute_match(/●/, options[0][1], 'the inactive same-model connection must not flag')

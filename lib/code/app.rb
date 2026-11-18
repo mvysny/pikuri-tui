@@ -22,7 +22,7 @@ module Code
   #
   # == Construction: App owns the conversation
   #
-  # App opens its own conversation (see {#configure_agent}) from the
+  # App opens its own conversation (see {#configure}) from the
   # {Shared::Config} handed to it plus the pre-built workspace objects the bin
   # assembles — see "What the bin still owns" below. The bin's job ends at CLI
   # + config + workspace/sandbox/trust + screen; the agent, its tools, and its
@@ -30,7 +30,7 @@ module Code
   #
   # The optional +transport:+ is a **test seam**, not production ceremony: a
   # spec passes a +Pikuri::Testing.fake_transport+ so App builds its *real*
-  # agent — the real {#configure_agent} tool/extension wiring and listeners —
+  # agent — the real {#configure} tool/extension wiring and listeners —
   # on a scripted-HTTP backend, skipping the network / RubyLLM cost.
   #
   # == What the bin still owns (why this isn't just +config:+)
@@ -66,6 +66,8 @@ module Code
   #
   # UI-thread-confined.
   class App
+    include Pikuri::Conversations::AgentInitializer
+
     # @return [Logger]
     LOG = Pikuri.logger_for('code')
     private_constant :LOG
@@ -98,7 +100,7 @@ module Code
 
     # @return [Shared::Config] the resolved configuration the bin loaded;
     #   drives the model list, the sandbox/confirm posture, the web-search
-    #   provider keys, and the MCP registry {#configure_agent} wires.
+    #   provider keys, and the MCP registry {#configure} wires.
     attr_reader :config
 
     # @return [Pikuri::Conversations::Conversation] the one conversation this
@@ -188,14 +190,9 @@ module Code
       @system_prompt = system_prompt
       @trusted_repo = trusted_repo
       @markdown = markdown
-      # The shared plan-mode (read-only) flag: the leader menu's +p+ toggle and
-      # the model's enter/exit tools flip this one instance (threaded into every
-      # agent's Workspace + Code extensions by configure_agent). The
-      # message: is the plan-mode-specific refusal wording Edit/Write splice
-      # into their "cannot write …" observation.
-      @plan_mode = Pikuri::Workspace::ReadOnly.new(
-        message: Pikuri::Code::Extension::PLAN_MODE_READONLY_MESSAGE
-      )
+      # One flag for the process, outliving every agent a /clear builds: the
+      # leader menu's +p+ toggle and the model's enter/exit tools flip it.
+      @plan_mode = Pikuri::Code::PlanMode.new
       @models = config.llms.map { |llm| Shared::Model::Choice.from_llm(llm) }
       Shared::RequestPermits.install(config.servers)
       Pikuri::Extractors::PDF.register
@@ -243,6 +240,78 @@ module Code
     def close
       @conversations.shutdown(timeout: CLOSE_TIMEOUT_S)
       nil
+    end
+
+    # The bin-assembled system prompt, the same for every agent.
+    #
+    # @param _conversation [Pikuri::Conversations::Conversation]
+    # @return [String]
+    def system_prompt(_conversation) = @system_prompt
+
+    # The coding tool surface, built fresh for each agent — at boot and after
+    # every clear — on the boot thread.
+    #
+    # File/shell tools first (declaration order biases some models toward
+    # earlier tools); calculator as auxiliary. Network tools go on the
+    # sub-agent-only pool so untrusted web content lands in a child context
+    # with no file read/write/bash to hijack (pikuri's SECURITY.md "capability
+    # boundaries via sub-agents"). The five file tools come from one
+    # +Workspace::Extension+ (a single +Workspace+ composite shared across
+    # them, so the read-before-edit gate works), over the plan-mode guard so
+    # Edit/Write refuse while it's on; +Bash+ and the plan-mode tools come from
+    # +Code::Extension+, over the raw filesystem.
+    #
+    # @param configurator [Pikuri::Agent::Configurator]
+    # @param _conversation [Pikuri::Conversations::Conversation]
+    # @return [void]
+    def configure(configurator, _conversation)
+      # The in-transcript confirmer for writes + bash, unless confirmations are
+      # disabled (--no-confirm / --yolo), in which case approve everything.
+      confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
+
+      # Bash auto-gates provably passive commands on top of the human
+      # confirmer: the frequent harmless inspections (ls, cat, grep, `cd x &&
+      # ls`) stop popping the question, while every mutation still reaches it.
+      # The gate is asymmetric — only Code::Extension (Bash) gets a
+      # passive_detector; Write/Edit keep the bare confirmer. allow_git tracks
+      # the persisted trust grant. Under --no-confirm/--yolo there is nothing
+      # to skip, so no detector is built.
+      passive_detector =
+        @config.confirm ? Pikuri::Code::Bash::PassiveCommandDetector.new(allow_git: @trusted_repo) : nil
+
+      # confirm_all_writes: false, as pikuri-code's own bin: a coding agent
+      # edits all day and git is the undo; an overwrite still asks.
+      configurator.add_extension Pikuri::Workspace::Extension.new(filesystem: @plan_mode.guard(@filesystem),
+                                                                  confirmer: confirmer, confirm_all_writes: false)
+      configurator.add_tool Pikuri::Tool::CALCULATOR
+      configurator.add_sub_agent_tool Pikuri::Web::Search.build(**@config.search.to_h)
+      configurator.add_sub_agent_tool Pikuri::Web::SCRAPE
+      configurator.add_sub_agent_tool Pikuri::Web::FETCH
+      configurator.add_extension Pikuri::Code::Extension.new(
+        filesystem: @filesystem,
+        confirmer: confirmer,
+        passive_detector: passive_detector,
+        sandbox: @sandbox,
+        plan_mode: @plan_mode
+      )
+      # +root:+ is what a `paths:` skill's globs are matched against.
+      skills = Pikuri::Skill::Extension.new(catalog: @skill_catalog, root: project_root)
+      configurator.add_extension skills
+      @skill_activation.extension = skills
+      # Declaration only — commands register no tool and render no prompt, so
+      # without this /trifecta would miss their untrusted leg entirely.
+      configurator.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
+      configurator.add_extension Pikuri::Tasks::Extension.new
+      configurator.add_extension Pikuri::Mcp::Extension.new(catalog: mcp_catalog(configurator.agent))
+      # Privilege-separated read-only sub-agents: FILE_MINER (read/grep/glob)
+      # for code/fs lookups, RESEARCHER (web_search/scrape/fetch) for
+      # external docs.
+      configurator.add_extension Pikuri::SubAgent::Extension.new(
+        personas: [Pikuri::SubAgent::FILE_MINER, Pikuri::SubAgent::RESEARCHER]
+      )
+      # Not a persona: its child clones into a throwaway folder of its own and
+      # never sees this project. Must follow the web tools it hands the child.
+      configurator.add_extension Pikuri::Code::GitRepoResearcher.new
     end
 
     private
@@ -334,84 +403,19 @@ module Code
     end
 
     # Open the shell's one conversation on +transport+, which boots its agent
-    # on a thread of its own: the bin-assembled system prompt, the coding tool
-    # surface {#configure_agent} adds, and the panes' listeners — the transcript
+    # on a thread of its own: {#system_prompt}, the coding tool surface
+    # {#configure} adds, and the panes' listeners — the transcript
     # rate-limited to 15 fps (see {Chat::App} for why), the status rule, the
     # sidebar's task pane, the plan-mode badge and the skill palette.
     #
     # @param transport [Pikuri::Agent::ChatTransport] the model it starts on.
     # @return [Pikuri::Conversations::Conversation]
     def open_session(transport)
-      @conversations = Pikuri::Conversations.new(system_prompt: @system_prompt, configure: method(:configure_agent))
+      @conversations = Pikuri::Conversations.new
       transcript = Pikuri::Conversations::RateLimitedListener.new(@conversation.listener, fps: 15)
       listener = Pikuri::Agent::ListenerList.new([transcript, @status_rule, @sidebar.task_listener,
                                                   @plan_mode_listener, @skill_activation])
-      @conversations.open(id: 'code', transport: transport, listener: listener)
-    end
-
-    # The coding tool surface, built fresh for each agent — at boot and after
-    # every clear — on the boot thread.
-    #
-    # File/shell tools first (declaration order biases some models toward
-    # earlier tools); calculator as auxiliary. Network tools go on the
-    # sub-agent-only pool so untrusted web content lands in a child context
-    # with no file read/write/bash to hijack (pikuri's SECURITY.md "capability
-    # boundaries via sub-agents"). The five file tools come from one
-    # +Workspace::Extension+ (a single +Workspace+ composite shared across
-    # them, so the read-before-edit gate works); +Bash+ / +git_clone+ come from
-    # +Code::Extension+. Both take the shared plan-mode flag so Edit/Write
-    # refuse while it's active.
-    #
-    # @param configurator [Pikuri::Agent::Configurator]
-    # @param _conversation [Pikuri::Conversations::Conversation]
-    # @return [void]
-    def configure_agent(configurator, _conversation)
-      # The in-transcript confirmer for writes + bash, unless confirmations are
-      # disabled (--no-confirm / --yolo), in which case approve everything.
-      confirmer = @config.confirm ? @confirmer : Pikuri::Workspace::Confirmer::AUTO_APPROVE
-
-      # Bash auto-gates provably passive commands on top of the human
-      # confirmer: the frequent harmless inspections (ls, cat, grep, `cd x &&
-      # ls`) stop popping the question, while every mutation still reaches it.
-      # The gate is asymmetric — only Code::Extension (Bash) gets a
-      # passive_detector; Write/Edit keep the bare confirmer. allow_git tracks
-      # the persisted trust grant. Under --no-confirm/--yolo there is nothing
-      # to skip, so no detector is built.
-      passive_detector =
-        @config.confirm ? Pikuri::Code::Bash::PassiveCommandDetector.new(allow_git: @trusted_repo) : nil
-
-      configurator.add_extension Pikuri::Workspace::Extension.new(filesystem: @filesystem, confirmer: confirmer,
-                                                                  read_only: @plan_mode)
-      configurator.add_tool Pikuri::Tool::CALCULATOR
-      configurator.add_sub_agent_tool Pikuri::Web::Search.build(**@config.search.to_h)
-      configurator.add_sub_agent_tool Pikuri::Web::SCRAPE
-      configurator.add_sub_agent_tool Pikuri::Web::FETCH
-      configurator.add_extension Pikuri::Code::Extension.new(
-        filesystem: @filesystem,
-        confirmer: confirmer,
-        passive_detector: passive_detector,
-        sandbox: @sandbox,
-        read_only: @plan_mode
-      )
-      # +root:+ is what a `paths:` skill's globs are matched against.
-      skills = Pikuri::Skill::Extension.new(catalog: @skill_catalog, root: project_root)
-      configurator.add_extension skills
-      @skill_activation.extension = skills
-      # Declaration only — commands register no tool and render no prompt, so
-      # without this /trifecta would miss their untrusted leg entirely.
-      configurator.add_extension Pikuri::Command::Extension.new(registry: @command_registry)
-      configurator.add_extension Pikuri::Tasks::Extension.new
-      configurator.add_extension Pikuri::Mcp::Extension.new(catalog: mcp_catalog(configurator.agent))
-      # Privilege-separated read-only sub-agents: FILE_MINER (read/grep/glob)
-      # for code/fs lookups, RESEARCHER (web_search/scrape/fetch) for
-      # external docs, GIT_REPO_RESEARCHER for cloning + mining other repos.
-      configurator.add_extension Pikuri::SubAgent::Extension.new(
-        personas: [
-          Pikuri::SubAgent::FILE_MINER,
-          Pikuri::SubAgent::RESEARCHER,
-          Pikuri::Code::GIT_REPO_RESEARCHER
-        ]
-      )
+      @conversations.open(id: 'code', transport: transport, listener: listener, initializer: self)
     end
 
     # The +[[code.mcp]]+ servers, translated from the config's Pikuri-free
@@ -637,14 +641,10 @@ module Code
       @screen.event_queue.stop
     end
 
-    # Flip the shared {Pikuri::Workspace::ReadOnly} plan-mode flag —
-    # enter if off, exit if on. Runs on the UI thread (global-shortcut
-    # dispatch); the flag is thread-safe, and the status-rule badge updates
-    # through {PlanModeListener} off the +PlanModeChanged+ event the flip
-    # emits, so this stays a one-liner and the model-flip path renders the
-    # same way. Idempotent transitions
-    # ({Pikuri::Workspace::ReadOnly#activate!}/{#deactivate!}) make a
-    # double-press harmless.
+    # Flip the shared {Pikuri::Code::PlanMode} flag — enter if off, exit if
+    # on. The status-rule badge updates through {PlanModeListener} off the
+    # +PlanModeChanged+ event the flip emits, so the model-flip path renders
+    # the same way.
     #
     # @return [void]
     def toggle_plan_mode

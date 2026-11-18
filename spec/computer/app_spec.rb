@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Computer::App do
-  # App boots its *real* Pikuri::Agent (real configure_agent / listener
+  # App boots its *real* Pikuri::Agent (real configure / listener
   # tool / extension wiring — Os, Thunderbird, sub-agent research) on a
   # fake_transport, so these specs exercise the actual wiring without a
   # server. Computer's agent is streaming: true, so scripted turns use
